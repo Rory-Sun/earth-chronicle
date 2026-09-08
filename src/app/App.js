@@ -125,6 +125,7 @@ export class App {
     this.onTime(this.timeline.years, false);
 
     window.addEventListener('resize', () => this.resize());
+    this.resize();
     this.setLoader(1, '完成');
     setTimeout(() => document.getElementById('loader').classList.add('done'), 300);
     this.idleTimer = 0;
@@ -246,6 +247,9 @@ export class App {
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.camera.aspect = w / h;
+    // on wide layouts the info panel sits on the left: nudge the globe into the free space
+    if (w > 900 && !document.body.classList.contains('embed')) this.camera.setViewOffset(w, h, -w * 0.11, -h * 0.03, w, h);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.composer.setSize(w, h);

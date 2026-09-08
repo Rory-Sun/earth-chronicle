@@ -196,11 +196,14 @@ void main() {
 
   // --- water specular & fresnel
   vec3 H = normalize(L + V);
-  float specPow = mix(500.0, 120.0, shelfT);
-  float ripple = (vnoise(nLocal * 900.0 + uTime * 0.3) - 0.5) * 0.02;
-  float spec = pow(max(dot(N, H) + ripple, 0.0), specPow);
+  // smooth two-lobe glossy highlight (wide soft sheen + tight core); no per-pixel noise in the exponent path
+  float NdH = max(dot(N0, H), 0.0);
+  float shelfSoft = mix(1.0, 0.45, shelfT);
+  float spec = 0.06 * pow(NdH, 24.0 * shelfSoft) + 0.35 * pow(NdH, 140.0 * shelfSoft) + 0.6 * pow(NdH, 900.0 * shelfSoft);
+  // gentle low-frequency shimmer only modulates intensity
+  spec *= 0.88 + 0.12 * vnoise(nLocal * 40.0 + uTime * 0.05);
   float fres = pow(1.0 - max(dot(N0, V), 0.0), 4.0);
-  color += sunColor * spec * (0.3 + 0.9 * fres) * 0.7 * waterness * smoothstep(0.0, 0.08, NdL0) * shadow;
+  color += sunColor * spec * (0.35 + 0.9 * fres) * 0.9 * waterness * smoothstep(0.0, 0.08, NdL0) * shadow;
   color += ocean * fres * 0.25 * waterness * max(NdL0, 0.0);
 
   // --- ambient / night

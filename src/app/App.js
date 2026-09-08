@@ -13,6 +13,7 @@ import { Timeline } from '../ui/Timeline.js';
 import { InfoPanel } from '../ui/InfoPanel.js';
 import { Labels } from '../ui/Labels.js';
 import { MiniMap } from '../ui/MiniMap.js';
+import { Tour } from './Tour.js';
 import { EVENTS, formatYears } from '../data/eras.js';
 import { humanEraAt, populationAt, formatPopulation } from '../data/migration.js';
 
@@ -66,6 +67,8 @@ export class App {
     this.stars = makeStars();
     this.scene.add(this.stars);
     this.sunDir = new THREE.Vector3(1, 0.25, 0.55).normalize();
+    this.defaultSunDir = this.sunDir.clone();
+    this.sunTarget = null;
     this.sun = makeSun();
     this.sun.position.copy(this.sunDir).multiplyScalar(700);
     this.scene.add(this.sun);
@@ -123,6 +126,9 @@ export class App {
     this.timeline = new Timeline({ onChange: (years, fromUser) => this.onTime(years, fromUser) });
     this.bindUI();
     this.onTime(this.timeline.years, false);
+    this.tour = new Tour(this);
+    document.getElementById('btn-tour').addEventListener('click', () => { if (this.tour.active) this.tour.stop(); else this.tour.start(0); });
+    this.bindWelcome();
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -156,6 +162,19 @@ export class App {
     this.canvas.addEventListener('dblclick', (e) => this.focusAt(e.clientX, e.clientY));
   }
 
+  bindWelcome() {
+    const w = document.getElementById('welcome');
+    const params = new URLSearchParams(location.search);
+    const dismiss = () => { w.classList.add('fade'); document.body.classList.remove('welcome-open'); setTimeout(() => { w.hidden = true; }, 700); };
+    document.getElementById('welcome-tour').addEventListener('click', () => { dismiss(); this.tour.start(0); });
+    document.getElementById('welcome-explore').addEventListener('click', dismiss);
+    if (params.has('tour')) { w.hidden = true; setTimeout(() => this.tour.start(parseInt(params.get('tour'), 10) || 0), 400); }
+    else if (!params.has('notour')) { document.body.classList.add('welcome-open'); setTimeout(() => { w.hidden = false; }, 500); }
+  }
+
+  /** Smoothly steer the sun towards `dir` (null = default direction). */
+  setSunTarget(dir) { this.sunTarget = dir ? dir.clone().normalize() : this.defaultSunDir.clone(); }
+
   setSun(x, y, z) {
     this.sunDir.set(x, y, z).normalize();
     this.earth.setSunDir(this.sunDir);
@@ -170,9 +189,16 @@ export class App {
     ray.setFromCamera(ndc, this.camera);
     const hit = ray.intersectObject(this.earth.base, false)[0];
     if (!hit) return;
-    const target = hit.point.clone().normalize();
     const dist = Math.max(1.6, this.camera.position.length() * 0.7);
-    this.flyTo = { from: this.camera.position.clone(), to: target.multiplyScalar(dist), t: 0 };
+    this.flyToDir(hit.point.clone().normalize(), dist, 1.4);
+  }
+
+  /** Fly the camera along the sphere to look at world direction `dir` from distance `dist` (seconds). */
+  flyToDir(dir, dist, seconds = 2.4) {
+    const fromDir = this.camera.position.clone().normalize();
+    const toDir = dir.clone().normalize();
+    if (fromDir.dot(toDir) < -0.995) toDir.add(new THREE.Vector3(0, 0.15, 0)).normalize(); // avoid the antipodal degenerate case
+    this.flyTo = { fromDir, toDir, fromDist: this.camera.position.length(), toDist: dist, t: 0, dur: seconds };
   }
 
   setMode(mode) {
@@ -185,7 +211,7 @@ export class App {
     if (legend) legend.hidden = mode !== 'human';
     if (mode === 'human') {
       this.earth.group.rotation.y = 0;
-      this.flyTo = { from: this.camera.position.clone(), to: new THREE.Vector3(0.92, 0.42, -0.25).normalize().multiplyScalar(3.0), t: 0 };
+      if (!(this.tour && this.tour.active)) this.flyToDir(new THREE.Vector3(0.92, 0.42, -0.25), 3.0, 2.0);
     }
     this.timeline.setMode(mode);
     if (mode === 'now') {
@@ -261,15 +287,23 @@ export class App {
     this.clock.update();
     const dt = Math.min(this.clock.getDelta(), 0.1);
     this.timeline.tick(dt);
-    if (this.opts.rotate && !this.userInteracting && this.mode !== 'human') {
+    if (this.tour) this.tour.tick(dt);
+    if (this.sunTarget && this.sunDir.distanceToSquared(this.sunTarget) > 1e-6) {
+      const k = Math.min(1, dt * 1.6);
+      const d = this.sunDir.clone().lerp(this.sunTarget, k).normalize();
+      this.setSun(d.x, d.y, d.z);
+    }
+    if (this.opts.rotate && !this.userInteracting && this.mode !== 'human' && !(this.tour && this.tour.active)) {
       this.idleTimer = Math.max(0, this.idleTimer - dt);
       if (this.idleTimer <= 0) this.earth.group.rotation.y += dt * 0.035;
     }
     if (this.flyTo) {
-      this.flyTo.t = Math.min(1, this.flyTo.t + dt * 0.9);
-      const s = this.flyTo.t * this.flyTo.t * (3 - 2 * this.flyTo.t);
-      this.camera.position.lerpVectors(this.flyTo.from, this.flyTo.to, s);
-      if (this.flyTo.t >= 1) this.flyTo = null;
+      const f = this.flyTo;
+      f.t = Math.min(1, f.t + dt / f.dur);
+      const s = f.t * f.t * (3 - 2 * f.t);
+      const dir = f.fromDir.clone().lerp(f.toDir, s).normalize();
+      this.camera.position.copy(dir.multiplyScalar(f.fromDist + (f.toDist - f.fromDist) * s));
+      if (f.t >= 1) this.flyTo = null;
     }
     this.earth.update(dt, { clouds: this.opts.clouds, atmosphere: this.opts.atmosphere });
     this.earth.uniforms.uLights.value = this.opts.lights ? this.env.lights : 0;

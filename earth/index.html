@@ -31,6 +31,7 @@
       <button class="mode-btn" data-mode="now">今日地球</button>
     </nav>
     <div class="top-actions">
+      <button id="btn-tour" class="pill-btn" title="开始章节导览">▶ 导览</button>
       <a id="btn-home" class="icon-btn" href="/" title="返回主页" target="_top">⌂</a>
       <button id="btn-settings" class="icon-btn" title="显示设置">⚙</button>
       <button id="btn-help" class="icon-btn" title="操作说明">?</button>
@@ -67,6 +68,44 @@
 
   <div id="labels"></div>
 
+  <!-- welcome overlay -->
+  <div id="welcome" class="welcome" hidden>
+    <div class="welcome-card">
+      <div class="welcome-eyebrow">46 亿年 · 21 个章节 · 约 5 分钟</div>
+      <h2>地球的故事，<br />从一颗岩浆星球开始。</h2>
+      <p>跟随导览，看大陆漂移、雪球地球、恐龙灭绝，直到人类的灯光点亮夜空；或者跳过导览，用时间轴自由探索。</p>
+      <div class="welcome-actions">
+        <button id="welcome-tour" class="w-btn primary">▶ 开始导览</button>
+        <button id="welcome-explore" class="w-btn">自由探索</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- guided tour card -->
+  <section id="tour" class="tour" hidden>
+    <div class="tour-card">
+      <div class="tour-meta"><span id="tour-kicker" class="tour-kicker"></span><span id="tour-count" class="tour-count"></span></div>
+      <h2 id="tour-title" class="tour-title"></h2>
+      <p id="tour-text" class="tour-text"></p>
+      <div class="tour-controls">
+        <button id="tour-prev" class="tour-nav" title="上一章 (←)">←</button>
+        <button id="tour-play" class="tour-main">❚❚  暂停导览</button>
+        <button id="tour-next" class="tour-nav" title="下一章 (→)">→</button>
+      </div>
+      <div class="tour-progress"><div id="tour-bar"></div></div>
+      <div id="tour-chips" class="tour-chips"></div>
+      <div class="tour-foot">
+        <span id="tour-act" class="tour-act"></span>
+        <div class="tour-foot-actions">
+          <button id="tour-speed" class="tour-mini" title="播放速度">1×</button>
+          <button id="tour-clear" class="tour-mini" title="隐藏界面，只看地球">沉浸模式</button>
+          <button id="tour-exit" class="tour-mini" title="退出导览 (Esc)">退出导览</button>
+        </div>
+      </div>
+    </div>
+  </section>
+  <button id="clear-exit" class="clear-exit" title="显示界面 (Esc)">显示界面</button>
+
   <div id="legend" hidden>
     <div class="lg-title">迁徙路线</div>
     <div><i style="background:#ffd27a"></i>非洲内部 · 班图扩张</div>
@@ -94,6 +133,7 @@
 
   <div id="help" class="popover" hidden>
     <h3>操作说明</h3>
+    <p>点击右上角 <b>▶ 导览</b> 进入 21 个章节的自动导览；<kbd>←</kbd> <kbd>→</kbd> 切换章节，<kbd>Esc</kbd> 退出。</p>
     <p>拖动旋转地球，滚轮缩放，双击某地聚焦。</p>
     <p>拖动底部时间轴或按 <kbd>空格</kbd> 播放；<kbd>←</kbd> <kbd>→</kbd> 逐步移动。</p>
     <p>三种模式：<b>地球演化</b>（46 亿年大陆漂移与环境变迁）、<b>人类迁徙</b>（30 万年走出非洲到遍布全球）、<b>今日地球</b>（自由探索）。</p>

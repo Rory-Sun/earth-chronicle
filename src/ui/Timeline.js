@@ -53,6 +53,7 @@ export class Timeline {
     }));
     window.addEventListener('keydown', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (document.body.classList.contains('tour')) return;
       if (e.code === 'Space') { e.preventDefault(); this.togglePlay(); }
       if (e.code === 'ArrowRight') this.step(0.004);
       if (e.code === 'ArrowLeft') this.step(-0.004);

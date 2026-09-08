@@ -18,7 +18,7 @@
       <a href="#products">产品</a>
       <a href="#stack">技术</a>
       <a href="#contact">联系</a>
-      <a class="nav-cta" href="/earth/" target="_blank" rel="noopener">打开地球纪元 ↗</a>
+      <a class="nav-cta" href="#products">查看作品</a>
     </nav>
   </header>
 
@@ -66,61 +66,12 @@
     <section id="products" class="section">
       <div class="section-head reveal">
         <div class="eyebrow">产品</div>
-        <h2>地球纪元 · Earth Chronicle</h2>
-        <p class="section-sub">一个完全离线的交互式三维地球平台：拖动旋转，拖动时间轴，看大陆漂移、雪球地球、恐龙灭绝，直到人类的灯光点亮夜空。</p>
+        <h2>作品与产品</h2>
+        <p class="section-sub">每个项目都可以在本页内直接试玩，或在新标签页打开完整版。</p>
       </div>
-
-      <div class="product-hero reveal">
-        <div class="demo-frame" id="demo">
-          <img class="demo-poster" src="/site/earth_preview.png" alt="地球纪元预览" />
-          <div class="demo-overlay">
-            <button class="btn primary big" id="demo-launch">▶ 启动交互演示</button>
-            <div class="demo-hint">在本页内直接运行完整版 · 建议使用桌面浏览器</div>
-          </div>
-          <a class="demo-fullscreen" href="/earth/" target="_blank" rel="noopener" title="在新标签页打开完整版">全屏打开 ↗</a>
-        </div>
-        <div class="product-meta">
-          <div class="pill-row">
-            <span class="pill">三维交互</span><span class="pill">时间轴叙事</span><span class="pill">Blender 烘焙</span><span class="pill">零 API</span><span class="pill">离线运行</span>
-          </div>
-          <div class="product-actions">
-            <a class="btn primary" href="/earth/" target="_blank" rel="noopener">打开完整版 ↗</a>
-            <a class="btn ghost" href="#stack">技术细节</a>
-          </div>
-        </div>
-        <ul class="feature-list">
-          <li><span class="feature-icon">🌍</span><b>地球演化</b><span>冥古宙岩浆海、太古宙铁绿海洋、大氧化事件、两次雪球地球、盘古大陆聚合与裂解、白垩纪高海平面、希克苏鲁伯撞击、第四纪冰期——全部由时间轴驱动，并附古地理小地图。</span></li>
-          <li><span class="feature-icon">🧭</span><b>人类迁徙</b><span>30 万年间 50 余条迁徙路线逐步绘出，40 个考古遗址随时间点亮，人口、海平面与冰盖边缘实时统计；末次冰盛期可见巽他陆架与白令陆桥露出。</span></li>
-          <li><span class="feature-icon">✨</span><b>逼真地球</b><span>4K/8K 程序化地形、法线与生物群系贴图，大气散射、云影、海面高光与城市夜灯；月球同样在 Blender 中程序化建模。</span></li>
-        </ul>
-      </div>
-
-      <div class="product-grid">
-        <article class="card reveal">
-          <div class="card-thumb"><img src="/site/earth_night.png" alt="夜面城市灯光" /></div>
-          <div class="card-body">
-            <div class="eyebrow">地球纪元 · 模式</div>
-            <h3>今日地球</h3>
-            <p>自由探索模式：转到背光面观察由人口数据生成的城市灯光，或把镜头拉近到海岸线与山脉。</p>
-          </div>
-        </article>
-        <article class="card reveal soon">
-          <div class="card-thumb placeholder"><span>🌙</span></div>
-          <div class="card-body">
-            <div class="eyebrow">研发中</div>
-            <h3>月球纪元</h3>
-            <p>把同一套程序化管线搬到月球：大碰撞、月海玄武岩喷发、陨击历史与阿波罗着陆点。</p>
-          </div>
-        </article>
-        <article class="card reveal soon">
-          <div class="card-thumb placeholder"><span>🧬</span></div>
-          <div class="card-body">
-            <div class="eyebrow">研发中</div>
-            <h3>生命之树</h3>
-            <p>可缩放的演化树，与地球纪元的时间轴联动：拖到任何年代，看看那时的世界里住着谁。</p>
-          </div>
-        </article>
-      </div>
+      <nav id="product-tabs" class="product-tabs reveal" aria-label="产品列表"></nav>
+      <div id="product-list"></div>
+      <div id="product-soon" class="product-grid"></div>
     </section>
 
     <!-- ================= STACK ================= -->

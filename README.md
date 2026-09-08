@@ -8,7 +8,7 @@
 
 ## 页面
 
-- `/` 个人主页（`index.html` + `src/site.css` + `src/site.js`），「地球纪元」作为产品内嵌（按需加载 iframe）。
+- `/` 个人主页（`index.html` + `src/site.css` + `src/site.js`）。产品区由 `src/products.js` 数据驱动：新增项目只需加一条记录（标题、描述、标签、海报、链接、可选的页内嵌入地址），页面自动生成展示区块与“研发中”卡片。
 - `/earth/` 地球纪元应用本体。
 
 ## 目录结构

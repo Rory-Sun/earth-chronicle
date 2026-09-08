@@ -130,7 +130,7 @@ export function formatYears(yearsBP) {
   if (yearsBP >= 1e6) return trim((yearsBP / 1e6).toFixed(yearsBP >= 100e6 ? 0 : yearsBP >= 10e6 ? 1 : 2)) + ' 百万年前';
   if (yearsBP >= 1e4) return trim((yearsBP / 1e4).toFixed(yearsBP >= 1e5 ? 0 : 1)) + ' 万年前';
   if (yearsBP > 2000) return Math.round(yearsBP / 100) * 100 + ' 年前';
-  const year = 2025 - Math.round(yearsBP);
+  const year = 2026 - Math.round(yearsBP);
   if (year <= 0) return `公元前 ${1 - year} 年`;
   return `公元 ${year} 年`;
 }

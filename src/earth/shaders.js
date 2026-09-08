@@ -221,9 +221,10 @@ void main() {
   float rim = pow(1.0 - max(dot(N0, V), 0.0), 3.0);
   float day = smoothstep(-0.15, 0.3, NdL0);
   float term = smoothstep(-0.3, 0.0, NdL0) * (1.0 - smoothstep(0.0, 0.35, NdL0));
+  // the ray-marched shell now carries most of the haze; keep only a faint surface tint so the limb darkens smoothly
   vec3 atmo = uAtmoColor * rim * (0.05 + 0.95 * day) * uAtmoStrength;
-  color += atmo * 0.55 + uHazeColor * term * rim * 0.35 * uAtmoStrength;
-  color = mix(color, uAtmoColor * (0.1 + 0.9 * day) * 0.7 * uSunIntensity, rim * 0.18 * uAtmoStrength);
+  color += atmo * 0.12 + uHazeColor * term * rim * 0.08 * uAtmoStrength;
+  color = mix(color, uAtmoColor * (0.1 + 0.9 * day) * 0.5 * uSunIntensity, rim * 0.10 * uAtmoStrength);
 
   gl_FragColor = vec4(color, 1.0);
   #include <tonemapping_fragment>
@@ -250,23 +251,85 @@ uniform vec3 uSunDir;
 uniform vec3 uAtmoColor;
 uniform vec3 uHazeColor;
 uniform float uStrength;
-uniform float uLimb;
+uniform float uSunIntensity;
+uniform float uMie;
 in vec3 vNormalW;
 in vec3 vWorldPos;
+
+// Single-scattering atmosphere (Rayleigh + Mie), ray-marched from the camera to the planet surface or the
+// atmosphere exit. Planet radius 1, atmosphere top 1.06 (visually exaggerated ~3x for legibility).
+const float R_PLANET = 1.0;
+const float R_ATMO = 1.06;
+const float H_R = 0.011;   // Rayleigh scale height
+const float H_M = 0.0045;  // Mie scale height
+const int N_VIEW = 12;
+const int N_SUN = 4;
+const float PI = 3.14159265;
+
+bool raySphere(vec3 o, vec3 d, float r, out float t0, out float t1) {
+  float b = dot(o, d);
+  float c = dot(o, o) - r * r;
+  float disc = b * b - c;
+  if (disc < 0.0) return false;
+  float s = sqrt(disc);
+  t0 = -b - s; t1 = -b + s;
+  return true;
+}
+
+// optical depth (Rayleigh, Mie) from p towards the sun; returns (-1) when the planet blocks the sun
+vec2 sunDepth(vec3 p, vec3 L) {
+  float p0, p1;
+  if (raySphere(p, L, R_PLANET, p0, p1) && p1 > 0.0) return vec2(-1.0);
+  float a0, a1;
+  raySphere(p, L, R_ATMO, a0, a1);
+  float seg = a1 / float(N_SUN);
+  vec2 od = vec2(0.0);
+  for (int i = 0; i < N_SUN; i++) {
+    vec3 q = p + L * (seg * (float(i) + 0.5));
+    float h = max(length(q) - R_PLANET, 0.0);
+    od += vec2(exp(-h / H_R), exp(-h / H_M)) * seg;
+  }
+  return od;
+}
+
 void main() {
-  vec3 N = normalize(vNormalW);
-  vec3 V = normalize(cameraPosition - vWorldPos);
+  vec3 o = cameraPosition;
+  vec3 d = normalize(vWorldPos - o);
   vec3 L = normalize(uSunDir);
-  float x = max(dot(N, V), 0.0);
-  float outer = pow(smoothstep(0.0, uLimb, x), 2.6) * 1.35;
-  float inner = pow(1.0 - smoothstep(uLimb, 0.75, x), 3.0) * 0.16;
-  float density = x < uLimb ? outer : inner;
-  float sun = dot(N, L);
-  float lit = smoothstep(-0.35, 0.3, sun);
-  vec3 col = mix(uHazeColor, uAtmoColor, smoothstep(-0.2, 0.35, sun));
-  float termGlow = exp(-abs(sun) * 7.0) * 0.35 * (x < uLimb ? 1.0 : 0.3);
-  vec3 color = (col * density * lit + uHazeColor * termGlow * density) * uStrength;
-  gl_FragColor = vec4(color, 1.0);
+  float a0, a1;
+  if (!raySphere(o, d, R_ATMO, a0, a1)) { gl_FragColor = vec4(0.0); return; }
+  a0 = max(a0, 0.0);
+  float p0, p1;
+  bool hitPlanet = raySphere(o, d, R_PLANET, p0, p1) && p0 > 0.0;
+  float tEnd = hitPlanet ? p0 : a1;
+  float seg = (tEnd - a0) / float(N_VIEW);
+
+  // scattering coefficients: era colour steers Rayleigh, haze colour tints Mie
+  vec3 betaR = uAtmoColor * 21.0;
+  vec3 betaM = mix(vec3(1.0), uHazeColor, 0.35) * 1.5 * uMie;
+
+  vec3 sumR = vec3(0.0), sumM = vec3(0.0);
+  vec2 odView = vec2(0.0);
+  for (int i = 0; i < N_VIEW; i++) {
+    vec3 p = o + d * (a0 + seg * (float(i) + 0.5));
+    float h = max(length(p) - R_PLANET, 0.0);
+    vec2 dens = vec2(exp(-h / H_R), exp(-h / H_M)) * seg;
+    odView += dens;
+    vec2 odSun = sunDepth(p, L);
+    if (odSun.x < 0.0) continue;
+    vec3 tau = betaR * (odView.x + odSun.x) + betaM * 1.1 * (odView.y + odSun.y);
+    vec3 att = exp(-tau);
+    sumR += att * dens.x;
+    sumM += att * dens.y;
+  }
+  float mu = dot(d, L);
+  float phaseR = 3.0 / (16.0 * PI) * (1.0 + mu * mu);
+  float g = 0.76;
+  float phaseM = 3.0 / (8.0 * PI) * (1.0 - g * g) * (1.0 + mu * mu) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
+  vec3 color = (sumR * betaR * phaseR + sumM * betaM * phaseM) * 9.0 * uSunIntensity * uStrength;
+  // soften the hard geometric edge of the shell
+  float edge = hitPlanet ? 1.0 : smoothstep(0.0, 0.012, a1 - a0);
+  gl_FragColor = vec4(color * edge, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }

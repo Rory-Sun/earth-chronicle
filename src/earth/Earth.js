@@ -118,15 +118,17 @@ export class Earth {
     this.group.add(this.clouds);
 
     // atmosphere shell
-    const limb = Math.sqrt(1 - 1 / (1.035 * 1.035));
     this.atmoUniforms = {
       uSunDir: { value: this.sunDir }, uAtmoColor: this.uniforms.uAtmoColor, uHazeColor: this.uniforms.uHazeColor,
-      uStrength: { value: 1.0 }, uLimb: { value: limb },
+      uStrength: { value: 1.0 }, uSunIntensity: this.uniforms.uSunIntensity, uMie: { value: 1.0 },
     };
-    this.atmosphere = new THREE.Mesh(new THREE.SphereGeometry(1.035, 128, 64), new THREE.ShaderMaterial({
+    // ray-marched single-scattering shell; drawn additively over the planet and the clouds (also gives aerial perspective)
+    this.atmosphere = new THREE.Mesh(new THREE.SphereGeometry(1.06, 96, 48), new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: atmosphereVertex, fragmentShader: atmosphereFragment, uniforms: this.atmoUniforms,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide,
+      transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide,
     }));
+    this.atmosphere.renderOrder = 20;
+    this.clouds.renderOrder = 10;
     this.atmosphere.name = 'atmosphere';
     this.group.add(this.atmosphere);
     return this;

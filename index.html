@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rory · 创意技术与三维可视化</title>
+  <meta name="description" content="Rory 的个人网站：作品、产品与实验。主打产品「地球纪元」——一个用 Blender 与 Three.js 打造的 46 亿年地球演化交互平台。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%231b4f9c'/%3E%3Cpath d='M9 10c3-2 6 0 8 2s5 1 6-1 1 5-2 7-6 0-7-2-4-1-6 0-1-4 1-6z' fill='%2360a35a'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/site.css" />
+</head>
+<body>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <header class="nav">
+    <a class="nav-brand" href="#top">RORY<span>.studio</span></a>
+    <nav class="nav-links">
+      <a href="#about">关于</a>
+      <a href="#products">产品</a>
+      <a href="#stack">技术</a>
+      <a href="#contact">联系</a>
+      <a class="nav-cta" href="/earth/" target="_blank" rel="noopener">打开地球纪元 ↗</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <!-- ================= HERO ================= -->
+    <section class="hero">
+      <div class="hero-text reveal">
+        <div class="eyebrow">创意技术 · 三维可视化 · 程序化生成</div>
+        <h1>你好，我是 <em>Rory</em>。<br />我把复杂的数据与故事，<br />做成可以亲手转动的世界。</h1>
+        <p class="lede">用 Blender、Three.js 与自写着色器构建沉浸式的交互体验。最近的作品是「地球纪元」——在一颗逼真的三维地球上回放 46 亿年的行星演化与 30 万年的人类迁徙，完全离线运行。</p>
+        <div class="hero-actions">
+          <a class="btn primary" href="#products">查看产品</a>
+          <a class="btn ghost" href="#contact">与我合作</a>
+        </div>
+        <ul class="hero-stats">
+          <li><b>46 亿年</b><span>可回放的地球历史</span></li>
+          <li><b>8K</b><span>Blender 烘焙行星贴图</span></li>
+          <li><b>0</b><span>外部 API 依赖</span></li>
+        </ul>
+      </div>
+      <div class="hero-art reveal">
+        <div class="orb">
+          <img src="/site/earth_preview.png" alt="地球纪元渲染预览" />
+        </div>
+        <div class="orb-caption">Cycles 渲染 · 程序化地形与云层</div>
+      </div>
+    </section>
+
+    <!-- ================= ABOUT ================= -->
+    <section id="about" class="section">
+      <div class="section-head reveal">
+        <div class="eyebrow">关于我</div>
+        <h2>在科学与视觉之间做翻译</h2>
+      </div>
+      <div class="about-grid">
+        <p class="reveal">我关注的问题很简单：怎样让一个人在三十秒内理解一件花了几十亿年才发生的事。答案往往不是更多的文字，而是一个可以被拖动、缩放、倒带的世界。</p>
+        <p class="reveal">我的工作流横跨三维建模、实时渲染与数据工程——在 Blender 里用节点程序化地生成地形、生物群系与云层，烘焙成贴图；在浏览器里用 Three.js 与 GLSL 还原大气散射、海面高光与昼夜交替；再把地质、考古与人口数据编成可以播放的时间轴。</p>
+        <ul class="about-tags reveal">
+          <li>实时三维与着色器</li><li>Blender 程序化建模</li><li>数据可视化叙事</li><li>离线优先的 Web 应用</li><li>科普与教育产品</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ================= PRODUCTS ================= -->
+    <section id="products" class="section">
+      <div class="section-head reveal">
+        <div class="eyebrow">产品</div>
+        <h2>地球纪元 · Earth Chronicle</h2>
+        <p class="section-sub">一个完全离线的交互式三维地球平台：拖动旋转，拖动时间轴，看大陆漂移、雪球地球、恐龙灭绝，直到人类的灯光点亮夜空。</p>
+      </div>
+
+      <div class="product-hero reveal">
+        <div class="demo-frame" id="demo">
+          <img class="demo-poster" src="/site/earth_preview.png" alt="地球纪元预览" />
+          <div class="demo-overlay">
+            <button class="btn primary big" id="demo-launch">▶ 启动交互演示</button>
+            <div class="demo-hint">在本页内直接运行完整版 · 建议使用桌面浏览器</div>
+          </div>
+          <a class="demo-fullscreen" href="/earth/" target="_blank" rel="noopener" title="在新标签页打开完整版">全屏打开 ↗</a>
+        </div>
+        <div class="product-side">
+          <div class="pill-row">
+            <span class="pill">三维交互</span><span class="pill">时间轴叙事</span><span class="pill">Blender 烘焙</span><span class="pill">零 API</span>
+          </div>
+          <ul class="feature-list">
+            <li><b>地球演化</b><span>冥古宙岩浆海、太古宙铁绿海洋、大氧化事件、两次雪球地球、盘古大陆聚合与裂解、白垩纪高海平面、希克苏鲁伯撞击、第四纪冰期——全部由时间轴驱动，并附古地理小地图。</span></li>
+            <li><b>人类迁徙</b><span>30 万年间 50 余条迁徙路线逐步绘出，40 个考古遗址随时间点亮，人口、海平面与冰盖边缘实时统计；末次冰盛期可见巽他陆架与白令陆桥露出。</span></li>
+            <li><b>逼真地球</b><span>4K/8K 程序化地形、法线与生物群系贴图，大气散射、云影、海面高光与城市夜灯；月球同样在 Blender 中程序化建模。</span></li>
+          </ul>
+          <div class="product-actions">
+            <a class="btn primary" href="/earth/" target="_blank" rel="noopener">打开完整版 ↗</a>
+            <a class="btn ghost" href="#stack">技术细节</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="product-grid">
+        <article class="card reveal">
+          <div class="card-thumb"><img src="/site/earth_night.png" alt="夜面城市灯光" /></div>
+          <div class="card-body">
+            <div class="eyebrow">地球纪元 · 模式</div>
+            <h3>今日地球</h3>
+            <p>自由探索模式：转到背光面观察由人口数据生成的城市灯光，或把镜头拉近到海岸线与山脉。</p>
+          </div>
+        </article>
+        <article class="card reveal soon">
+          <div class="card-thumb placeholder"><span>🌙</span></div>
+          <div class="card-body">
+            <div class="eyebrow">研发中</div>
+            <h3>月球纪元</h3>
+            <p>把同一套程序化管线搬到月球：大碰撞、月海玄武岩喷发、陨击历史与阿波罗着陆点。</p>
+          </div>
+        </article>
+        <article class="card reveal soon">
+          <div class="card-thumb placeholder"><span>🧬</span></div>
+          <div class="card-body">
+            <div class="eyebrow">研发中</div>
+            <h3>生命之树</h3>
+            <p>可缩放的演化树，与地球纪元的时间轴联动：拖到任何年代，看看那时的世界里住着谁。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================= STACK ================= -->
+    <section id="stack" class="section">
+      <div class="section-head reveal">
+        <div class="eyebrow">技术</div>
+        <h2>地球纪元是怎么做出来的</h2>
+      </div>
+      <ol class="pipeline">
+        <li class="reveal"><span class="step">01</span><h3>数据</h3><p>Node 流水线把 Natural Earth 海岸线栅格化为 8K 陆地遮罩，手工编码的山脉、沙漠、雨林、冰盖、湖泊与城市生成地形和气候提示图，并按板块切分球面网格。</p></li>
+        <li class="reveal"><span class="step">02</span><h3>Blender</h3><p>Cycles 节点材质程序化合成高度、反照率、法线、遮罩、云层与夜灯，烘焙成 4K/8K 贴图；程序化月球；导出 glTF 与 .blend，可直接在 Blender 中旋转查看。</p></li>
+        <li class="reveal"><span class="step">03</span><h3>实时渲染</h3><p>Three.js + 自写 GLSL：海平面升降、冰盖进退、植被出现、岩浆地表、大气散射、云影与海面高光；板块以四元数关键帧漂移，小板块依附母板块直到裂解。</p></li>
+        <li class="reveal"><span class="step">04</span><h3>叙事</h3><p>分段时间轴、地质年代色带、事件提示、古地理小地图、迁徙路线动画与人口统计，所有文案与数据随包附带，无需联网。</p></li>
+      </ol>
+      <div class="stack-tags reveal">
+        <span>Blender 5 · Cycles</span><span>Three.js</span><span>GLSL ES 3.0</span><span>Vite</span><span>Node.js</span><span>Python · NumPy</span><span>Natural Earth</span>
+      </div>
+    </section>
+
+    <!-- ================= CONTACT ================= -->
+    <section id="contact" class="section contact">
+      <div class="section-head reveal">
+        <div class="eyebrow">联系</div>
+        <h2>想把你的数据变成一个可以转动的世界？</h2>
+        <p class="section-sub">欢迎聊聊科普展陈、数据可视化或交互装置项目。</p>
+      </div>
+      <div class="contact-row reveal">
+        <a class="btn primary" href="mailto:sunzhiyang49@gmail.com">sunzhiyang49@gmail.com</a>
+        <a class="btn ghost" href="https://github.com/Rory-Sun" target="_blank" rel="noopener">GitHub ↗</a>
+        <a class="btn ghost" href="/earth/" target="_blank" rel="noopener">地球纪元 ↗</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>© 2026 Rory · 用 Blender、Three.js 与耐心制作</div>
+    <div class="muted">地球纪元中的板块运动与古气候为面向可视化的近似复原</div>
+  </footer>
+
+  <script type="module" src="/src/site.js"></script>
+</body>
+</html>

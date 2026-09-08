@@ -1,0 +1,67 @@
+# 地球纪元 · Earth Chronicle
+
+一个完全离线运行的交互式三维地球平台：46 亿年的行星演化（大陆漂移、雪球地球、大氧化事件、恐龙灭绝……）与 30 万年的人类迁徙，全部在一个可自由旋转、缩放的逼真地球上呈现。
+
+- **零 API**：没有任何在线服务、地图瓦片或外部字体。海岸线来自随包附带的 Natural Earth（`world-atlas`）数据，其余一切程序化生成。
+- **Blender 建模与烘焙**：地球/月球的高模、地形、生物群系、云层、城市夜灯全部由 Blender（Cycles 节点材质）程序化生成并烘焙成贴图，导出 `.glb` 与 `.blend`，可直接在 Blender 中打开旋转查看。
+- **Three.js 实时渲染**：自定义着色器实现海平面升降、冰盖进退、植被出现、岩浆地表、大气散射、云影、海面高光、夜灯，以及按板块拆分的大陆漂移。
+
+## 页面
+
+- `/` 个人主页（`index.html` + `src/site.css` + `src/site.js`），「地球纪元」作为产品内嵌（按需加载 iframe）。
+- `/earth/` 地球纪元应用本体。
+
+## 目录结构
+
+```
+tools/            Node 数据流水线：海岸线栅格化、地形/气候提示图、板块区域网格
+  build-data.mjs  → blender/input/*.png, public/data/regions.{bin,json}
+  geo/features.mjs 手工编码的山脉、沙漠、雨林、冰盖、湖泊、城市、陆架、板块划分
+blender/
+  build_earth.py  Blender 无头脚本：程序化材质 → 烘焙贴图 → 月球 → 场景 → glb/blend/渲染
+  input/          由 tools 生成的提示图
+  output/         earth_chronicle.blend、高度图、预览 PNG
+  renders/        Cycles 预览渲染
+public/
+  textures/       烘焙贴图（颜色、法线、高度、遮罩、夜灯、云层、月球）
+  models/         earth.glb / moon.glb
+  data/           板块区域网格
+src/
+  app/            App.js（渲染循环、模式、UI 绑定）、Environment.js（时间 → 环境参数关键帧）
+  earth/          Earth.js（地球装配）、shaders.js（GLSL）、Plates.js（板块运动模型）、Sky.js、Migration.js
+  data/           eras.js（地质年代与事件文案）、migration.js（迁徙路线、遗址、人口）
+  ui/             Timeline、InfoPanel、Labels、MiniMap（古地理小地图）
+```
+
+## 运行
+
+```bash
+npm install
+npm run dev        # http://127.0.0.1:5173
+npm run build      # 产物在 dist/，任何静态服务器即可托管
+```
+
+## 重新生成资产（可选）
+
+需要本机安装 Blender（脚本默认路径 `D:/install/blender/blender.exe`，可在 `package.json` 中修改）。
+
+```bash
+npm run data                      # 生成提示图与板块网格（约 30 秒）
+npm run blender -- --res 4096     # 烘焙 4K 贴图 + 导出 glb/blend + 预览渲染（CPU 约 10-25 分钟）
+npm run blender -- --res 8192 --skip-render   # 8K 版本
+npm run blender -- --res 2048 --only albedo,clouds  # 快速预览单张贴图
+```
+
+## 8K 贴图
+
+运行过 `--res 8192` 烘焙后会生成 `earth_color_8k.webp` 与 `earth_normal_8k.webp`，在地址后加 `?hq=1` 即可加载 8K 版本（需显卡支持 8192 纹理）。默认使用 4K，以兼顾集成显卡。
+
+## 操作
+
+- 拖动旋转、滚轮缩放、双击聚焦；空格播放/暂停时间轴，←/→ 微调。
+- 三种模式：**地球演化**（含古地理小地图）、**人类迁徙**（路线动画、遗址标注、人口统计）、**今日地球**。
+- 右上角设置可开关云层、大气、夜灯、泛光、自动旋转与标注。
+
+## 说明
+
+板块运动、古气候与迁徙时间均为面向可视化的近似复原，参考了通行的古地理图与考古/遗传学共识，不作为科学数据使用。

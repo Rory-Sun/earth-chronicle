@@ -1,0 +1,7 @@
+node_modules/
+dist/
+blender/output/*.blend1
+blender/output/*_log*.txt
+blender/output/quick_log.txt
+.DS_Store
+Thumbs.db

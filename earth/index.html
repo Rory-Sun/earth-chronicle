@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>地球纪元 · Earth Chronicle</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%231b4f9c'/%3E%3Cpath d='M9 10c3-2 6 0 8 2s5 1 6-1 1 5-2 7-6 0-7-2-4-1-6 0-1-4 1-6z' fill='%2360a35a'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-globe"></div>
+      <div class="loader-title">地球纪元</div>
+      <div class="loader-sub">正在加载 Blender 烘焙的行星贴图…</div>
+      <div class="loader-bar"><div id="loader-fill"></div></div>
+      <div id="loader-status" class="loader-status">初始化</div>
+    </div>
+  </div>
+
+  <header id="topbar">
+    <div class="brand">
+      <div class="brand-title">地球纪元 <span class="brand-en">EARTH CHRONICLE</span></div>
+      <div class="brand-sub">46 亿年的行星演化 · 30 万年的人类迁徙</div>
+    </div>
+    <nav id="modes" class="modes">
+      <button class="mode-btn active" data-mode="deep">地球演化</button>
+      <button class="mode-btn" data-mode="human">人类迁徙</button>
+      <button class="mode-btn" data-mode="now">今日地球</button>
+    </nav>
+    <div class="top-actions">
+      <a id="btn-home" class="icon-btn" href="/" title="返回主页" target="_top">⌂</a>
+      <button id="btn-settings" class="icon-btn" title="显示设置">⚙</button>
+      <button id="btn-help" class="icon-btn" title="操作说明">?</button>
+    </div>
+  </header>
+
+  <aside id="info" class="panel">
+    <div class="info-era">
+      <div id="info-eon" class="info-eon">冥古宙</div>
+      <h2 id="info-title">地球诞生</h2>
+      <div id="info-time" class="info-time">45.4 亿年前</div>
+    </div>
+    <p id="info-desc" class="info-desc"></p>
+    <ul id="info-facts" class="info-facts"></ul>
+    <div id="info-stats" class="info-stats"></div>
+  </aside>
+
+  <section id="timeline" class="timeline">
+    <div class="tl-controls">
+      <button id="tl-play" class="tl-btn" title="播放 / 暂停">▶</button>
+      <div class="tl-speed">
+        <button class="speed-btn" data-speed="0.5">0.5×</button>
+        <button class="speed-btn active" data-speed="1">1×</button>
+        <button class="speed-btn" data-speed="3">3×</button>
+      </div>
+      <div id="tl-readout" class="tl-readout">45.4 亿年前</div>
+    </div>
+    <div class="tl-track-wrap">
+      <div id="tl-eras" class="tl-eras"></div>
+      <div id="tl-events" class="tl-events"></div>
+      <input id="tl-slider" class="tl-slider" type="range" min="0" max="10000" step="1" value="0" />
+    </div>
+  </section>
+
+  <div id="labels"></div>
+
+  <div id="legend" hidden>
+    <div class="lg-title">迁徙路线</div>
+    <div><i style="background:#ffd27a"></i>非洲内部 · 班图扩张</div>
+    <div><i style="background:#ff9d5c"></i>走出非洲 · 南线</div>
+    <div><i style="background:#ffc36b"></i>萨胡尔（澳洲 · 新几内亚）</div>
+    <div><i style="background:#8fd0ff"></i>欧洲 · 中亚 · 西伯利亚</div>
+    <div><i style="background:#a5e6a0"></i>东亚</div>
+    <div><i style="background:#c9e6ff"></i>北极 · 白令 · 维京</div>
+    <div><i style="background:#ff8fb1"></i>美洲</div>
+    <div><i style="background:#7ff0e0"></i>南岛语族远洋</div>
+    <div><i style="background:#ffffff"></i>大航海时代</div>
+    <div class="lg-note">虚线 = 跨海航行 · 光点 = 考古遗址</div>
+  </div>
+
+  <div id="settings" class="popover" hidden>
+    <h3>显示设置</h3>
+    <label><input type="checkbox" id="opt-clouds" checked /> 云层</label>
+    <label><input type="checkbox" id="opt-atmo" checked /> 大气散射</label>
+    <label><input type="checkbox" id="opt-lights" checked /> 城市夜灯</label>
+    <label><input type="checkbox" id="opt-rotate" checked /> 自动旋转</label>
+    <label><input type="checkbox" id="opt-bloom" checked /> 泛光效果</label>
+    <label><input type="checkbox" id="opt-labels" checked /> 地点标注</label>
+    <label>相机高度 <input type="range" id="opt-fov" min="20" max="60" value="38" /></label>
+  </div>
+
+  <div id="help" class="popover" hidden>
+    <h3>操作说明</h3>
+    <p>拖动旋转地球，滚轮缩放，双击某地聚焦。</p>
+    <p>拖动底部时间轴或按 <kbd>空格</kbd> 播放；<kbd>←</kbd> <kbd>→</kbd> 逐步移动。</p>
+    <p>三种模式：<b>地球演化</b>（46 亿年大陆漂移与环境变迁）、<b>人类迁徙</b>（30 万年走出非洲到遍布全球）、<b>今日地球</b>（自由探索）。</p>
+    <p class="muted">所有地形、生物群系、云层与夜灯贴图均由 Blender 程序化生成并烘焙，海岸线来自 Natural Earth 数据，无任何在线 API。</p>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

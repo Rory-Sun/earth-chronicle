@@ -39,8 +39,7 @@ export const PRODUCTS = [
     poster: null,
     accent: '#3f7a4a',
     emoji: '🍂',
-    url: 'http://127.0.0.1:8765/?v=3d-final',
-    embed: 'http://127.0.0.1:8765/?v=3d-final',
+    url: '#autumn-creek',   // TODO: 上线后替换为公网地址；有页内嵌入需求时再加 embed: '<公网地址>'
     features: [
       { icon: '🏞️', title: '自由环绕', text: '拖动镜头在山村间环绕，秋色随视角变化，溪水在脚下流过。' },
       { icon: '🐕', title: '可点击的世界', text: '石桥、稻田与小狗都能触发互动与声音，细节里藏着惊喜。' },

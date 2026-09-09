@@ -12,9 +12,15 @@ function posterHTML(p) {
 function showcaseHTML(p, i) {
   const tags = (p.tags || []).map((t) => `<span class="pill">${esc(t)}</span>`).join('');
   const feats = (p.features || []).map((f) => `<li><span class="feature-icon">${f.icon || '✦'}</span><b>${esc(f.title)}</b><span>${esc(f.text)}</span></li>`).join('');
+  // a url starting with '#' is a placeholder: the project is not published yet
+  const placeholder = !p.url || p.url.startsWith('#');
   const embedBtn = p.embed
     ? `<button class="btn primary big" data-launch="${esc(p.id)}">▶ 启动交互演示</button><div class="demo-hint">在本页内直接运行 · 建议使用桌面浏览器</div>`
-    : `<a class="btn primary big" href="${esc(p.url)}" target="_blank" rel="noopener">打开项目 ↗</a>`;
+    : placeholder
+      ? `<span class="btn ghost big disabled">在线演示即将上线</span><div class="demo-hint">项目已完成，正在准备公网部署</div>`
+      : `<a class="btn primary big" href="${esc(p.url)}" target="_blank" rel="noopener">打开项目 ↗</a>`;
+  const openLink = placeholder ? '' : `<a class="btn primary" href="${esc(p.url)}" target="_blank" rel="noopener">打开完整版 ↗</a>`;
+  const fullLink = placeholder ? '' : `<a class="demo-fullscreen" href="${esc(p.url)}" target="_blank" rel="noopener" title="在新标签页打开完整版">全屏打开 ↗</a>`;
   return `
   <article class="showcase reveal" id="${esc(p.id)}" style="--accent:${esc(p.accent || '#3d8ee6')}">
     <header class="showcase-head">
@@ -23,15 +29,13 @@ function showcaseHTML(p, i) {
         <h3>${esc(p.title)}</h3>
         ${p.subtitle ? `<div class="showcase-sub">${esc(p.subtitle)}</div>` : ''}
       </div>
-      <div class="product-actions">
-        <a class="btn primary" href="${esc(p.url)}" target="_blank" rel="noopener">打开完整版 ↗</a>
-      </div>
+      <div class="product-actions">${openLink}</div>
     </header>
     <p class="showcase-desc">${esc(p.desc)}</p>
     <div class="demo-frame" data-frame="${esc(p.id)}">
       ${posterHTML(p)}
       <div class="demo-overlay">${embedBtn}</div>
-      <a class="demo-fullscreen" href="${esc(p.url)}" target="_blank" rel="noopener" title="在新标签页打开完整版">全屏打开 ↗</a>
+      ${fullLink}
     </div>
     <div class="product-meta"><div class="pill-row">${tags}</div></div>
     ${feats ? `<ul class="feature-list">${feats}</ul>` : ''}

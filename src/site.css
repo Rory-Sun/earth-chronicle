@@ -135,7 +135,10 @@ h1 em { font-style: normal; color: transparent; background: linear-gradient(90de
 .showcase-sub { font-family: var(--font-en); color: var(--muted); letter-spacing: .12em; font-size: 13px; text-transform: uppercase; }
 .showcase-desc { margin: 0; max-width: 70ch; color: #c9d4e8; font-size: 16px; line-height: 1.85; }
 .demo-poster.placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--accent) 65%, #fff 10%), color-mix(in srgb, var(--accent) 45%, #000 40%) 45%, #05080f 100%); color: #fff; }
-.ph-emoji { font-size: 72px; filter: drop-shadow(0 10px 30px rgba(0,0,0,.5)); }
-.ph-title { font-size: 22px; letter-spacing: .3em; opacity: .9; }
+.ph-emoji { font-size: 64px; filter: drop-shadow(0 10px 30px rgba(0,0,0,.6)); transform: translateY(-90px); }
+.ph-title { position: absolute; bottom: 12%; left: 0; right: 0; text-align: center; font-size: 22px; letter-spacing: .3em; color: rgba(255,255,255,.75); font-weight: 300; }
 .card.soon .card-thumb.placeholder { background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 55%, #000 30%), #071022 75%); }
 @media (max-width: 960px) { .showcase { padding: 22px 16px 26px; } }
+
+.btn.disabled { opacity: .7; cursor: default; }
+.btn.disabled:hover { transform: none; background: var(--panel); }

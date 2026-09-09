@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         site: resolve(__dirname, 'index.html'),
         earth: resolve(__dirname, 'earth/index.html'),
+        sources: resolve(__dirname, 'sources/index.html'),
       },
     },
   },

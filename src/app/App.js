@@ -17,6 +17,7 @@ import { Tour } from './Tour.js';
 import { EVENTS, formatYears } from '../data/eras.js';
 import { humanEraAt, populationAt, formatPopulation } from '../data/migration.js';
 import { MOON_SITES, MOON_EVENTS, moonEraAt, moonEnvAt, moonLonLatToLocal } from '../data/moon.js';
+import { LifeTree } from '../ui/LifeTree.js';
 
 function loadImage(src) {
   return new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = src; });
@@ -135,11 +136,12 @@ export class App {
 
     // ui
     this.info = new InfoPanel();
+    this.life = new LifeTree({ onJump: (years) => { this.timeline.setYears(years); } });
     this.timeline = new Timeline({ onChange: (years, fromUser) => this.onTime(years, fromUser) });
     this.bindUI();
     this.onTime(this.timeline.years, false);
     const wantMode = new URLSearchParams(location.search).get('mode');
-    if (wantMode && ['deep', 'human', 'now', 'moon'].includes(wantMode)) this.setMode(wantMode);
+    if (wantMode && ['deep', 'human', 'now', 'moon', 'life'].includes(wantMode)) this.setMode(wantMode);
     this.tour = new Tour(this);
     document.getElementById('btn-tour').addEventListener('click', () => { if (this.tour.active) this.tour.stop(); else this.tour.start(0); });
     this.bindWelcome();
@@ -270,6 +272,8 @@ export class App {
     const legend = document.getElementById('legend');
     if (legend) legend.hidden = mode !== 'human';
     const inTour = this.tour && this.tour.active;
+    document.body.classList.toggle('life', mode === 'life');
+    if (this.life) { this.life.setVisible(mode === 'life'); if (mode === 'life') this.life.setTime(this.years); }
     if (mode === 'moon' && this.moon) {
       this.setFocus('moon');
       if (!inTour) {
@@ -328,6 +332,7 @@ export class App {
       this.info.setCustom(era.id, { eon: era.eon, title: era.name, desc: era.desc, facts: era.facts, time: timeLabel, stats });
       this.info.updateStats(stats);
     }
+    if (this.mode === 'life' && this.life) this.life.setTime(years);
     if (this.mode === 'moon') {
       const e = moonEraAt(years);
       this.info.setCustom(e.id, { eon: e.eon, title: e.name, desc: e.desc, facts: e.facts, stats: e.stats, time: formatYears(years) });

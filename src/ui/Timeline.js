@@ -11,6 +11,7 @@ export const SCALES = {
   now: [[0, 0], [1, 0]],
 };
 SCALES.moon = SCALES.deep;
+SCALES.life = SCALES.deep;
 
 export function sliderToYears(mode, s) {
   const a = SCALES[mode];
@@ -108,9 +109,9 @@ export class Timeline {
     if (this.mode === 'now') { this.erasEl.style.display = 'none'; this.eventsEl.style.display = 'none'; return; }
     this.erasEl.style.display = 'flex';
     this.eventsEl.style.display = 'block';
-    if (this.mode === 'deep' || this.mode === 'moon') {
-      const eras = this.mode === 'deep' ? ERAS : MOON_ERAS;
-      const events = this.mode === 'deep' ? EVENTS : MOON_EVENTS;
+    if (this.mode === 'deep' || this.mode === 'moon' || this.mode === 'life') {
+      const eras = this.mode === 'moon' ? MOON_ERAS : ERAS;
+      const events = this.mode === 'moon' ? MOON_EVENTS : EVENTS;
       for (const e of eras) {
         const a = yearsToSlider('deep', e.start), b = yearsToSlider('deep', e.end);
         const w = (b - a) * 100;

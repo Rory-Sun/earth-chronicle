@@ -25,7 +25,7 @@ export class App {
   constructor(canvas) {
     this.canvas = canvas;
     this.mode = 'deep';
-    this.opts = { clouds: true, atmosphere: true, lights: true, rotate: true, bloom: true, labels: true, realScale: false };
+    this.opts = { clouds: true, atmosphere: true, lights: true, rotate: true, bloom: true, labels: true, realScale: true };
     this.clock = new THREE.Timer();
     this.env = environmentAt(4540e6);
     this.lastEventIdx = -1;
@@ -149,6 +149,7 @@ export class App {
     bind('opt-rotate', 'rotate'); bind('opt-bloom', 'bloom'); bind('opt-labels', 'labels');
     const rs = document.getElementById('opt-realscale');
     if (rs) rs.addEventListener('change', () => this.setRealScale(rs.checked));
+    this.setRealScale(true, false); // real Earth-Moon distance is the default; no camera flight at startup
     const fov = document.getElementById('opt-fov');
     fov.addEventListener('input', () => { this.userFov = parseFloat(fov.value); this.resize(); });
     const toggle = (btnId, popId) => {
@@ -178,11 +179,13 @@ export class App {
   setSunTarget(dir) { this.sunTarget = dir ? dir.clone().normalize() : this.defaultSunDir.clone(); }
 
   /** Toggle true Earth-Moon distance (60.3 Earth radii today) vs the compressed cinematic distance. */
-  setRealScale(on) {
+  setRealScale(on, fly = true) {
     this.opts.realScale = !!on;
     this.controls.maxDistance = on ? 260 : 12;
     this.onTime(this.years, false);
-    if (!this.moon) return;
+    const cb0 = document.getElementById('opt-realscale');
+    if (cb0) cb0.checked = !!on;
+    if (!this.moon || !fly) return;
     if (on) {
       // fly out perpendicular to the Earth-Moon line so both bodies share the frame
       const m = this.moon.position.clone().normalize();
@@ -403,8 +406,12 @@ export class App {
       el.style.top = ((1 - p.y) / 2 * h) + 'px';
       if (text) el.lastChild.textContent = text;
     };
-    place(document.getElementById('slabel-earth'), new THREE.Vector3(0, 0, 0));
+    const earthEl = document.getElementById('slabel-earth');
+    if (this.camera.position.length() > 20) place(earthEl, new THREE.Vector3(0, 0, 0)); else earthEl.style.display = 'none';
     const km = Math.round(6371 * this.moon.position.length() / 1000) * 1000;
-    place(document.getElementById('slabel-moon'), this.moon.position, `月球 · ${(km / 10000).toFixed(1)} 万 km`);
+    const moonEl = document.getElementById('slabel-moon');
+    // only label the Moon while it is too small to recognise (apparent radius under ~22 px)
+    const moonPx = 0.2727 / this.camera.position.distanceTo(this.moon.position) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * h / 2;
+    if (moonPx < 22) place(moonEl, this.moon.position, `月球 · ${(km / 10000).toFixed(1)} 万 km`); else moonEl.style.display = 'none';
   }
 }

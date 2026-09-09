@@ -7,6 +7,6 @@ blender/output/quick_log.txt
 Thumbs.db
 
 # NASA source imagery too large for GitHub (re-download: see README / blender/process_nasa.py)
-public/textures/nasa/*21600x10800*
-public/textures/nasa/*.tif
+blender/nasa_src/*21600x10800*
+blender/nasa_src/*.tif
 bash.exe.stackdump

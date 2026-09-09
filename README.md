@@ -8,7 +8,7 @@
 
 ## 数据与影像来源
 
-- 现代地球（约 800 万年内）使用 NASA Visible Earth 公有领域影像：Blue Marble Next Generation（2004 年 8 月，含地形与海底）、Black Marble 2016 夜间灯光、Blue Marble 云图。原始文件在 `public/textures/nasa/`（21600×10800 原图与 8K 云图 TIFF 体积过大未入库，可从 NASA Visible Earth 重新下载），`blender/process_nasa.py` 将其转换为 4K/8K WebP。
+- 现代地球（约 800 万年内）使用 NASA Visible Earth 公有领域影像：Blue Marble Next Generation（2004 年 8 月，含地形与海底）、Black Marble 2016 夜间灯光、Blue Marble 云图。原始文件在 `blender/nasa_src/`（不随网页发布）（21600×10800 原图与 8K 云图 TIFF 体积过大未入库，可从 NASA Visible Earth 重新下载），`blender/process_nasa.py` 将其转换为 4K/8K WebP。
 - 更早时代的地表、云层与夜灯由 Blender 程序化生成并烘焙；海岸线来自 Natural Earth（world-atlas）。
 - 所有资源随包附带，运行时不访问任何在线服务。
 
@@ -80,3 +80,17 @@ npm run blender -- --res 2048 --only albedo,clouds  # 快速预览单张贴图
 ## 说明
 
 板块运动、古气候与迁徙时间均为面向可视化的近似复原，参考了通行的古地理图与考古/遗传学共识，不作为科学数据使用。
+
+## 部署
+
+这是纯静态前端项目，没有后端和数据库。`npm run build` 生成的 `dist/`（约 40 MB）上传到任意静态服务器即可：
+
+```bash
+npm run build
+scp -r dist/* root@你的服务器IP:/var/www/earth-chronicle/
+```
+
+- Nginx 配置样例见 `deploy/nginx.conf`（含缓存、gzip 与 glb/webp 的 MIME 类型）。腾讯云 COS 的「静态网站托管」+ CDN 也可以直接使用，把 `dist/` 上传到存储桶根目录即可。
+- 资源路径是绝对路径（`/earth/`、`/textures/...`），因此必须部署在域名根目录；若要放在子路径，需把 `vite.config.js` 的 `base` 改为对应前缀后重新构建。
+- 发布前请把 `src/products.js` 里「溪畔秋日」的 `url` / `embed`（目前是本机的 `http://127.0.0.1:8765/...`）改成它的公网地址。
+- 不需要 HTTPS 也能运行（未使用任何需要安全上下文的浏览器 API），但建议配置证书；腾讯云可用免费的 TrustAsia 证书。

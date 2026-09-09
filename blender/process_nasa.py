@@ -1,6 +1,6 @@
 """Convert NASA Visible Earth source imagery into web-ready WebP textures.
 Run: blender --background --python blender/process_nasa.py
-Inputs (public domain, NASA Visible Earth) in public/textures/nasa/:
+Inputs (public domain, NASA Visible Earth) in blender/nasa_src/ (kept out of public/ so they are not shipped):
   world.topo.bathy.200408.3x21600x10800.png  (Blue Marble NG, Aug 2004, topo+bathy)  [fallback: 5400x2700 jpg]
   BlackMarble_2016_3km.jpg                   (Black Marble 2016 night lights, 13500x6750)
   cloud_combined_8192.tif                    (Blue Marble cloud cover, 8192x4096)      [fallback: 2048 jpg]
@@ -10,7 +10,7 @@ import bpy, os, sys, time
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, 'public', 'textures', 'nasa')
+SRC = os.path.join(ROOT, 'blender', 'nasa_src')
 OUT = os.path.join(ROOT, 'public', 'textures')
 t0 = time.time()
 def log(*a): print(f'[nasa {time.time()-t0:6.1f}s]', *a, flush=True)

@@ -148,7 +148,7 @@ export class App {
     bind('opt-clouds', 'clouds'); bind('opt-atmo', 'atmosphere'); bind('opt-lights', 'lights');
     bind('opt-rotate', 'rotate'); bind('opt-bloom', 'bloom'); bind('opt-labels', 'labels');
     const fov = document.getElementById('opt-fov');
-    fov.addEventListener('input', () => { this.camera.fov = parseFloat(fov.value); this.camera.updateProjectionMatrix(); });
+    fov.addEventListener('input', () => { this.userFov = parseFloat(fov.value); this.resize(); });
     const toggle = (btnId, popId) => {
       const btn = document.getElementById(btnId), pop = document.getElementById(popId);
       btn.addEventListener('click', () => {
@@ -270,11 +270,50 @@ export class App {
     this.sunLight.intensity = 3.2 * this.env.sun;
   }
 
+  /** Move the timeline + info panel into the bottom sheet on narrow screens, back to free panels on wide ones. */
+  layout(w) {
+    const sheet = document.getElementById('sheet');
+    const body = document.getElementById('sheet-body');
+    const info = document.getElementById('info');
+    const tl = document.getElementById('timeline');
+    const mobile = w <= 900 && !document.body.classList.contains('embed');
+    if (mobile && !this.isMobileLayout) {
+      body.appendChild(info); body.appendChild(tl);
+      sheet.hidden = false;
+      if (!this.sheetBound) {
+        this.sheetBound = true;
+        const toggle = () => sheet.classList.toggle('open');
+        document.getElementById('sheet-handle').addEventListener('click', toggle);
+        info.querySelector('.info-era').addEventListener('click', toggle);
+        let y0 = null;
+        sheet.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; }, { passive: true });
+        sheet.addEventListener('touchend', (e) => {
+          if (y0 === null) return;
+          const dy = e.changedTouches[0].clientY - y0; y0 = null;
+          if (dy < -40) sheet.classList.add('open'); else if (dy > 40) sheet.classList.remove('open');
+        });
+      }
+      this.isMobileLayout = true;
+    } else if (!mobile && this.isMobileLayout) {
+      const labels = document.getElementById('labels');
+      document.body.insertBefore(info, labels); document.body.insertBefore(tl, labels);
+      sheet.hidden = true; sheet.classList.remove('open');
+      this.isMobileLayout = false;
+    }
+    return mobile;
+  }
+
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.camera.aspect = w / h;
-    // on wide layouts the info panel sits on the left: nudge the globe into the free space
-    if (w > 900 && !document.body.classList.contains('embed')) this.camera.setViewOffset(w, h, -w * 0.11, -h * 0.03, w, h);
+    const mobile = this.layout(w);
+    // portrait screens: keep the horizontal field of view constant so the globe still fits the width
+    const baseFov = this.userFov || 38;
+    const aspect = w / h;
+    this.camera.fov = aspect < 1 ? Math.min(95, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) / aspect))) : baseFov;
+    // wide: the info panel sits on the left, nudge the globe right. narrow: the sheet covers the bottom, lift the globe.
+    if (mobile) this.camera.setViewOffset(w, h, 0, h * 0.16, w, h);
+    else if (w > 900 && !document.body.classList.contains('embed')) this.camera.setViewOffset(w, h, -w * 0.11, -h * 0.03, w, h);
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);

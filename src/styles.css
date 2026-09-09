@@ -45,8 +45,8 @@ button { font-family: inherit; }
 /* ---------------- info panel ---------------- */
 .panel { position: fixed; left: 22px; top: 96px; width: 340px; max-height: calc(100vh - 300px); overflow: auto; padding: 20px 22px; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; backdrop-filter: blur(16px); z-index: 10; scrollbar-width: thin; transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .5s; }
 .panel.hidden { transform: translateX(-30px); opacity: 0; pointer-events: none; }
-.info-eon { font-size: 12px; letter-spacing: .3em; color: var(--accent); }
-#info-title { margin: 6px 0 4px; font-size: 24px; font-weight: 500; letter-spacing: .04em; }
+.info-eon { font-size: 11px; letter-spacing: .3em; color: var(--accent); text-transform: uppercase; }
+#info-title { margin: 8px 0 4px; font-size: 26px; font-weight: 300; letter-spacing: .03em; line-height: 1.25; }
 .info-time { font-family: var(--font-en); font-size: 13px; color: var(--accent-2); letter-spacing: .08em; }
 .info-desc { font-size: 14px; line-height: 1.75; color: #d5deee; margin: 14px 0 10px; }
 .info-facts { list-style: none; padding: 0; margin: 0; }
@@ -102,9 +102,18 @@ kbd { background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; font
 
 @media (max-width: 900px) {
   .brand-sub, .brand-en { display: none; }
+  #topbar { padding: 10px 12px; gap: 8px; }
+  .brand { display: none; }
+  .modes { padding: 3px; }
+  .mode-btn { padding: 7px 11px; font-size: 12.5px; letter-spacing: .04em; }
+  .pill-btn { padding: 0 12px; font-size: 12px; height: 34px; }
+  .icon-btn { width: 34px; height: 34px; }
+  #btn-help, #btn-home { display: none; }
+  .top-actions { gap: 6px; }
   .panel { width: calc(100vw - 44px); top: auto; bottom: 150px; max-height: 32vh; padding: 14px 16px; }
   #info-title { font-size: 19px; }
-  .mode-btn { padding: 7px 12px; font-size: 13px; }
+  .sheet .tl-era { color: transparent; }
+  .sheet .tl-readout { font-size: 14px; }
 }
 
 /* ---------------- paleogeographic minimap ---------------- */
@@ -196,3 +205,27 @@ body.embed .tour-text { font-size: 12.5px; margin-bottom: 10px; }
 
 body.welcome-open #info, body.welcome-open .timeline, body.welcome-open #minimap, body.welcome-open #legend, body.welcome-open #toast { opacity: 0; pointer-events: none; }
 #info, .timeline, #minimap, #legend { transition: opacity .5s; }
+
+/* ---------------- mobile bottom sheet ---------------- */
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; background: rgba(8,14,28,.82); border-top: 1px solid var(--panel-border); border-radius: 22px 22px 0 0; backdrop-filter: blur(20px); box-shadow: 0 -20px 60px rgba(0,0,0,.45); display: flex; flex-direction: column; max-height: 82vh; padding-bottom: max(8px, env(safe-area-inset-bottom)); transition: max-height .35s cubic-bezier(.2,.8,.2,1); }
+.sheet[hidden] { display: none; }
+.sheet-handle { height: 22px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; flex: 0 0 auto; }
+.sheet-handle span { width: 42px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.28); }
+.sheet-body { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+.sheet .timeline { position: static; background: transparent; border: 0; border-radius: 0; padding: 0 14px 6px; backdrop-filter: none; order: 2; flex: 0 0 auto; }
+.sheet .tl-controls { margin-bottom: 4px; }
+.sheet .tl-track-wrap { height: 44px; }
+.sheet .tl-eras { height: 18px; }
+.sheet .tl-era { font-size: 10px; line-height: 18px; }
+.sheet .tl-events { top: 20px; height: 8px; }
+.sheet .panel { position: static; width: auto; max-height: none; background: transparent; border: 0; border-radius: 0; padding: 2px 16px 10px; backdrop-filter: none; order: 1; overflow: auto; min-height: 0; transform: none; opacity: 1; }
+.sheet .panel.hidden { display: none; }
+.sheet:not(.open) .info-desc, .sheet:not(.open) .info-facts, .sheet:not(.open) .info-stats { display: none; }
+.sheet:not(.open) .panel { overflow: hidden; }
+.sheet .info-era { cursor: pointer; }
+.sheet .info-era::after { content: "展开 ▴"; float: right; font-size: 11px; color: var(--muted); letter-spacing: .1em; margin-top: 6px; }
+.sheet.open .info-era::after { content: "收起 ▾"; }
+.sheet #info-title { font-size: 21px; }
+.sheet .info-desc { font-size: 13.5px; }
+body.tour .sheet, body.welcome-open .sheet { display: none; }
+body.clear .sheet { opacity: 0; pointer-events: none; }

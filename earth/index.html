@@ -68,6 +68,12 @@
 
   <div id="labels"></div>
 
+  <!-- mobile bottom sheet: on narrow screens the timeline and info panel are moved in here by App.layout() -->
+  <div id="sheet" class="sheet" hidden>
+    <button class="sheet-handle" id="sheet-handle" aria-label="展开或收起信息"><span></span></button>
+    <div id="sheet-body" class="sheet-body"></div>
+  </div>
+
   <!-- welcome overlay -->
   <div id="welcome" class="welcome" hidden>
     <div class="welcome-card">

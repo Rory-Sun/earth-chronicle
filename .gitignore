@@ -5,3 +5,8 @@ blender/output/*_log*.txt
 blender/output/quick_log.txt
 .DS_Store
 Thumbs.db
+
+# NASA source imagery too large for GitHub (re-download: see README / blender/process_nasa.py)
+public/textures/nasa/*21600x10800*
+public/textures/nasa/*.tif
+bash.exe.stackdump

@@ -6,6 +6,12 @@
 - **Blender 建模与烘焙**：地球/月球的高模、地形、生物群系、云层、城市夜灯全部由 Blender（Cycles 节点材质）程序化生成并烘焙成贴图，导出 `.glb` 与 `.blend`，可直接在 Blender 中打开旋转查看。
 - **Three.js 实时渲染**：自定义着色器实现海平面升降、冰盖进退、植被出现、岩浆地表、大气散射、云影、海面高光、夜灯，以及按板块拆分的大陆漂移。
 
+## 数据与影像来源
+
+- 现代地球（约 800 万年内）使用 NASA Visible Earth 公有领域影像：Blue Marble Next Generation（2004 年 8 月，含地形与海底）、Black Marble 2016 夜间灯光、Blue Marble 云图。原始文件在 `public/textures/nasa/`（21600×10800 原图与 8K 云图 TIFF 体积过大未入库，可从 NASA Visible Earth 重新下载），`blender/process_nasa.py` 将其转换为 4K/8K WebP。
+- 更早时代的地表、云层与夜灯由 Blender 程序化生成并烘焙；海岸线来自 Natural Earth（world-atlas）。
+- 所有资源随包附带，运行时不访问任何在线服务。
+
 ## 导览模式
 
 加载完成后会出现欢迎卡片：「开始导览」进入 21 个章节的自动导览（三幕：行星的诞生 / 大陆的舞蹈 / 人类的旅程），每章自动飞行镜头、扫描时间轴并推进；`←` `→` 切换章节，空格暂停，`Esc` 退出，「沉浸模式」隐藏全部界面。章节数据在 `src/data/tour.js`（模式、时间区间、镜头经纬度与距离、文案），控制器在 `src/app/Tour.js`。URL 参数：`?tour=N` 直接从第 N 章开始，`?notour` 跳过欢迎卡片。

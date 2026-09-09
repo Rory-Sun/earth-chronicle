@@ -16,7 +16,7 @@ export const PRODUCTS = [
     kicker: '交互式三维地球',
     title: '地球纪元 · Earth Chronicle',
     subtitle: '46 亿年的行星演化 · 30 万年的人类迁徙',
-    desc: '一个完全离线的交互式三维地球平台：拖动旋转，拖动时间轴，看大陆漂移、雪球地球、恐龙灭绝，直到人类的灯光点亮夜空。地形、云层与夜灯全部由 Blender 程序化生成并烘焙。',
+    desc: '一个完全离线的交互式三维地球平台：拖动旋转，拖动时间轴，看大陆漂移、雪球地球、恐龙灭绝，直到人类的灯光点亮夜空。现代地球使用 NASA Blue Marble 与 Black Marble 卫星影像，远古时代的地形、云层与夜灯由 Blender 程序化生成并烘焙。',
     tags: ['三维交互', '时间轴叙事', 'Blender 烘焙', '零 API', '离线运行'],
     poster: '/site/earth_preview.png',
     accent: '#3d8ee6',

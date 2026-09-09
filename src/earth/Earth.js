@@ -36,7 +36,10 @@ export class Earth {
     const loader = new THREE.TextureLoader();
     const maxAniso = this.renderer.capabilities.getMaxAnisotropy();
     const A = Math.min(8, maxAniso);
-    const hq = new URLSearchParams(location.search).has('hq') && this.renderer.capabilities.maxTextureSize >= 8192;
+    const params = new URLSearchParams(location.search);
+    const hq = params.has('hq') && this.renderer.capabilities.maxTextureSize >= 8192;
+    // the 8K satellite colour map is cheap (3 MB) and the biggest realism win: use it on desktop-class GPUs by default
+    const hqReal = hq || (this.renderer.capabilities.maxTextureSize >= 16384 && window.innerWidth > 900 && !params.has('embed') && !params.has('lq'));
     const names = [
       [hq ? 'earth_color_8k.webp' : 'earth_color.webp', { srgb: true, anisotropy: A }],
       [hq ? 'earth_normal_8k.webp' : 'earth_normal.webp', { anisotropy: A }],
@@ -45,10 +48,18 @@ export class Earth {
       ['earth_masks_b.png', { anisotropy: 4 }],
       ['earth_lights.webp', { anisotropy: 4 }],
       ['earth_clouds.webp', { anisotropy: 4 }],
+      // NASA Visible Earth (public domain): Blue Marble NG colour, Black Marble 2016 lights, Blue Marble clouds
+      [hqReal ? 'nasa_color_8k.webp' : 'nasa_color_4k.webp', { srgb: true, anisotropy: A }],
+      ['nasa_lights_4k.webp', { srgb: true, anisotropy: 4 }],
+      ['nasa_clouds_4k.webp', { anisotropy: 4 }],
     ];
     let done = 0;
-    const texes = await Promise.all(names.map(([n, o]) => loadTexture(loader, n, o).then((t) => { done++; this.onProgress(done / (names.length + 1), n); return t; })));
-    const [tColor, tNormal, tHeight, tMasksA, tMasksB, tLights, tClouds] = texes;
+    const texes = await Promise.all(names.map(([n, o]) => loadTexture(loader, n, o).catch((e) => {
+      // 8K NASA colour is optional: fall back to the 4K file
+      if (n === 'nasa_color_8k.webp') return loadTexture(loader, 'nasa_color_4k.webp', o);
+      throw e;
+    }).then((t) => { done++; this.onProgress(done / (names.length + 1), n); return t; })));
+    const [tColor, tNormal, tHeight, tMasksA, tMasksB, tLights, tClouds, tColorReal, tLightsReal, tCloudsReal] = texes;
     tHeight.minFilter = THREE.LinearFilter; tHeight.generateMipmaps = false; // keep height exact for the water line
 
     const regions = await this.loadRegions();
@@ -57,6 +68,7 @@ export class Earth {
     this.uniforms = {
       tColor: { value: tColor }, tNormal: { value: tNormal }, tHeight: { value: tHeight },
       tMasksA: { value: tMasksA }, tMasksB: { value: tMasksB }, tLights: { value: tLights }, tClouds: { value: tClouds },
+      tColorReal: { value: tColorReal }, tLightsReal: { value: tLightsReal }, tCloudsReal: { value: tCloudsReal }, uReal: { value: 1 },
       uSunDir: { value: this.sunDir },
       uSeaLevel: { value: 0 }, uVeg: { value: 1 }, uIceLat: { value: 90 }, uIceBoost: { value: 0 }, uErosion: { value: 0 },
       uLava: { value: 0 }, uLights: { value: 1 }, uCloudOffset: { value: 0 }, uCloudShadow: { value: 1 }, uTime: { value: 0 },
@@ -107,7 +119,7 @@ export class Earth {
 
     // clouds
     this.cloudUniforms = {
-      tClouds: { value: tClouds }, uSunDir: { value: this.sunDir }, uOffset: { value: 0 }, uOpacity: { value: 0.95 },
+      tClouds: { value: tClouds }, tCloudsReal: { value: tCloudsReal }, uReal: this.uniforms.uReal, uSunDir: { value: this.sunDir }, uOffset: { value: 0 }, uOpacity: { value: 0.95 },
       uSunIntensity: this.uniforms.uSunIntensity, uTint: { value: new THREE.Color(1, 1, 1) }, uTime: this.uniforms.uTime,
     };
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(1.0085, 160, 80), new THREE.ShaderMaterial({
@@ -159,6 +171,9 @@ export class Earth {
     u.uAtmoStrength.value = env.atmoStrength;
     u.uSunIntensity.value = env.sun;
     u.uSeaIce.value = env.seaIce;
+    // real satellite imagery for the recent past; procedural palaeo-surface further back (continents drift, biomes differ)
+    const tMaReal = env.yearsBP / 1e6;
+    u.uReal.value = tMaReal <= 8 ? 1 : tMaReal >= 30 ? 0 : 1 - (tMaReal - 8) / 22;
     u.uOceanDeep.value.setRGB(env.oceanDeep[0], env.oceanDeep[1], env.oceanDeep[2]);
     u.uOceanShallow.value.setRGB(env.oceanShallow[0], env.oceanShallow[1], env.oceanShallow[2]);
     u.uAtmoColor.value.setRGB(env.atmoColor[0], env.atmoColor[1], env.atmoColor[2]);

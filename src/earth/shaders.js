@@ -64,7 +64,8 @@ export const surfaceFragment = /* glsl */ `
 precision highp float;
 out vec4 fragColor;
 #define gl_FragColor fragColor
-uniform sampler2D tColor, tNormal, tHeight, tMasksA, tMasksB, tLights, tClouds;
+uniform sampler2D tColor, tNormal, tHeight, tMasksA, tMasksB, tLights, tClouds, tColorReal, tLightsReal, tCloudsReal;
+uniform float uReal;
 uniform vec3 uSunDir;
 uniform float uSeaLevel, uVeg, uIceLat, uIceBoost, uErosion, uLava, uLights, uCloudOffset, uCloudShadow, uTime, uIsBase, uAtmoStrength, uSunIntensity, uNormalStrength, uCloudsOn, uSeaIce;
 uniform vec3 uOceanDeep, uOceanShallow, uAtmoColor, uHazeColor, uBarrenTint;
@@ -83,6 +84,7 @@ void main() {
   vec4 mA = texture(tMasksA, uv);   // land, vegetation, aridity
   vec4 mB = texture(tMasksB, uv);   // ice, shelf, roughness
   vec3 albedo = texture(tColor, uv).rgb;
+  albedo = mix(albedo, texture(tColorReal, uv).rgb, uReal);
   float h = decodeH(texture(tHeight, uv).r);
   float land = uIsBase > 0.5 ? 0.0 : mA.r;
   vec3 nWorld = normalize(vNormalW);
@@ -175,7 +177,8 @@ void main() {
     float hy = fbm((nLocal + vec3(0.0, e, 0.0)) * 520.0);
     nm.xy += vec2(h0 - hx, h0 - hy) * 6.0 * detailAmt * (0.3 + 0.7 * smoothstep(0.3, 2.0, h));
   }
-  nm.xy *= uNormalStrength * (isLand + exposed * 0.5) * (1.0 - iceAmt * 0.5);
+  // satellite imagery already carries shaded relief: soften our normal map when it is active
+  nm.xy *= uNormalStrength * (isLand + exposed * 0.5) * (1.0 - iceAmt * 0.5) * (1.0 - 0.45 * uReal);
   vec3 N0 = normalize(vNormalW);
   vec3 N = normalize(normalize(vEastW) * nm.x + normalize(vNorthW) * nm.y + N0 * nm.z);
   vec3 L = normalize(uSunDir);
@@ -186,9 +189,9 @@ void main() {
 
   // --- cloud shadows
   vec2 cuv = vec2(uv.x + uCloudOffset, uv.y);
-  float cloud = texture(tClouds, cuv).r * uCloudsOn;
+  float cloud = mix(texture(tClouds, cuv).r, texture(tCloudsReal, cuv).r, uReal) * uCloudsOn;
   vec2 cuvS = cuv + vec2(0.004, 0.0);
-  float cloudS = texture(tClouds, cuvS).r * uCloudsOn;
+  float cloudS = mix(texture(tClouds, cuvS).r, texture(tCloudsReal, cuvS).r, uReal) * uCloudsOn;
   float shadow = 1.0 - uCloudShadow * cloudS * 0.5;
 
   vec3 sunColor = vec3(1.0, 0.97, 0.93) * uSunIntensity * 1.15;
@@ -209,8 +212,11 @@ void main() {
   // --- ambient / night
   color += surf * vec3(0.010, 0.014, 0.024);
   float night = 1.0 - smoothstep(-0.25, 0.02, NdL0);
-  float lightsTex = texture(tLights, uv).r;
-  color += vec3(1.0, 0.72, 0.40) * lightsTex * uLights * isLand * night * 1.8 * (1.0 - cloud * 0.55);
+  vec3 lightsProc = vec3(1.0, 0.72, 0.40) * texture(tLights, uv).r * 1.8;
+  vec3 lightsRealTex = texture(tLightsReal, uv).rgb;
+  vec3 lightsReal = lightsRealTex * (1.6 + 2.2 * dot(lightsRealTex, vec3(0.333)));
+  vec3 lightsCol = mix(lightsProc, lightsReal, uReal);
+  color += lightsCol * uLights * isLand * night * (1.0 - cloud * 0.55);
   // moonlit hint on the night ocean
   color += vec3(0.02, 0.03, 0.05) * night * waterness * fres;
 
@@ -355,6 +361,8 @@ precision highp float;
 out vec4 fragColor;
 #define gl_FragColor fragColor
 uniform sampler2D tClouds;
+uniform sampler2D tCloudsReal;
+uniform float uReal;
 uniform vec3 uSunDir;
 uniform float uOffset;
 uniform float uOpacity;
@@ -368,7 +376,7 @@ in vec3 vLocal;
 ${noiseGLSL}
 void main() {
   vec2 uv = vec2(vUv.x + uOffset, vUv.y);
-  float c = texture(tClouds, uv).r;
+  float c = mix(texture(tClouds, uv).r, texture(tCloudsReal, uv).r, uReal);
   float camDist = length(cameraPosition);
   float near = smoothstep(3.5, 1.4, camDist);
   float detail = fbm(normalize(vLocal) * 90.0 + uTime * 0.02);
@@ -382,7 +390,7 @@ void main() {
   float lit = smoothstep(-0.2, 0.35, NdL);
   // fake thickness shading: brighter tops, shaded bottoms via texture gradient toward sun
   vec2 duv = vec2(0.002, 0.0);
-  float cS = texture(tClouds, uv + duv).r;
+  float cS = mix(texture(tClouds, uv + duv).r, texture(tCloudsReal, uv + duv).r, uReal);
   float shade = clamp(1.0 - (cS - c) * 2.5, 0.55, 1.15);
   vec3 sunColor = vec3(1.0, 0.96, 0.9) * uSunIntensity;
   vec3 color = uTint * sunColor * (max(NdL, 0.0) * 0.9 + 0.1) * shade;

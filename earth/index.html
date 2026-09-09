@@ -67,6 +67,7 @@
   </section>
 
   <div id="labels"></div>
+  <div id="scale-labels" hidden><div class="slabel" id="slabel-earth"><i></i>地球</div><div class="slabel" id="slabel-moon"><i></i>月球</div></div>
 
   <!-- mobile bottom sheet: on narrow screens the timeline and info panel are moved in here by App.layout() -->
   <div id="sheet" class="sheet" hidden>
@@ -136,6 +137,7 @@
     <label><input type="checkbox" id="opt-rotate" checked /> 自动旋转</label>
     <label><input type="checkbox" id="opt-bloom" checked /> 泛光效果</label>
     <label><input type="checkbox" id="opt-labels" checked /> 地点标注</label>
+    <label><input type="checkbox" id="opt-realscale" /> 真实地月距离 <span class="muted">（默认压缩以便同框）</span></label>
     <label>相机高度 <input type="range" id="opt-fov" min="20" max="60" value="38" /></label>
   </div>
 

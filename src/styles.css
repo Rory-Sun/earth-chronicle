@@ -232,3 +232,14 @@ body.clear .sheet { opacity: 0; pointer-events: none; }
 
 .src-link { color: var(--accent); text-decoration: none; border-bottom: 1px dotted rgba(108,180,255,.5); }
 .tour-link { display: inline-flex; align-items: center; text-decoration: none; }
+
+.popover label .muted { font-size: 11px; }
+body.tour #toast { display: block !important; }
+
+/* real-scale Earth/Moon markers */
+#scale-labels { position: fixed; inset: 0; pointer-events: none; z-index: 6; }
+#scale-labels[hidden] { display: none; }
+.slabel { position: absolute; transform: translate(14px, -50%); font-size: 12px; letter-spacing: .12em; color: #dfe7f5; text-shadow: 0 1px 4px rgba(0,0,0,.9); white-space: nowrap; }
+.slabel i { position: absolute; left: -22px; top: 50%; width: 14px; height: 14px; border: 1px solid rgba(108,180,255,.7); border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 10px rgba(108,180,255,.4); }
+.slabel.left { transform: translate(calc(-100% - 14px), -50%); }
+.slabel.left i { left: auto; right: -22px; transform: translate(50%, -50%); }

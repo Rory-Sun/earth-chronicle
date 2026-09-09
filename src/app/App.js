@@ -25,7 +25,7 @@ export class App {
   constructor(canvas) {
     this.canvas = canvas;
     this.mode = 'deep';
-    this.opts = { clouds: true, atmosphere: true, lights: true, rotate: true, bloom: true, labels: true };
+    this.opts = { clouds: true, atmosphere: true, lights: true, rotate: true, bloom: true, labels: true, realScale: false };
     this.clock = new THREE.Timer();
     this.env = environmentAt(4540e6);
     this.lastEventIdx = -1;
@@ -147,6 +147,8 @@ export class App {
     };
     bind('opt-clouds', 'clouds'); bind('opt-atmo', 'atmosphere'); bind('opt-lights', 'lights');
     bind('opt-rotate', 'rotate'); bind('opt-bloom', 'bloom'); bind('opt-labels', 'labels');
+    const rs = document.getElementById('opt-realscale');
+    if (rs) rs.addEventListener('change', () => this.setRealScale(rs.checked));
     const fov = document.getElementById('opt-fov');
     fov.addEventListener('input', () => { this.userFov = parseFloat(fov.value); this.resize(); });
     const toggle = (btnId, popId) => {
@@ -174,6 +176,29 @@ export class App {
 
   /** Smoothly steer the sun towards `dir` (null = default direction). */
   setSunTarget(dir) { this.sunTarget = dir ? dir.clone().normalize() : this.defaultSunDir.clone(); }
+
+  /** Toggle true Earth-Moon distance (60.3 Earth radii today) vs the compressed cinematic distance. */
+  setRealScale(on) {
+    this.opts.realScale = !!on;
+    this.controls.maxDistance = on ? 260 : 12;
+    this.onTime(this.years, false);
+    if (!this.moon) return;
+    if (on) {
+      // fly out perpendicular to the Earth-Moon line so both bodies share the frame
+      const m = this.moon.position.clone().normalize();
+      const dir = new THREE.Vector3().crossVectors(m, new THREE.Vector3(0, 1, 0)).normalize().addScaledVector(new THREE.Vector3(0, 1, 0), 0.25).normalize();
+      // distance at which the whole Earth-Moon line fits the horizontal field of view (Earth stays centred)
+      const halfH = Math.atan(Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect);
+      const D = Math.min(250, Math.max(12, this.moon.position.length() / Math.tan(halfH) * 1.15));
+      this.flyToDir(dir, D, 3.2);
+      this.info.showToast(`真实尺度：月球距离 ${(this.moon.position.length()).toFixed(1)} 个地球半径（今天约 38.4 万公里）`);
+    } else {
+      this.flyToDir(this.camera.position.clone().normalize(), 3.4, 2.4);
+      this.info.showToast('已恢复压缩的地月距离（便于同框观看）');
+    }
+    const cb = document.getElementById('opt-realscale');
+    if (cb) cb.checked = !!on;
+  }
 
   setSun(x, y, z) {
     this.sunDir.set(x, y, z).normalize();
@@ -253,11 +278,14 @@ export class App {
       this.info.updateStats(stats);
     }
     if (this.moon) {
-      const md = this.env.moonDist;
-      const d = 2.4 + 6.6 * md;
+      const md = this.env.moonDist; // 0.06 at formation -> 1 today
+      const real = this.opts.realScale;
+      // real: 60.3 Earth radii today (384 400 km), ~3.6 at formation. Compressed: 9 radii today so both fit one frame.
+      const d = real ? 60.3 * md : 2.4 + 6.6 * md;
       const ang = -0.9 - (1 - md) * 0.55;
-      this.moon.position.set(Math.cos(ang) * d, 1.4 + 0.5 * (1 - md), Math.sin(ang) * d);
-      this.moon.scale.setScalar(1 + 1.3 * (1 - md));
+      this.moon.position.set(Math.cos(ang) * d, real ? 0.09 * d : 1.4 + 0.5 * (1 - md), Math.sin(ang) * d);
+      // the Moon never changed size; the early-Moon enlargement is a visual cue used only in compressed mode
+      this.moon.scale.setScalar(real ? 1 : 1 + 1.3 * (1 - md));
       this.moon.lookAt(0, 0, 0);
     }
     if (this.impactFlash) {
@@ -354,5 +382,29 @@ export class App {
     this.bloom.enabled = this.opts.bloom;
     this.composer.render();
     this.labels.update(window.innerWidth, window.innerHeight, this.opts.labels && this.mode === 'human');
+    this.updateScaleLabels();
+  }
+
+  /** In real-scale mode both bodies are tiny: mark them with rings + labels so the distance reads. */
+  updateScaleLabels() {
+    const root = document.getElementById('scale-labels');
+    if (!root) return;
+    const show = this.opts.realScale && this.moon && !document.body.classList.contains('clear');
+    root.hidden = !show;
+    if (!show) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    const place = (el, pos, text) => {
+      const p = pos.clone().project(this.camera);
+      const visible = p.z < 1 && Math.abs(p.x) < 1.05 && Math.abs(p.y) < 1.05;
+      el.style.display = visible ? 'block' : 'none';
+      if (!visible) return;
+      el.classList.toggle('left', p.x > 0.55);
+      el.style.left = ((p.x + 1) / 2 * w) + 'px';
+      el.style.top = ((1 - p.y) / 2 * h) + 'px';
+      if (text) el.lastChild.textContent = text;
+    };
+    place(document.getElementById('slabel-earth'), new THREE.Vector3(0, 0, 0));
+    const km = Math.round(6371 * this.moon.position.length() / 1000) * 1000;
+    place(document.getElementById('slabel-moon'), this.moon.position, `月球 · ${(km / 10000).toFixed(1)} 万 km`);
   }
 }

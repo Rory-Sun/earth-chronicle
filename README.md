@@ -1,5 +1,16 @@
 # 地球纪元 · Earth Chronicle
 
+## 线上地址
+
+| 站点 | 地址 |
+|---|---|
+| 个人主页 | https://rory-sun.github.io/ |
+| 地球纪元 | https://rory-sun.github.io/earth/ |
+| 资料来源与科学说明 | https://rory-sun.github.io/sources/ |
+| 溪畔秋日 | https://rory-sun.github.io/blender-designer/?v=3d-final |
+
+推送到 `main` 后由 GitHub Actions 自动构建并发布到 GitHub Pages。
+
 一个完全离线运行的交互式三维地球平台：46 亿年的行星演化（大陆漂移、雪球地球、大氧化事件、恐龙灭绝……）与 30 万年的人类迁徙，全部在一个可自由旋转、缩放的逼真地球上呈现。
 
 - **零 API**：没有任何在线服务、地图瓦片或外部字体。海岸线来自随包附带的 Natural Earth（`world-atlas`）数据，其余一切程序化生成。

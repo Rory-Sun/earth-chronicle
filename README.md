@@ -83,6 +83,12 @@ npm run blender -- --res 2048 --only albedo,clouds  # 快速预览单张贴图
 
 ## 部署
 
+### GitHub Pages（当前线上方式）
+
+仓库名为 `Rory-Sun.github.io`，推送到 `main` 后 `.github/workflows/deploy.yml` 自动执行 `npm run build` 并发布 `dist/` 到 https://rory-sun.github.io/ 。「溪畔秋日」由仓库 `Rory-Sun/blender-designer` 的同类工作流发布到 https://rory-sun.github.io/blender-designer/ 。
+
+### 自有服务器
+
 这是纯静态前端项目，没有后端和数据库。`npm run build` 生成的 `dist/`（约 40 MB）上传到任意静态服务器即可：
 
 ```bash

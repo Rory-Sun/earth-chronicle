@@ -36,10 +36,11 @@ export const PRODUCTS = [
     subtitle: 'A place to slow down',
     desc: '走进溪畔秋日。自由环绕一座三维山村，点击石桥、稻田与小狗，听见溪水与鸟鸣——一个为放慢节奏而做的沉浸式场景。',
     tags: ['三维场景', '环境音效', '点击互动', '氛围叙事'],
-    poster: null,
+    poster: 'https://rory-sun.github.io/blender-designer/preview-desktop.png',
     accent: '#3f7a4a',
     emoji: '🍂',
-    url: '#autumn-creek',   // TODO: 上线后替换为公网地址；有页内嵌入需求时再加 embed: '<公网地址>'
+    url: 'https://rory-sun.github.io/blender-designer/?v=3d-final',
+    embed: 'https://rory-sun.github.io/blender-designer/?v=3d-final',
     features: [
       { icon: '🏞️', title: '自由环绕', text: '拖动镜头在山村间环绕，秋色随视角变化，溪水在脚下流过。' },
       { icon: '🐕', title: '可点击的世界', text: '石桥、稻田与小狗都能触发互动与声音，细节里藏着惊喜。' },

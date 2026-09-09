@@ -60,7 +60,7 @@ const KEYS_MA = [
   [23, { veg: 1.0, seaLevel: 30, iceLat: 80 }],
   [14, { veg: 1.0, seaLevel: 20, iceLat: 77 }],
   [5.3, { veg: 1.0, seaLevel: 10, iceLat: 75 }],
-  [2.58, { sun: 1.0, veg: 1.0, seaLevel: 0, iceLat: 70, moonDist: 1.0 }],
+  [2.58, { sun: 1.0, veg: 1.0, seaLevel: 0, iceLat: 72, moonDist: 1.0 }],
   [1.0, { seaLevel: -40, iceLat: 64, iceBoost: 0.1 }],
   [0.5, { seaLevel: -60, iceLat: 60, iceBoost: 0.15 }],
   // late Pleistocene detail (ka -> Ma)
@@ -79,13 +79,13 @@ const KEYS_MA = [
   [0.0145, { seaLevel: -95, iceLat: 57, iceBoost: 0.25 }],
   [0.0117, { seaLevel: -60, iceLat: 62, iceBoost: 0.12 }],
   [0.009, { seaLevel: -30, iceLat: 67, iceBoost: 0.04 }],
-  [0.006, { seaLevel: -2, iceLat: 70, iceBoost: 0.0 }],
-  [0.0002, { seaLevel: 0, iceLat: 70, lights: 0.0 }],
+  [0.006, { seaLevel: -2, iceLat: 75, iceBoost: 0.0 }],
+  [0.0002, { seaLevel: 0, iceLat: 75, lights: 0.0 }],
   [0.00014, { lights: 0.02 }],
   [0.00009, { lights: 0.15 }],
   [0.00005, { lights: 0.55 }],
   [0.00002, { lights: 0.9 }],
-  [0.0, { lights: 1.0, seaLevel: 0, iceLat: 70, iceBoost: 0.0 }],
+  [0.0, { lights: 1.0, seaLevel: 0, iceLat: 75.5, iceBoost: 0.0 }],
 ];
 
 // resolve partial keys: every key gets full values by carrying forward interpolation between explicit values

@@ -132,8 +132,8 @@ void main() {
   vec3 seabed = mix(vec3(0.30, 0.27, 0.19), vec3(0.42, 0.38, 0.28), n3) * (0.8 + 0.4 * n1);
 
   // --- ice
-  float capEdge = uIceLat + (n2 - 0.5) * 12.0 + (n3 - 0.5) * 4.0;
-  float cap = smoothstep(capEdge - 7.0, capEdge + 1.0, absLat);
+  float capEdge = uIceLat + (n2 - 0.5) * 8.0 + (n3 - 0.5) * 3.0;
+  float cap = smoothstep(capEdge - 4.0, capEdge + 1.0, absLat);
   float bakedIce = mB.r * smoothstep(90.0, 80.0, uIceLat);
   // glacial boost: extra ice sheets on high-latitude land and glaciated mountains (never tropical lowlands)
   float boostLat = smoothstep(uIceLat - 26.0, uIceLat - 8.0, absLat + (n2 - 0.5) * 16.0);

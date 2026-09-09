@@ -105,7 +105,7 @@ export async function loadMoon() {
   map.colorSpace = THREE.SRGBColorSpace;
   normalMap.colorSpace = THREE.NoColorSpace;
   map.anisotropy = normalMap.anisotropy = 4;
-  const mat = new THREE.MeshStandardMaterial({ map, normalMap, roughness: 0.95, metalness: 0.0, normalScale: new THREE.Vector2(1.2, 1.2) });
+  const mat = new THREE.MeshStandardMaterial({ map, normalMap, color: 0xd9d6d0, roughness: 0.95, metalness: 0.0, normalScale: new THREE.Vector2(1.2, 1.2) });
   // time-dependent look: magma ocean glow right after formation, mare basalts flooding the dark basins later
   const uniforms = { uMagma: { value: 0 }, uMare: { value: 1 } };
   mat.onBeforeCompile = (shader) => {
@@ -115,16 +115,24 @@ export async function loadMoon() {
       .replace('#include <map_fragment>', `#include <map_fragment>
       {
         float lum = dot(sampledDiffuseColor.rgb, vec3(0.3333));
-        float mare = smoothstep(0.40, 0.26, lum);
+        float mare = smoothstep(0.42, 0.26, lum);
         vec3 highland = vec3(0.60, 0.59, 0.56) * (0.85 + 0.5 * lum);
+        // before the basalt floods (uMare = 0) the basins are still bright highland; afterwards they are dark basalt
         diffuseColor.rgb = mix(diffuseColor.rgb, highland, mare * (1.0 - uMare));
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.07, 0.035, 0.025), uMagma * 0.9);
+        diffuseColor.rgb *= mix(1.0, 0.5, mare * uMare);
+        // molten: an almost black crust, all light comes from the emission below
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03, 0.015, 0.01), uMagma);
       }`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
       {
-        float lum2 = dot(sampledDiffuseColor.rgb, vec3(0.3333));
-        float cracks = smoothstep(0.30, 0.55, lum2);
-        totalEmissiveRadiance += mix(vec3(0.9, 0.15, 0.03), vec3(1.0, 0.62, 0.18), cracks) * uMagma * (0.35 + 0.95 * cracks);
+        // magma ocean: use a blurred (high mip) sample so craters and maria do not imprint; the large-scale
+        // mottling becomes cooler crust rafts drifting on brighter melt
+        float lumLow = dot(texture2D(map, vMapUv, 3.5).rgb, vec3(0.3333));
+        float lumMid = dot(texture2D(map, vMapUv, 1.5).rgb, vec3(0.3333));
+        float melt = smoothstep(0.34, 0.60, lumLow) * 0.75 + smoothstep(0.30, 0.62, lumMid) * 0.25;
+        float limb = pow(clamp(normal.z, 0.0, 1.0), 0.5);
+        vec3 glow = mix(vec3(0.55, 0.05, 0.005), vec3(1.0, 0.55, 0.12), melt) * (0.35 + 1.25 * melt);
+        totalEmissiveRadiance += glow * uMagma * (0.35 + 0.65 * limb);
       }`);
   };
   mat.customProgramCacheKey = () => 'moon-time';

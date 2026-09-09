@@ -276,7 +276,7 @@ export class App {
         // oblique view of the near side: Moon fills the frame, Earth sits off to one side of the sky
         const toEarth = this.moon.position.clone().negate().normalize();
         const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), toEarth).normalize();
-        const dir = toEarth.clone().multiplyScalar(0.5).addScaledVector(side, 0.85).add(new THREE.Vector3(0, 0.2, 0)).normalize();
+        const dir = toEarth.clone().multiplyScalar(0.72).addScaledVector(side, 0.65).add(new THREE.Vector3(0, 0.22, 0)).normalize();
         this.flyToDir(dir, 0.9, 2.4);
         const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
         this.setSunTarget(dir.clone().multiplyScalar(0.72).addScaledVector(right, -0.55).add(new THREE.Vector3(0, 0.35, 0)).normalize());

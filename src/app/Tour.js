@@ -89,7 +89,7 @@ export class Tour {
     if (ch.view === 'night') return this.app.sunDir.clone().negate().normalize();
     // moon views are relative to the Moon: 'near' puts the camera between Earth and Moon, 'far' behind the Moon looking back at Earth
     if (ch.view === 'moon-near') return this.app.moon.position.clone().negate().normalize();
-    if (ch.view === 'moon-far') return this.app.moon.position.clone().normalize().add(new THREE.Vector3(0, 0.8, 0)).normalize();
+    if (ch.view === 'moon-far') return this.app.moon.position.clone().normalize().add(new THREE.Vector3(0, 0.3, 0)).normalize();
     return lonLatToVec3(ch.view[0], ch.view[1]).normalize();
   }
 

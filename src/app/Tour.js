@@ -42,7 +42,7 @@ export class Tour {
         lastAct = c.act;
         const sep = document.createElement('span');
         sep.className = 'tour-sep';
-        sep.textContent = ['Ⅰ', 'Ⅱ', 'Ⅲ'][c.act];
+        sep.textContent = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ'][c.act];
         sep.title = ACTS[c.act];
         this.els.chips.appendChild(sep);
       }
@@ -87,6 +87,9 @@ export class Tour {
 
   chapterDir(ch) {
     if (ch.view === 'night') return this.app.sunDir.clone().negate().normalize();
+    // moon views are relative to the Moon: 'near' puts the camera between Earth and Moon, 'far' behind the Moon looking back at Earth
+    if (ch.view === 'moon-near') return this.app.moon.position.clone().negate().normalize();
+    if (ch.view === 'moon-far') return this.app.moon.position.clone().normalize().add(new THREE.Vector3(0, 0.8, 0)).normalize();
     return lonLatToVec3(ch.view[0], ch.view[1]).normalize();
   }
 
@@ -101,11 +104,12 @@ export class Tour {
     if (app.mode !== ch.mode) app.setMode(ch.mode);
     app.earth.group.rotation.y = 0;
     app.timeline.setYears(ch.from);
-    const dist = ch.view === 'night' ? ch.dist : ch.view[2];
+    const dist = typeof ch.view === 'string' ? ch.dist : ch.view[2];
     const dir = this.chapterDir(ch);
     app.flyToDir(dir, dist, FLY_SECONDS);
     // light the hemisphere we are looking at: sun sits up-right of the camera, so relief and terminator stay visible
     if (ch.view === 'night') app.setSunTarget(null);
+    else if (ch.view === 'moon-far') app.setSunTarget(dir.clone().multiplyScalar(-0.2).add(new THREE.Vector3(0, 0.6, 0)).add(this.app.moon.position.clone().normalize().multiplyScalar(-0.9)).normalize());
     else {
       const up = new THREE.Vector3(0, 1, 0);
       const right = new THREE.Vector3().crossVectors(dir, up).normalize();

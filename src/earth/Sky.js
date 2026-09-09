@@ -106,6 +106,28 @@ export async function loadMoon() {
   normalMap.colorSpace = THREE.NoColorSpace;
   map.anisotropy = normalMap.anisotropy = 4;
   const mat = new THREE.MeshStandardMaterial({ map, normalMap, roughness: 0.95, metalness: 0.0, normalScale: new THREE.Vector2(1.2, 1.2) });
+  // time-dependent look: magma ocean glow right after formation, mare basalts flooding the dark basins later
+  const uniforms = { uMagma: { value: 0 }, uMare: { value: 1 } };
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uMagma;\nuniform float uMare;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+      {
+        float lum = dot(sampledDiffuseColor.rgb, vec3(0.3333));
+        float mare = smoothstep(0.40, 0.26, lum);
+        vec3 highland = vec3(0.60, 0.59, 0.56) * (0.85 + 0.5 * lum);
+        diffuseColor.rgb = mix(diffuseColor.rgb, highland, mare * (1.0 - uMare));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.07, 0.035, 0.025), uMagma * 0.9);
+      }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      {
+        float lum2 = dot(sampledDiffuseColor.rgb, vec3(0.3333));
+        float cracks = smoothstep(0.30, 0.55, lum2);
+        totalEmissiveRadiance += mix(vec3(0.9, 0.15, 0.03), vec3(1.0, 0.62, 0.18), cracks) * uMagma * (0.35 + 0.95 * cracks);
+      }`);
+  };
+  mat.customProgramCacheKey = () => 'moon-time';
   mesh.material = mat;
   mesh.geometry.computeVertexNormals();
   const group = new THREE.Group();
@@ -114,6 +136,8 @@ export async function loadMoon() {
   mesh.rotation.set(0, 0, 0);
   mesh.scale.setScalar(1); // glb radius 0.2727 (Moon/Earth ratio)
   group.add(mesh);
+  group.userData.mesh = mesh;
+  group.userData.uniforms = uniforms;
   return group;
 }
 

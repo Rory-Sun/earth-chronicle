@@ -16,6 +16,7 @@ import { MiniMap } from '../ui/MiniMap.js';
 import { Tour } from './Tour.js';
 import { EVENTS, formatYears } from '../data/eras.js';
 import { humanEraAt, populationAt, formatPopulation } from '../data/migration.js';
+import { MOON_SITES, MOON_EVENTS, moonEraAt, moonEnvAt, moonLonLatToLocal } from '../data/moon.js';
 
 function loadImage(src) {
   return new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = src; });
@@ -112,6 +113,17 @@ export class App {
     try {
       this.moon = await loadMoon();
       this.scene.add(this.moon);
+      this.moonLabels = new Labels(this.camera, { getCenter: () => this.moon.position });
+      this.moonSites = MOON_SITES.map((def) => {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.migration.glowTex, color: def.kind === 'crew' ? '#ffd27a' : '#8fd0ff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.95 }));
+        const [x, y, z] = moonLonLatToLocal(def.lon, def.lat, 0.2727 * 1.012);
+        sprite.position.set(x, y, z);
+        sprite.scale.setScalar(0.022);
+        sprite.visible = false;
+        this.moon.add(sprite);
+        const label = this.moonLabels.add(def.name, sprite, { cls: 'site' });
+        return { def, sprite, label };
+      });
     } catch (e) { console.warn('moon failed', e); }
 
     // post-processing
@@ -126,6 +138,8 @@ export class App {
     this.timeline = new Timeline({ onChange: (years, fromUser) => this.onTime(years, fromUser) });
     this.bindUI();
     this.onTime(this.timeline.years, false);
+    const wantMode = new URLSearchParams(location.search).get('mode');
+    if (wantMode && ['deep', 'human', 'now', 'moon'].includes(wantMode)) this.setMode(wantMode);
     this.tour = new Tour(this);
     document.getElementById('btn-tour').addEventListener('click', () => { if (this.tour.active) this.tour.stop(); else this.tour.start(0); });
     this.bindWelcome();
@@ -222,11 +236,29 @@ export class App {
   }
 
   /** Fly the camera along the sphere to look at world direction `dir` from distance `dist` (seconds). */
+  /** Fly the camera around the current orbit centre (Earth, or the Moon in 月球 mode). */
   flyToDir(dir, dist, seconds = 2.4) {
-    const fromDir = this.camera.position.clone().normalize();
+    const center = this.controls.target;
+    const fromDir = this.camera.position.clone().sub(center).normalize();
     const toDir = dir.clone().normalize();
     if (fromDir.dot(toDir) < -0.995) toDir.add(new THREE.Vector3(0, 0.15, 0)).normalize(); // avoid the antipodal degenerate case
-    this.flyTo = { fromDir, toDir, fromDist: this.camera.position.length(), toDist: dist, t: 0, dur: seconds };
+    this.flyTo = { fromDir, toDir, fromDist: this.camera.position.distanceTo(center), toDist: dist, t: 0, dur: seconds };
+  }
+
+  /** Switch the orbit centre between the Earth and the Moon. */
+  setFocus(body) {
+    if (body === this.focus) return;
+    const c = this.controls;
+    if (body === 'moon' && this.moon) {
+      c.target.copy(this.moon.position);
+      c.minDistance = 0.36; c.maxDistance = 40;
+      this.prevMoonPos = this.moon.position.clone();
+    } else {
+      c.target.set(0, 0, 0);
+      c.minDistance = 1.25; c.maxDistance = this.opts.realScale ? 260 : 12;
+      if (this.moon) this.moon.lookAt(0, 0, 0);
+    }
+    this.focus = body;
   }
 
   setMode(mode) {
@@ -237,9 +269,25 @@ export class App {
     this.migration.group.visible = mode === 'human';
     const legend = document.getElementById('legend');
     if (legend) legend.hidden = mode !== 'human';
+    const inTour = this.tour && this.tour.active;
+    if (mode === 'moon' && this.moon) {
+      this.setFocus('moon');
+      if (!inTour) {
+        // oblique view of the near side: Moon fills the frame, Earth sits off to one side of the sky
+        const toEarth = this.moon.position.clone().negate().normalize();
+        const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), toEarth).normalize();
+        const dir = toEarth.clone().multiplyScalar(0.5).addScaledVector(side, 0.85).add(new THREE.Vector3(0, 0.2, 0)).normalize();
+        this.flyToDir(dir, 0.9, 2.4);
+        const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+        this.setSunTarget(dir.clone().multiplyScalar(0.72).addScaledVector(right, -0.55).add(new THREE.Vector3(0, 0.35, 0)).normalize());
+      }
+    } else if (this.focus === 'moon') {
+      this.setFocus('earth');
+      if (!inTour) { this.flyToDir(this.camera.position.clone().normalize(), 3.4, 2.6); this.setSunTarget(null); }
+    }
     if (mode === 'human') {
       this.earth.group.rotation.y = 0;
-      if (!(this.tour && this.tour.active)) this.flyToDir(new THREE.Vector3(0.92, 0.42, -0.25), 3.0, 2.0);
+      if (!inTour) this.flyToDir(new THREE.Vector3(0.92, 0.42, -0.25), 3.0, 2.0);
     }
     this.timeline.setMode(mode);
     if (mode === 'now') {
@@ -279,6 +327,23 @@ export class App {
       const stats = { 全球人口: formatPopulation(pop), 海平面: `${Math.round(this.env.seaLevel)} m`, 冰盖边缘: this.env.iceLat >= 89 ? '无' : `${Math.round(this.env.iceLat)}°`, 时间: timeLabel };
       this.info.setCustom(era.id, { eon: era.eon, title: era.name, desc: era.desc, facts: era.facts, time: timeLabel, stats });
       this.info.updateStats(stats);
+    }
+    if (this.mode === 'moon') {
+      const e = moonEraAt(years);
+      this.info.setCustom(e.id, { eon: e.eon, title: e.name, desc: e.desc, facts: e.facts, stats: e.stats, time: formatYears(years) });
+      let passed = -1;
+      for (let i = 0; i < MOON_EVENTS.length; i++) if (years <= MOON_EVENTS[i].t) passed = i;
+      if (playing && passed !== this.lastMoonEventIdx && passed >= 0) this.info.showToast(`◆ ${MOON_EVENTS[passed].name} · ${formatYears(MOON_EVENTS[passed].t)}`);
+      this.lastMoonEventIdx = passed;
+    }
+    if (this.moon) {
+      const me = moonEnvAt(years);
+      const mu = this.moon.userData.uniforms;
+      if (mu) { mu.uMagma.value = me.magma; mu.uMare.value = me.mare; }
+      const mm = this.moon.userData.mesh;
+      if (mm) mm.material.normalScale.setScalar(1.2 * me.crater);
+      this.moon.visible = me.exists;
+      if (this.moonSites) for (const st of this.moonSites) { st.sprite.visible = years <= (2026 - st.def.year); st.label.visible = st.sprite.visible; }
     }
     if (this.moon) {
       const md = this.env.moonDist; // 0.06 at formation -> 1 today
@@ -372,19 +437,26 @@ export class App {
       f.t = Math.min(1, f.t + dt / f.dur);
       const s = f.t * f.t * (3 - 2 * f.t);
       const dir = f.fromDir.clone().lerp(f.toDir, s).normalize();
-      this.camera.position.copy(dir.multiplyScalar(f.fromDist + (f.toDist - f.fromDist) * s));
+      this.camera.position.copy(this.controls.target).addScaledVector(dir, f.fromDist + (f.toDist - f.fromDist) * s);
       if (f.t >= 1) this.flyTo = null;
     }
     this.earth.update(dt, { clouds: this.opts.clouds, atmosphere: this.opts.atmosphere });
     this.earth.uniforms.uLights.value = this.opts.lights ? this.env.lights : 0;
     this.stars.material.uniforms.uTime.value += dt;
     this.stars.rotation.y += dt * 0.002;
-    if (this.moon) this.moon.rotation.y += dt * 0.01;
+    if (this.moon && this.focus === 'moon') {
+      // the Moon moves as the timeline changes distance: carry the camera with it and keep the near side facing Earth
+      const d = this.moon.position.clone().sub(this.prevMoonPos);
+      if (d.lengthSq() > 0) { this.camera.position.add(d); this.prevMoonPos.copy(this.moon.position); }
+      this.controls.target.copy(this.moon.position);
+      this.moon.lookAt(0, 0, 0);
+    } else if (this.moon) this.moon.rotation.y += dt * 0.01;
     this.migration.tick();
     this.controls.update();
     this.bloom.enabled = this.opts.bloom;
     this.composer.render();
     this.labels.update(window.innerWidth, window.innerHeight, this.opts.labels && this.mode === 'human');
+    if (this.moonLabels) this.moonLabels.update(window.innerWidth, window.innerHeight, this.opts.labels && this.mode === 'moon' && this.camera.position.distanceTo(this.moon.position) < 2.5);
     this.updateScaleLabels();
   }
 
@@ -392,7 +464,7 @@ export class App {
   updateScaleLabels() {
     const root = document.getElementById('scale-labels');
     if (!root) return;
-    const show = this.opts.realScale && this.moon && !document.body.classList.contains('clear');
+    const show = this.opts.realScale && this.moon && this.focus !== 'moon' && !document.body.classList.contains('clear');
     root.hidden = !show;
     if (!show) return;
     const w = window.innerWidth, h = window.innerHeight;

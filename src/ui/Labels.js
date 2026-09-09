@@ -2,8 +2,9 @@ import * as THREE from 'three';
 
 /** Screen-space HTML labels attached to 3D anchor points (hidden when behind the globe). */
 export class Labels {
-  constructor(camera) {
+  constructor(camera, { getCenter = null, radius = 1 } = {}) {
     this.camera = camera;
+    this.getCenter = getCenter;
     this.root = document.getElementById('labels');
     this.items = [];
     this._v = new THREE.Vector3();
@@ -32,8 +33,9 @@ export class Labels {
     for (const it of this.items) {
       if (!enabled || !it.visible || (it.object && !it.object.visible)) { it.el.style.opacity = '0'; continue; }
       const p = it.getPos ? it.getPos(this._v) : it.object.getWorldPosition(this._v);
-      // occlusion by the globe (radius ~1 at origin): visible if the point faces the camera
-      this._n.copy(p).normalize();
+      // occlusion by the body the label sits on: visible if the surface point faces the camera
+      const c = this.getCenter ? this.getCenter() : null;
+      this._n.copy(p); if (c) this._n.sub(c); this._n.normalize();
       const toCam = cam.position.clone().sub(p).normalize();
       const facing = this._n.dot(toCam);
       if (facing < 0.08) { it.el.style.opacity = '0'; continue; }

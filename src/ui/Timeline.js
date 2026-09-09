@@ -1,5 +1,6 @@
 // Timeline UI: piecewise mapping between slider position [0,1] and years before present.
 import { ERAS, EVENTS, formatYears } from '../data/eras.js';
+import { MOON_ERAS, MOON_EVENTS } from '../data/moon.js';
 
 const Ma = 1e6, ka = 1e3;
 
@@ -9,6 +10,7 @@ export const SCALES = {
   human: [[0, 300 * ka], [0.22, 100 * ka], [0.45, 45 * ka], [0.62, 15 * ka], [0.78, 5 * ka], [0.9, 500], [1, 0]],
   now: [[0, 0], [1, 0]],
 };
+SCALES.moon = SCALES.deep;
 
 export function sliderToYears(mode, s) {
   const a = SCALES[mode];
@@ -88,7 +90,7 @@ export class Timeline {
   /** advance while playing; dt seconds */
   tick(dt) {
     if (!this.playing) return;
-    const duration = this.mode === 'deep' ? 150 : 90; // seconds for a full sweep at 1x
+    const duration = this.mode === 'human' ? 90 : 150; // seconds for a full sweep at 1x
     this.value += dt * this.speed / duration;
     if (this.value >= 1) { this.value = 1; this.playing = false; this.playBtn.textContent = '▶'; }
     this.slider.value = Math.round(this.value * 10000);
@@ -106,8 +108,10 @@ export class Timeline {
     if (this.mode === 'now') { this.erasEl.style.display = 'none'; this.eventsEl.style.display = 'none'; return; }
     this.erasEl.style.display = 'flex';
     this.eventsEl.style.display = 'block';
-    if (this.mode === 'deep') {
-      for (const e of ERAS) {
+    if (this.mode === 'deep' || this.mode === 'moon') {
+      const eras = this.mode === 'deep' ? ERAS : MOON_ERAS;
+      const events = this.mode === 'deep' ? EVENTS : MOON_EVENTS;
+      for (const e of eras) {
         const a = yearsToSlider('deep', e.start), b = yearsToSlider('deep', e.end);
         const w = (b - a) * 100;
         if (w <= 0.01) continue;
@@ -120,7 +124,7 @@ export class Timeline {
         div.addEventListener('click', () => this.setYears(e.start * 0.999));
         this.erasEl.appendChild(div);
       }
-      for (const ev of EVENTS) {
+      for (const ev of events) {
         const x = yearsToSlider('deep', ev.t) * 100;
         const m = document.createElement('div');
         m.className = 'tl-event';

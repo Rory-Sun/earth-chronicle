@@ -254,16 +254,16 @@ body.tour #toast { display: block !important; }
 .life-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
 .life-legend i.dead { background: transparent; border: 1px dashed #9aa5b8; }
 .life-hint { flex-basis: 100%; font-size: 12px; color: var(--muted); letter-spacing: .04em; }
-.life-svg { flex: 1; width: 100%; min-height: 0; border-radius: 14px; border: 1px solid var(--panel-border); background: rgba(6, 12, 26, .55); cursor: grab; touch-action: none; user-select: none; }
+.life-svg { flex: 1; width: 100%; min-height: 0; border-radius: 14px; border: 1px solid var(--panel-border); background: radial-gradient(circle at 50% 50%, rgba(14, 24, 48, .7), rgba(6, 12, 26, .55) 70%); cursor: grab; touch-action: none; user-select: none; }
 .life-svg:active { cursor: grabbing; }
 .life-svg text { font-family: var(--font-cn); pointer-events: none; }
-.life-era { font-size: 12px; letter-spacing: .3em; fill: rgba(200, 215, 240, .45); text-anchor: middle; }
-.life-tick { stroke: rgba(140, 170, 220, .14); stroke-width: 1; }
-.life-tick-label { font-size: 10px; fill: rgba(160, 180, 210, .55); font-family: var(--font-en); }
-.life-cursor { stroke: #ffb86c; stroke-width: 1.4; stroke-dasharray: 4 3; opacity: .9; }
-.life-cursor-label { font-size: 11px; fill: #ffd27a; font-family: var(--font-en); letter-spacing: .06em; }
-.life-link { fill: none; stroke-width: 1.4; opacity: .7; }
-.life-line { stroke-width: 2.2; stroke-linecap: round; opacity: .95; }
+.life-era { font-size: 11px; letter-spacing: .3em; fill: rgba(200, 215, 240, .5); text-anchor: middle; }
+.life-tick { fill: none; stroke: rgba(140, 170, 220, .16); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.life-tick-label { font-size: 9.5px; fill: rgba(160, 180, 210, .6); font-family: var(--font-en); }
+.life-cursor { stroke: #ffb86c; stroke-width: 1.6; stroke-dasharray: 5 4; opacity: .95; filter: url(#life-ring-glow); vector-effect: non-scaling-stroke; }
+.life-cursor-label { font-size: 12px; fill: #ffd27a; font-family: var(--font-en); letter-spacing: .08em; }
+.life-link { stroke-width: 1.3; opacity: .65; vector-effect: non-scaling-stroke; }
+.life-line { stroke-width: 2.2; stroke-linecap: round; opacity: .95; vector-effect: non-scaling-stroke; }
 .life-line.dead { stroke-dasharray: 5 4; opacity: .55; }
 .life-hit { stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .life-dot { filter: url(#life-glow); }
@@ -271,7 +271,8 @@ body.tour #toast { display: block !important; }
 .life-label { font-size: 13px; fill: #e9eef8; pointer-events: auto; cursor: pointer; }
 .life-label.dead { fill: #a8b1c2; }
 .life-label.selected { fill: #ffd27a; font-weight: 600; }
-.life-label.clade { font-size: 10.5px; fill: rgba(200, 212, 235, .72); letter-spacing: .04em; }
+.life-label.clade { font-size: 8.5px; fill: rgba(200, 212, 235, .78); letter-spacing: .04em; display: none; }
+.life-svg.show-clades .life-label.clade { display: block; }
 .life-dot.node { filter: none; opacity: .9; }
 .life-card { position: absolute; right: 34px; top: 150px; width: 320px; max-height: calc(100% - 300px); overflow: auto; padding: 18px 20px 16px; background: rgba(8, 14, 28, .94); border: 1px solid var(--panel-border); border-radius: 16px; z-index: 3; box-shadow: 0 20px 60px rgba(0,0,0,.5); animation: fadeUp .35s ease; }
 .life-card[hidden] { display: none; }

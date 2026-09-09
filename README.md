@@ -4,12 +4,11 @@
 
 | 站点 | 地址 |
 |---|---|
-| 个人主页 | https://rory-sun.github.io/ |
-| 地球纪元 | https://rory-sun.github.io/earth/ |
-| 资料来源与科学说明 | https://rory-sun.github.io/sources/ |
-| 溪畔秋日 | https://rory-sun.github.io/blender-designer/?v=3d-final |
+| 地球纪元 | https://rory-sun.github.io/earth-chronicle/ |
+| 资料来源与科学说明 | https://rory-sun.github.io/earth-chronicle/sources/ |
+| 个人主页（独立仓库 `Rory-Sun/Rory-Sun.github.io`） | https://rory-sun.github.io/ |
 
-推送到 `main` 后由 GitHub Actions 自动构建并发布到 GitHub Pages。
+推送到 `main` 后由 GitHub Actions 自动构建并发布到 GitHub Pages（项目站点，子路径 `/earth-chronicle/`）。
 
 一个完全离线运行的交互式三维地球平台：46 亿年的行星演化（大陆漂移、雪球地球、大氧化事件、恐龙灭绝……）与 30 万年的人类迁徙，全部在一个可自由旋转、缩放的逼真地球上呈现。
 
@@ -33,9 +32,9 @@
 
 ## 页面
 
-- `/` 个人主页（`index.html` + `src/site.css` + `src/site.js`）。产品区由 `src/products.js` 数据驱动：新增项目只需加一条记录（标题、描述、标签、海报、链接、可选的页内嵌入地址），页面自动生成展示区块与“研发中”卡片。
-- `/earth/` 地球纪元应用本体。
-- `/sources/` 资料来源与科学说明（影像/数据来源、复原方法的近似性质、免责声明）。
+- `/`（构建后为 `/earth-chronicle/`）地球纪元应用本体（`index.html` + `src/`）。
+- `/sources/` 资料来源与科学说明。
+- 个人主页已拆分到独立仓库 `Rory-Sun/Rory-Sun.github.io`，通过 iframe 嵌入本应用（`?embed=1`）。
 
 ## 目录结构
 
@@ -96,7 +95,7 @@ npm run blender -- --res 2048 --only albedo,clouds  # 快速预览单张贴图
 
 ### GitHub Pages（当前线上方式）
 
-仓库名为 `Rory-Sun.github.io`，推送到 `main` 后 `.github/workflows/deploy.yml` 自动执行 `npm run build` 并发布 `dist/` 到 https://rory-sun.github.io/ 。「溪畔秋日」由仓库 `Rory-Sun/blender-designer` 的同类工作流发布到 https://rory-sun.github.io/blender-designer/ 。
+推送到 `main` 后 `.github/workflows/deploy.yml` 自动执行 `npm run build` 并发布 `dist/` 到 https://rory-sun.github.io/earth-chronicle/ 。`vite.config.js` 的 `base` 默认即为 `/earth-chronicle/`。
 
 ### 自有服务器
 
@@ -108,6 +107,5 @@ scp -r dist/* root@你的服务器IP:/var/www/earth-chronicle/
 ```
 
 - Nginx 配置样例见 `deploy/nginx.conf`（含缓存、gzip 与 glb/webp 的 MIME 类型）。腾讯云 COS 的「静态网站托管」+ CDN 也可以直接使用，把 `dist/` 上传到存储桶根目录即可。
-- 资源路径是绝对路径（`/earth/`、`/textures/...`），因此必须部署在域名根目录；若要放在子路径，需把 `vite.config.js` 的 `base` 改为对应前缀后重新构建。
-- 发布前请把 `src/products.js` 里「溪畔秋日」的 `url` / `embed`（目前是本机的 `http://127.0.0.1:8765/...`）改成它的公网地址。
+- 构建时通过环境变量指定部署路径：部署到域名根目录用 `VITE_BASE=/ npm run build`（PowerShell：`$env:VITE_BASE='/'; npm run build`），默认为 GitHub Pages 的 `/earth-chronicle/`。
 - 不需要 HTTPS 也能运行（未使用任何需要安全上下文的浏览器 API），但建议配置证书；腾讯云可用免费的 TrustAsia 证书。

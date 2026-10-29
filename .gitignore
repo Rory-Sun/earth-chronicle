@@ -11,3 +11,10 @@ blender/nasa_src/*21600x10800*
 blender/nasa_src/*.tif
 bash.exe.stackdump
 blender/output/shots/
+
+# 故宫沙盘渲染中间产物
+forbidden-city/output/forbidden_city/*.blend
+forbidden-city/output/forbidden_city/preview.png
+forbidden-city/output/forbidden_city/render_log.txt
+
+forbidden-city/textures_cc0/_dl/

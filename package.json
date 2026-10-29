@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "data": "node tools/build-data.mjs",
     "data:quick": "node tools/build-data.mjs --quick",
-    "blender": "\"D:/install/blender/blender.exe\" --background --python blender/build_earth.py"
+    "blender": "\"D:/install/blender/blender.exe\" --background --python blender/build_earth.py",
+    "blender:palace": "\"D:/install/blender/blender.exe\" --background --python forbidden-city/build_forbidden_city.py -- --samples 128 --save",
+    "blender:palace:preview": "\"D:/install/blender/blender.exe\" --background --python forbidden-city/build_forbidden_city.py -- --pct 40 --samples 16 --out forbidden-city/output/forbidden_city/preview.png"
   },
   "keywords": [],
   "author": "",

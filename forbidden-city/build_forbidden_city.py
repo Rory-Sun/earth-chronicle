@@ -20,7 +20,7 @@ def arg(name, default):
 PCT = int(arg("--pct", 100))
 SAMPLES = int(arg("--samples", 128))
 HERE = os.path.dirname(os.path.abspath(__file__))
-TEX_DIR = os.path.join(HERE, "textures_cc0")   # ambientCG CC0 贴图，见该目录 README.md
+TEX_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "textures_cc0"))   # ambientCG CC0 贴图（各沙盘共用），见该目录 README.md
 OUT = os.path.abspath(arg("--out", os.path.join(HERE, "output", "forbidden_city", "forbidden_city.png")))
 SAVE_BLEND = "--save" in argv
 random.seed(11)

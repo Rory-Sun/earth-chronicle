@@ -9,7 +9,7 @@ Cycles 渲染成图。
 | 路径 | 内容 |
 |---|---|
 | `build_forbidden_city.py` | 唯一的脚本：建模、材质、灯光、相机、渲染 |
-| `textures_cc0/` | ambientCG 的 CC0 贴图（来源见其中 `README.md`，`_dl/` 下载缓存不入库） |
+| `../assets/textures_cc0/` | ambientCG 的 CC0 贴图，各沙盘共用（来源见其中 `README.md`，`_dl/` 下载缓存不入库） |
 | `output/forbidden_city/forbidden_city.png` | 正式成图（2048×1792，128 spp） |
 | `output/forbidden_city/forbidden_city.blend` | 工程文件（不入库） |
 

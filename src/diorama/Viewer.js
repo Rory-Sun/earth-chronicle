@@ -309,7 +309,7 @@ export async function startDiorama(id, ui) {
     frames++; fpsT += dt;
     if (fpsT < 3) return;
     const fps = frames / fpsT; frames = 0; fpsT = 0; checks++;
-    if (checks > 4) return;
+    if (checks === 1 || checks > 5) return;   // 第一段 3 秒是热身（着色器编译、贴图上传），不作判定
     if (fps < 24 && tier === 'high') setTier('mid');
     else if (fps < 20 && tier === 'mid') setTier('low');
     else if (fps > 56 && tier === 'mid' && checks <= 2) setTier('high');

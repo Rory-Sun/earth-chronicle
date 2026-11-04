@@ -1,0 +1,101 @@
+{
+ "tree_0": {
+  "kind": "tree",
+  "idx": 0,
+  "src": "island_tree_01/island_tree_01_LOD1",
+  "front_h": 1.9553,
+  "front_w": 0.9776,
+  "top": 1.0064,
+  "width": 0.9585
+ },
+ "tree_1": {
+  "kind": "tree",
+  "idx": 1,
+  "src": "island_tree_02/island_tree_02_LOD1",
+  "front_h": 2.5097,
+  "front_w": 1.2548,
+  "top": 1.2917,
+  "width": 1.2302
+ },
+ "tree_2": {
+  "kind": "tree",
+  "idx": 2,
+  "src": "island_tree_03/island_tree_03_LOD1",
+  "front_h": 2.3182,
+  "front_w": 1.1591,
+  "top": 1.1932,
+  "width": 1.1364
+ },
+ "willow_0": {
+  "kind": "willow",
+  "idx": 0,
+  "src": "tree_small_02/tree_small_02_LOD1",
+  "front_h": 1.9187,
+  "front_w": 0.9594,
+  "top": 0.9876,
+  "width": 0.9405
+ },
+ "pine_0": {
+  "kind": "pine",
+  "idx": 0,
+  "src": "fir_sapling_medium/fir_sapling_medium_a_LOD1",
+  "front_h": 1.2252,
+  "front_w": 0.6126,
+  "top": 0.6306,
+  "width": 0.6006
+ },
+ "pine_1": {
+  "kind": "pine",
+  "idx": 1,
+  "src": "fir_sapling_medium/fir_sapling_medium_b_LOD1",
+  "front_h": 1.3986,
+  "front_w": 0.6993,
+  "top": 0.7199,
+  "width": 0.6856
+ },
+ "pine_2": {
+  "kind": "pine",
+  "idx": 2,
+  "src": "fir_sapling_medium/fir_sapling_medium_c_LOD1",
+  "front_h": 1.4831,
+  "front_w": 0.7415,
+  "top": 0.7633,
+  "width": 0.727
+ },
+ "bush_0": {
+  "kind": "bush",
+  "idx": 0,
+  "src": "shrub_01/shrub_01_a_LOD1",
+  "front_h": 1.266,
+  "front_w": 0.633,
+  "top": 0.6516,
+  "width": 0.6206
+ },
+ "bush_1": {
+  "kind": "bush",
+  "idx": 1,
+  "src": "shrub_01/shrub_01_b_LOD1",
+  "front_h": 1.1161,
+  "front_w": 0.5581,
+  "top": 0.5745,
+  "width": 0.5471
+ },
+ "bush_2": {
+  "kind": "bush",
+  "idx": 2,
+  "src": "shrub_03/shrub_03_a_LOD1",
+  "front_h": 1.05,
+  "front_w": 0.525,
+  "top": 0.523,
+  "width": 0.4981
+ },
+ "bush_3": {
+  "kind": "bush",
+  "idx": 3,
+  "src": "shrub_03/shrub_03_b_LOD1",
+  "front_h": 1.05,
+  "front_w": 0.525,
+  "top": 0.549,
+  "width": 0.5228
+ }
+}

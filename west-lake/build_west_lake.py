@@ -26,6 +26,8 @@ TEX_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "textures_cc0"))  
 OUT = os.path.abspath(arg("--out", os.path.join(HERE, "output", "west_lake", "west_lake.png")))
 SAVE_BLEND = "--save" in argv
 NOMIST = "--nomist" in argv
+WEB = "--export-glb" in argv          # 网页导出模式：树木只记录实例数据，不加载模型
+PLANTS = []                           # [kind, variant, x, y, z, height, rot]
 random.seed(7)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -257,7 +259,7 @@ _n1 = noise(nt, 0.35, 3.0)
 _lawn_tint = ramp(nt, [(0.3, (0.78, 0.90, 0.55)), (0.7, (1.08, 1.05, 0.82))])
 nt.links.new(_n1.outputs["Fac"], _lawn_tint.inputs["Fac"])
 _grass_col = mul_color(nt, _gc.outputs["Color"], _lawn_tint.outputs["Color"])
-_hr = ramp(nt, [(0.0, (0.15, 0.33, 0.16)), (0.4, (0.17, 0.40, 0.27)), (1.0, (0.19, 0.38, 0.28))])
+_hr = ramp(nt, [(0.0, (0.14, 0.32, 0.15)), (0.4, (0.13, 0.31, 0.17)), (1.0, (0.14, 0.30, 0.18))])
 nt.links.new(map_range(nt, _sep.outputs["Z"], 0.0, 1.0, 1.5, 22.0), _hr.inputs["Fac"])
 _mn = noise(nt, 0.25, 5.0)
 _mount_col = mul_color(nt, _hr.outputs["Color"], map_range(nt, _mn.outputs["Fac"], 0.72, 1.22))
@@ -287,7 +289,7 @@ _bd = tex_node(nt, "Grass004", "Displacement", 0.6, 'Object')
 tex_bump(nt, _bd, 0.5, 0.08)
 
 # 湖水：透射 + 多层波纹；阴影光线按透明处理（否则湖底一片死黑）
-WATER = principled("LakeWater", (0.55, 0.85, 0.72), rough=0.02, spec=0.6, bevel=0)
+WATER = principled("LakeWater", (0.42, 0.74, 0.62), rough=0.02, spec=0.6, bevel=0)
 nt = WATER.node_tree
 _p = nt.nodes["Principled BSDF"]
 if "Transmission Weight" in _p.inputs:
@@ -340,9 +342,11 @@ nt.links.new(_cr.outputs["Distance"], _crr.inputs["Fac"])
 _cb = bump_node(nt, _crr.outputs["Color"], 0.8, 0.8)
 tex_bump(nt, _d, 1.2, 0.5, prev_normal=_cb.outputs["Normal"])
 # 远景空气透视：按视距把表面向雾色混合（只对相机光线生效，比体积雾便宜得多）
-def add_fog(mat, near=240.0, far=470.0, maxf=0.25, color=(0.84, 0.92, 0.96)):
+def add_fog(mat, near=250.0, far=480.0, maxf=0.12, color=(0.84, 0.92, 0.96)):
     nt = mat.node_tree
-    out = nt.nodes["Material Output"]
+    out = next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL' and n.is_active_output), None) or nt.nodes.get("Material Output")
+    if out is None:
+        return
     link = next((l for l in nt.links if l.to_node == out and l.to_socket.name == "Surface"), None)
     if link is None:
         return
@@ -838,16 +842,104 @@ def mesh_bush():
         b.add(v, f, LEAF)
     return b.build(smooth=True)
 
-VARIANTS = {}
+# 树木模型库：Poly Haven CC0 扫描模型（assets/polyhaven/models/，见 README），按种类归一化高度后实例化
+VARIANTS = {}      # kind -> [(mesh, height, zmin)]
+TREE_H = {"tree": 1.6, "willow": 1.45, "pine": 2.2, "peach": 1.1, "bush": 0.42}
+PH_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "polyhaven", "models"))
+LIB_TREES = {
+    "tree": [("island_tree_01", "island_tree_01_LOD1"), ("island_tree_02", "island_tree_02_LOD1"), ("island_tree_03", "island_tree_03_LOD1")],
+    "willow": [("tree_small_02", "tree_small_02_LOD1")],
+    "pine": [("fir_sapling_medium", "fir_sapling_medium_a_LOD1"), ("fir_sapling_medium", "fir_sapling_medium_b_LOD1"),
+             ("fir_sapling_medium", "fir_sapling_medium_c_LOD1")],
+    "peach": [("tree_small_02", "tree_small_02_LOD1")],
+    "bush": [("shrub_01", "shrub_01_a_LOD1"), ("shrub_01", "shrub_01_b_LOD1"), ("shrub_03", "shrub_03_a_LOD1"), ("shrub_03", "shrub_03_b_LOD1")],
+}
+_LOADED = {}
+def load_lib_mesh(file, obname):
+    key = (file, obname)
+    if key in _LOADED:
+        return _LOADED[key]
+    path = os.path.join(PH_DIR, file, file + ".blend")
+    with bpy.data.libraries.load(path, link=False) as (src, dst):
+        dst.objects = [obname]
+    ob = dst.objects[0]
+    me = ob.data
+    zs = [v.co.z for v in me.vertices]
+    res = (me, max(zs) - min(zs), min(zs))
+    bpy.data.objects.remove(ob)
+    _LOADED[key] = res
+    return res
+
+def tint_leaf_material(mat, pink=False):
+    """把素材库的叶片材质重建成简单的 Principled：贴图颜色 + alpha 镂空 + 逐棵随机色相/明度。
+    原材质带半透明叠加（Translucent/节点组），大片 LOD 叶片卡在阳光下会发白。"""
+    nt = mat.node_tree
+    imgs = [n for n in nt.nodes if n.type == 'TEX_IMAGE' and n.image]
+    diff = next((n for n in imgs if 'diff' in n.image.name.lower()), None)
+    alpha = next((n for n in imgs if 'alpha' in n.image.name.lower() or 'mask' in n.image.name.lower()), None)
+    if diff is None:
+        return
+    diff.image.colorspace_settings.name = 'sRGB'
+    if alpha is not None:
+        alpha.image.colorspace_settings.name = 'Non-Color'
+    out = next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL' and n.is_active_output), None) \
+        or next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL'), None) or nt.nodes.new("ShaderNodeOutputMaterial")
+    for l in [l for l in nt.links if l.to_node == out]:
+        nt.links.remove(l)
+    p = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    p.inputs["Roughness"].default_value = 0.8
+    if "Specular IOR Level" in p.inputs:
+        p.inputs["Specular IOR Level"].default_value = 0.25
+    oi = nt.nodes.new("ShaderNodeObjectInfo")
+    hs = nt.nodes.new("ShaderNodeHueSaturation")
+    nt.links.new(map_range(nt, oi.outputs["Random"], 0.47, 0.53), hs.inputs["Hue"])
+    nt.links.new(map_range(nt, oi.outputs["Random"], 0.9, 1.25), hs.inputs["Value"])
+    nt.links.new(diff.outputs["Color"], hs.inputs["Color"])
+    col = hs.outputs["Color"]
+    # 扫描贴图的叶色反照率很低，远景会成一团黑；与明亮的绿色混合后才有阳光下的林冠感
+    if pink:
+        col = mix_rgb(nt, col, rgb(nt, (0.96, 0.62, 0.72)), 0.7, 'MIX')
+    elif 'fir' in mat.name or 'twigs' in mat.name:
+        col = mix_rgb(nt, col, rgb(nt, (0.30, 0.60, 0.20)), 0.65, 'MIX')
+    elif 'tree_small' in mat.name:
+        col = mix_rgb(nt, col, rgb(nt, (0.44, 0.62, 0.22)), 0.55, 'MIX')
+    else:
+        col = mix_rgb(nt, col, rgb(nt, (0.27, 0.54, 0.19)), 0.55, 'MIX')
+    nt.links.new(col, p.inputs["Base Color"])
+    nt.links.new(alpha.outputs["Color"] if alpha is not None else diff.outputs["Alpha"], p.inputs["Alpha"])
+    nt.links.new(p.outputs["BSDF"], out.inputs["Surface"])
+
+def is_leaf_mat(name):
+    n = name.lower()
+    return ('leaves' in n or 'twigs' in n or 'shrub' in n
+            or ('branches' in n and ('island_tree' in n or 'tree_small' in n)))
+
 def make_variants():
-    for kind, fn, n in (("tree", mesh_round_tree, 5), ("willow", mesh_willow, 5), ("pine", mesh_pine, 4),
-                        ("peach", mesh_peach, 3), ("bush", mesh_bush, 3)):
-        meshes = []
-        for _ in range(n):
-            ob = fn()
-            meshes.append(ob.data)
-            bpy.data.objects.remove(ob)
-        VARIANTS[kind] = meshes
+    if WEB:
+        for kind, items in LIB_TREES.items():
+            VARIANTS[kind] = [(None, 1.0, 0.0)] * len(items)
+        return
+    for kind, items in LIB_TREES.items():
+        lst = []
+        for (file, obname) in items:
+            me, h, z0 = load_lib_mesh(file, obname)
+            if kind == "peach":
+                me = me.copy()
+                for i, m in enumerate(me.materials):
+                    if m and is_leaf_mat(m.name):
+                        m2 = m.copy(); tint_leaf_material(m2, pink=True); me.materials[i] = m2
+            lst.append((me, h, z0))
+        VARIANTS[kind] = lst
+    done = set()
+    for kind, lst in VARIANTS.items():
+        for (me, h, z0) in lst:
+            for m in me.materials:
+                if m and m.name not in done:
+                    done.add(m.name)
+                    if kind != "peach" and is_leaf_mat(m.name):
+                        tint_leaf_material(m)
+                    add_fog(m)
+    print("[wl] tree library:", {k: [(round(h, 2)) for (_, h, _) in v] for k, v in VARIANTS.items()})
 
 N_PLANTS = 0
 def plant(kind, x, y, s=1.0, z=None):
@@ -856,10 +948,16 @@ def plant(kind, x, y, s=1.0, z=None):
         return None
     if z is None:
         z = ground(x, y) - 0.03
-    me = random.choice(VARIANTS[kind])
+    if WEB:
+        hh = s * TREE_H[kind] * random.uniform(0.9, 1.1)
+        PLANTS.append([kind, random.randrange(len(LIB_TREES[kind])), round(x, 2), round(y, 2), round(z + 0.03, 2), round(hh, 2), round(random.uniform(0, 6.28), 2)])
+        N_PLANTS += 1
+        return None
+    me, h, z0 = random.choice(VARIANTS[kind])
+    k = s * TREE_H[kind] / h
     ob = bpy.data.objects.new(kind, me)
-    ob.location = (x, y, z)
-    ob.scale = (s * random.uniform(0.92, 1.08), s * random.uniform(0.92, 1.08), s)
+    ob.scale = (k * random.uniform(0.9, 1.1), k * random.uniform(0.9, 1.1), k)
+    ob.location = (x, y, z - z0 * k)
     ob.rotation_euler = (0, 0, random.uniform(0, 6.28))
     COL.objects.link(ob)
     N_PLANTS += 1
@@ -1349,13 +1447,13 @@ def build_scene():
                     slope = math.hypot(zx, zy) / 1.2
                     dens = 0.85 + 0.3 * (fbm(xx * 0.1 + 2, yy * 0.1 + 4, 3) - 0.5)
                     if slope < 2.2 and random.random() < dens:
-                        kind = "pine" if (z > 4 or random.random() < 0.5) else "tree"
+                        kind = "pine" if (z > 6 or random.random() < 0.55) else "tree"
                         plant(kind, xx, yy, random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85))
                         cnt += 1
-            x += 0.8
-        y += 0.8
+            x += 0.9
+        y += 0.9
     # 平地散树
-    for i in range(900):
+    for i in range(1600):
         x, y = random.uniform(x0, x1), random.uniform(y0, y1)
         rho, _, _ = isl_rho(x, y)
         if rho > 0.98 or blocked(x, y):
@@ -1363,6 +1461,14 @@ def build_scene():
         z, k = terrain(x, y)
         if k == 'land' and z < 1.0 and lake_depth(x, y) < -2 and random.random() < 0.6:
             plant(random.choice(["tree", "willow", "bush"]), x, y, random.uniform(1.2, 1.7))
+    # 岸边与平地灌木
+    for i in range(2500):
+        x, y = random.uniform(x0, x1), random.uniform(y0, y1)
+        if isl_rho(x, y)[0] > 0.97 or blocked(x, y):
+            continue
+        z, k = terrain(x, y)
+        if k == 'land' and z < 2.5 and -14 < lake_depth(x, y) < -0.8 and random.random() < 0.7:
+            plant("bush", x, y, random.uniform(0.9, 1.6))
     print(f"[wl] hill trees={cnt}, plants total={N_PLANTS}")
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 雾 / 背景
@@ -1391,16 +1497,16 @@ def setup_camera_lights():
 
     # 晨光：东北偏东、仰角 26°，偏暖
     sun_data = bpy.data.lights.new("Sun", 'SUN')
-    sun_data.energy = 3.2
+    sun_data.energy = 4.0
     sun_data.color = (1.0, 0.90, 0.76)
     sun_data.angle = math.radians(2.5)
     sun = bpy.data.objects.new("Sun", sun_data)
     COL.objects.link(sun)
-    sun.rotation_euler = mathutils.Euler((math.radians(66), 0, math.radians(118)), 'XYZ')
+    sun.rotation_euler = mathutils.Euler((math.radians(58), 0, math.radians(118)), 'XYZ')
     if "--sunonly" in argv:
         sun_data.energy = 1.6
     fill_data = bpy.data.lights.new("Fill", 'AREA')
-    fill_data.energy = 400
+    fill_data.energy = 250
     fill_data.size = 220
     fill_data.color = (0.78, 0.88, 1.0)
     fill = bpy.data.objects.new("Fill", fill_data)
@@ -1414,9 +1520,27 @@ def setup_camera_lights():
     world = bpy.data.worlds.new("World")
     scene.world = world
     world.use_nodes = True
-    bg = world.node_tree.nodes["Background"]
-    bg.inputs["Color"].default_value = (0.80, 0.87, 0.95, 1)
-    bg.inputs["Strength"].default_value = 0.03 if "--sunonly" in argv else 0.2
+    wnt = world.node_tree
+    bg = wnt.nodes["Background"]
+    hdr = os.path.normpath(os.path.join(HERE, "..", "assets", "polyhaven", "hdris", "kloppenheim_06_puresky_2k.hdr"))
+    if os.path.exists(hdr) and "--nohdri" not in argv:
+        # HDRI 天空提供环境光与水面倒影；把 HDRI 里的太阳转到主光方向（东北偏东，方位 28°）
+        img = bpy.data.images.load(hdr, check_existing=True)
+        u = hdri_sun_u(img)
+        rot = (360.0 * u - 28.0) if u is not None else 0.0
+        env = wnt.nodes.new("ShaderNodeTexEnvironment")
+        env.image = img
+        wtc = wnt.nodes.new("ShaderNodeTexCoord")
+        wmp = wnt.nodes.new("ShaderNodeMapping")
+        wmp.inputs["Rotation"].default_value = (0, 0, math.radians(rot))
+        wnt.links.new(wtc.outputs["Generated"], wmp.inputs["Vector"])
+        wnt.links.new(wmp.outputs["Vector"], env.inputs["Vector"])
+        wnt.links.new(env.outputs["Color"], bg.inputs["Color"])
+        bg.inputs["Strength"].default_value = 0.03 if "--sunonly" in argv else 0.25
+        print(f"[wl] hdri sun u={u} rot={rot:.1f}")
+    else:
+        bg.inputs["Color"].default_value = (0.80, 0.87, 0.95, 1)
+        bg.inputs["Strength"].default_value = 0.03 if "--sunonly" in argv else 0.2
 
     # 纯净背景：只对相机可见的自发光背板（冷调浅灰绿渐变）
     bd = principled("Backdrop", (1, 1, 1), rough=1.0, bevel=0)
@@ -1444,9 +1568,22 @@ def setup_camera_lights():
     view_dir = (mathutils.Vector(target) - cam.location).normalized()
     plane.location = cam.location + view_dir * 800.0
     plane.rotation_euler = view_dir.to_track_quat('Z', 'Y').to_euler()
-    for attr in ("visible_diffuse", "visible_transmission", "visible_volume_scatter", "visible_shadow"):   # 背板对反射可见：湖面映出明亮天光
+    for attr in ("visible_diffuse", "visible_glossy", "visible_transmission", "visible_volume_scatter", "visible_shadow"):   # 倒影由 HDRI 天空提供
         if hasattr(plane, attr):
             setattr(plane, attr, False)
+
+def hdri_sun_u(img):
+    """在等距柱状 HDRI 里找最亮像素的 u 坐标（0..1），用于对齐太阳方位。"""
+    try:
+        import numpy as np
+        w, h = img.size
+        px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
+        lum = px[:, :, 0] * 0.3 + px[:, :, 1] * 0.59 + px[:, :, 2] * 0.11
+        j, i = np.unravel_index(int(np.argmax(lum)), lum.shape)
+        return i / w
+    except Exception as e:
+        print("[wl] hdri sun search failed:", e)
+        return None
 
 def volume_box(name, x0, y0, z0, x1, y1, z1, density, color, aniso, gradient=None, noise_scale=0.0):
     m = bpy.data.materials.new(name)
@@ -1510,6 +1647,7 @@ def setup_render():
     scene.cycles.volume_bounces = 0
     scene.cycles.volume_step_rate = 4.0
     scene.cycles.volume_max_steps = 48
+    scene.cycles.transparent_max_bounces = 48   # 密林里 alpha 叶片层数多，太低会把树冠和树下算成黑色
     scene.cycles.caustics_reflective = False
     scene.cycles.caustics_refractive = False
     scene.render.resolution_x = 2048
@@ -1520,9 +1658,9 @@ def setup_render():
     scene.render.filepath = OUT
     scene.render.use_persistent_data = True
     vs = scene.view_settings
-    vs.view_transform = 'Standard'
+    vs.view_transform = 'Standard'   # AgX/Filmic 会把浅色背景板压灰、绿色变闷
     vs.look = 'None'
-    vs.exposure = 0.15
+    vs.exposure = 0.1
     vs.gamma = 1.0
     scene.render.filter_size = 1.6
     scene.render.film_transparent = False
@@ -1538,12 +1676,39 @@ def setup_render():
 t0 = time.time()
 build_scene()
 setup_camera_lights()
-setup_mist()
-setup_render()
 print(f"[wl] scene built in {time.time() - t0:.1f}s, objects={len(COL.objects)}")
-os.makedirs(os.path.dirname(OUT), exist_ok=True)
-if SAVE_BLEND:
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.splitext(OUT)[0] + ".blend")
-t1 = time.time()
-bpy.ops.render.render(write_still=True)
-print(f"[wl] rendered {OUT} in {time.time() - t1:.1f}s ({PCT}% / {SAMPLES} spp)")
+if WEB:
+    # 网页版：导出 glb + scene.json（见 tools/diorama_export.py）；树木为实例数据，网页里用卡片树
+    sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "tools")))
+    import diorama_export as de
+    def _vcol(mn, ob, co, nrm):
+        if mn not in ("Terrain", "LakeBed", "EarthCut"):
+            return None
+        if co is None:
+            return (1, 1, 1)
+        if mn == "EarthCut":
+            return de.strata(co.z)
+        if mn == "LakeBed":
+            return de.ramp([(0.0, (0.05, 0.20, 0.15)), (0.6, (0.20, 0.42, 0.28)), (1.0, (0.60, 0.60, 0.44))], (co.z + 1.8) / 1.7)
+        f = de.smooth01((co.z - 0.9) / 2.5)
+        hi = (0.42, 0.50, 0.40) if nrm.z < 0.45 else (0.45, 0.62, 0.42)
+        lo = (1.0, 1.0, 0.85)
+        return tuple(lo[i] + (hi[i] - lo[i]) * f for i in range(3))
+    de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "LakeMist"}, _vcol, uv_scale=1.0, extra={
+        "title": "杭州西湖", "unit_m": 25,
+        "camera": {"target": [-5, 2, -4], "az": 34, "dist": 300, "pitch": 35, "lens": 45, "min_dist": 80, "max_dist": 600},
+        "sun": {"euler_deg": [58, 0, 118], "color": [1.0, 0.90, 0.76], "strength": 4.0},
+        "backdrop": [[0.84, 0.89, 0.89], [0.93, 0.95, 0.94]],
+        "water": ["LakeWater"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.84, 0.92, 0.96],
+        "hdri": "kloppenheim_06_puresky_1k.hdr",
+        "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()}})
+    print(f"[wl] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}")
+else:
+    setup_mist()
+    setup_render()
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    if SAVE_BLEND:
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.splitext(OUT)[0] + ".blend")
+    t1 = time.time()
+    bpy.ops.render.render(write_still=True)
+    print(f"[wl] rendered {OUT} in {time.time() - t1:.1f}s ({PCT}% / {SAMPLES} spp)")

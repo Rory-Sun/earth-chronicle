@@ -1149,11 +1149,32 @@ outside_greenery()
 for (x, y, s, z0) in TREES:
     tree_obj(x, y, s, z0)
 setup_camera_lights()
-setup_render()
 print(f"[fc] scene built in {time.time() - t0:.1f}s, objects={len(COL.objects)}, trees={len(TREES)}")
-os.makedirs(os.path.dirname(OUT), exist_ok=True)
-if SAVE_BLEND:
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.splitext(OUT)[0] + ".blend")
-t1 = time.time()
-bpy.ops.render.render(write_still=True)
-print(f"[fc] rendered {OUT} in {time.time() - t1:.1f}s ({PCT}% / {SAMPLES} spp)")
+if "--export-glb" in argv:
+    # 网页版：导出 glb + scene.json（见 tools/diorama_export.py），不渲染
+    sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "tools")))
+    import diorama_export as de
+    def _vcol(mn, ob, co, nrm):
+        if mn == "EarthCut":
+            return de.strata(co.z) if co is not None else (1, 1, 1)
+        if mn == "Leaf":
+            if co is None:
+                return (1, 1, 1)
+            k = random.Random(ob.name).random()
+            return tuple(a + (b - a) * k for a, b in zip((0.08, 0.24, 0.07), (0.34, 0.48, 0.14)))
+        return None
+    de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop"}, _vcol, uv_scale=1.0, extra={
+        "title": "北京故宫", "unit_m": 10,
+        "camera": {"target": [0, 0, -8], "az": 33, "dist": 212, "pitch": 37, "lens": 48, "min_dist": 60, "max_dist": 420},
+        "sun": {"euler_deg": [58, 0, 312], "color": [1.0, 0.91, 0.76], "strength": 2.5},
+        "backdrop": [[0.90, 0.85, 0.72], [0.94, 0.90, 0.79]],
+        "water": ["Water"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.90, 0.87, 0.78]})
+    print(f"[fc] web export done in {time.time() - t0:.1f}s")
+else:
+    setup_render()
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    if SAVE_BLEND:
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.splitext(OUT)[0] + ".blend")
+    t1 = time.time()
+    bpy.ops.render.render(write_still=True)
+    print(f"[fc] rendered {OUT} in {time.time() - t1:.1f}s ({PCT}% / {SAMPLES} spp)")

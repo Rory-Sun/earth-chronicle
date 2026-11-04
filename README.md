@@ -6,6 +6,8 @@
 |---|---|
 | 地球纪元 | https://rory-sun.github.io/earth-chronicle/ |
 | 资料来源与科学说明 | https://rory-sun.github.io/earth-chronicle/sources/ |
+| 故宫微缩沙盘（3D 可旋转） | https://rory-sun.github.io/earth-chronicle/dioramas/forbidden-city/ |
+| 西湖微缩沙盘（3D 可旋转） | https://rory-sun.github.io/earth-chronicle/dioramas/west-lake/ |
 | 个人主页（独立仓库 `Rory-Sun/Rory-Sun.github.io`） | https://rory-sun.github.io/ |
 
 推送到 `main` 后由 GitHub Actions 自动构建并发布到 GitHub Pages（项目站点，子路径 `/earth-chronicle/`）。
@@ -117,3 +119,16 @@ scp -r dist/* root@你的服务器IP:/var/www/earth-chronicle/
 - Nginx 配置样例见 `deploy/nginx.conf`（含缓存、gzip 与 glb/webp 的 MIME 类型）。腾讯云 COS 的「静态网站托管」+ CDN 也可以直接使用，把 `dist/` 上传到存储桶根目录即可。
 - 构建时通过环境变量指定部署路径：部署到域名根目录用 `VITE_BASE=/ npm run build`（PowerShell：`$env:VITE_BASE='/'; npm run build`），默认为 GitHub Pages 的 `/earth-chronicle/`。
 - 不需要 HTTPS 也能运行（未使用任何需要安全上下文的浏览器 API），但建议配置证书；腾讯云可用免费的 TrustAsia 证书。
+
+## 微缩沙盘（故宫 / 西湖）
+
+两座用 Blender 过程化生成的微缩沙盘，各有一张 Cycles 成品图（`forbidden-city/`、`west-lake/`）和一个可自由旋转、缩放的
+Three.js 网页版（`dioramas/`）。网页版由同一套 Blender 脚本以 `--export-glb` 导出（`tools/diorama_export.py`：盒式 UV、
+按高度烘焙顶点色、材质清理、Draco 压缩），贴图按材质名在网页里映射回 CC0 素材；西湖的八千多棵树在网页里是预渲染的
+"卡片树"（`tools/diorama_impostors.py`），湖面为实时反射，天光来自 HDRI，并按帧率自动调节画质。
+
+```bash
+npm run blender:trees:web      # 渲染卡片树贴图 → public/dioramas/trees/（需 assets/polyhaven 素材）
+npm run blender:palace:web     # 导出故宫 → public/dioramas/forbidden-city/
+npm run blender:westlake:web   # 导出西湖 → public/dioramas/west-lake/
+```

@@ -26,3 +26,14 @@ west-lake/output/west_lake/preview.png
 west-lake/output/west_lake/render_log.txt
 west-lake/output/west_lake/render_err.txt
 west-lake/output/west_lake/west_lake_v*.png
+
+# Poly Haven 素材（CC0，体积大，按 assets/polyhaven/README.md 重新下载）
+assets/polyhaven/models/
+assets/polyhaven/hdris/
+
+# 网页导出日志
+forbidden-city/output/forbidden_city/export_log.txt
+forbidden-city/output/forbidden_city/export_err.txt
+west-lake/output/west_lake/export_log.txt
+west-lake/output/west_lake/export_err.txt
+__pycache__/

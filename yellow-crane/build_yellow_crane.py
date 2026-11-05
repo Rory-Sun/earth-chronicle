@@ -1878,7 +1878,7 @@ def setup_render():
     scene.cycles.volume_bounces = 0
     scene.cycles.volume_step_rate = 4.0
     scene.cycles.volume_max_steps = 48
-    scene.cycles.transparent_max_bounces = 48   # 密林里 alpha 叶片层数多，太低会把树冠和树下算成黑色
+    scene.cycles.transparent_max_bounces = 24   # 密林里 alpha 叶片层数多，太低会把树冠和树下算成黑色
     scene.cycles.caustics_reflective = False
     scene.cycles.caustics_refractive = False
     scene.render.resolution_x = 2048

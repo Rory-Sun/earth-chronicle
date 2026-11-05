@@ -45,3 +45,4 @@ yellow-crane/output/yellow_crane/preview*.png
 yellow-crane/output/yellow_crane/render_log.txt
 yellow-crane/output/yellow_crane/export_log.txt
 yellow-crane/output/yellow_crane/yellow_crane_v*.png
+forbidden-city/output/forbidden_city/*.blend1

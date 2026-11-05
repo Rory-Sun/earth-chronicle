@@ -738,7 +738,7 @@ def tree_obj(x, y, s=1.0, z0=FLOOR):
     return b.build(smooth=True)
 
 def bush(b, x, y, s=0.5, z0=FLOOR):
-    plant("bush", x, y, s * 1.6, z=z0)
+    plant("bush", x, y, s * 2.4, z=z0)
 
 def tree_patch(x0, y0, x1, y1, n, s=(0.8, 1.2), z0=FLOOR):
     for _ in range(n):
@@ -849,14 +849,14 @@ def jingshan():
     hall(b, 0, Y0 + 2.2, 2.6, 1.2, 0.8, plat_h=0.2, plat_pad=0.3, roof_h=0.75, z0=0.0)
     b.build()
     n = 0
-    while n < 110:
+    while n < 240:
         x, y = random.uniform(X0, X1), random.uniform(Y0, Y1)
         z = hill_z(x, y)
         if z < 0.05 and random.random() < 0.6:
             continue
         if any(abs(x - (HILL_C[0] + px)) < 1.8 and abs(y - HILL_C[1]) < 1.8 for (px, H) in peaks):
             continue
-        TREES.append((x, y, random.uniform(0.6, 1.0), z + 0.1))
+        TREES.append((x, y, random.uniform(0.7, 1.1), z + 0.1))
         n += 1
 
 def ground():
@@ -1140,13 +1140,13 @@ def outside_greenery():
             return False
         return True
     n = 0
-    while n < 260:
+    while n < 420:
         x, y = random.uniform(x0 + 1.0, x1 - 1.0), random.uniform(y0 + 1.0, y1 - 1.0)
         if not ok(x, y):
             continue
         TREES.append((x, y, random.uniform(0.75, 1.3), 0.0))
         n += 1
-    for _ in range(160):
+    for _ in range(240):
         x, y = random.uniform(x0 + 0.6, x1 - 0.6), random.uniform(y0 + 0.6, y1 - 0.6)
         if ok(x, y):
             bush(b, x, y, random.uniform(0.5, 0.9), z0=0.0)
@@ -1291,7 +1291,7 @@ wings()
 jingshan()
 outside_greenery()
 for (x, y, s, z0) in TREES:
-    plant(tree_kind(x, y, z0), x, y, s, z=z0)
+    plant(tree_kind(x, y, z0), x, y, s * 1.8, z=z0)   # 扫描树木按高度归一化，比原来的球体树冠瘦，放大一些才读得出
 setup_camera_lights()
 print(f"[fc] scene built in {time.time() - t0:.1f}s, objects={len(COL.objects)}, trees={len(TREES)}")
 if "--export-glb" in argv:

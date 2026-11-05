@@ -215,6 +215,11 @@ TRUNK = principled("Trunk", (0.22, 0.14, 0.08), rough=0.9)
 BOAT_WOOD = principled("BoatWood", (0.36, 0.22, 0.12), rough=0.5, coat=0.2)
 BOAT_DECK = principled("BoatDeck", (0.58, 0.46, 0.30), rough=0.6)
 BOAT_RED = principled("BoatRed", (0.55, 0.14, 0.10), rough=0.5, coat=0.2)
+ASPHALT = principled("Asphalt", (0.30, 0.30, 0.29), rough=0.95)
+CONCRETE = principled("Concrete", (0.62, 0.62, 0.60), rough=0.85)
+GLASS = principled("Glass", (0.30, 0.40, 0.50), rough=0.15, metal=0.6, spec=0.8)
+FACADE = noise_mix(principled("Facade", (0.78, 0.76, 0.72), rough=0.7), (0.70, 0.68, 0.64), (0.86, 0.84, 0.80), 6.0)
+FACADE2 = principled("Facade2", (0.86, 0.80, 0.68), rough=0.7)
 
 LEAF = leaf_material("Leaf", (0.13, 0.33, 0.12), (0.30, 0.48, 0.18), sss=0)
 WILLOW = leaf_material("WillowLeaf", (0.38, 0.55, 0.19), (0.58, 0.70, 0.30), sss=0)
@@ -844,7 +849,7 @@ def mesh_bush():
 
 # 树木模型库：Poly Haven CC0 扫描模型（assets/polyhaven/models/，见 README），按种类归一化高度后实例化
 VARIANTS = {}      # kind -> [(mesh, height, zmin)]
-TREE_H = {"tree": 1.6, "willow": 1.45, "pine": 2.2, "peach": 1.1, "bush": 0.42}
+TREE_H = {"tree": 1.6, "willow": 1.45, "pine": 2.2, "peach": 1.1, "bush": 0.42, "maple": 1.4, "ginkgo": 1.6}
 PH_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "polyhaven", "models"))
 LIB_TREES = {
     "tree": [("island_tree_01", "island_tree_01_LOD1"), ("island_tree_02", "island_tree_02_LOD1"), ("island_tree_03", "island_tree_03_LOD1")],
@@ -853,7 +858,10 @@ LIB_TREES = {
              ("fir_sapling_medium", "fir_sapling_medium_c_LOD1")],
     "peach": [("tree_small_02", "tree_small_02_LOD1")],
     "bush": [("shrub_01", "shrub_01_a_LOD1"), ("shrub_01", "shrub_01_b_LOD1"), ("shrub_03", "shrub_03_a_LOD1"), ("shrub_03", "shrub_03_b_LOD1")],
+    "maple": [("island_tree_02", "island_tree_02_LOD1"), ("island_tree_03", "island_tree_03_LOD1")],
+    "ginkgo": [("island_tree_01", "island_tree_01_LOD1"), ("island_tree_02", "island_tree_02_LOD1")],
 }
+TINTS = {"peach": ((0.96, 0.62, 0.72), 0.7), "maple": ((0.74, 0.16, 0.08), 0.78), "ginkgo": ((0.96, 0.72, 0.16), 0.8)}
 _LOADED = {}
 def load_lib_mesh(file, obname):
     key = (file, obname)
@@ -870,7 +878,7 @@ def load_lib_mesh(file, obname):
     _LOADED[key] = res
     return res
 
-def tint_leaf_material(mat, pink=False):
+def tint_leaf_material(mat, pink=False, tint=None):
     """把素材库的叶片材质重建成简单的 Principled：贴图颜色 + alpha 镂空 + 逐棵随机色相/明度。
     原材质带半透明叠加（Translucent/节点组），大片 LOD 叶片卡在阳光下会发白。"""
     nt = mat.node_tree
@@ -897,7 +905,9 @@ def tint_leaf_material(mat, pink=False):
     nt.links.new(diff.outputs["Color"], hs.inputs["Color"])
     col = hs.outputs["Color"]
     # 扫描贴图的叶色反照率很低，远景会成一团黑；与明亮的绿色混合后才有阳光下的林冠感
-    if pink:
+    if tint is not None:
+        col = mix_rgb(nt, col, rgb(nt, tint[0]), tint[1], 'MIX')
+    elif pink:
         col = mix_rgb(nt, col, rgb(nt, (0.96, 0.62, 0.72)), 0.7, 'MIX')
     elif 'fir' in mat.name or 'twigs' in mat.name:
         col = mix_rgb(nt, col, rgb(nt, (0.30, 0.60, 0.20)), 0.65, 'MIX')
@@ -923,11 +933,11 @@ def make_variants():
         lst = []
         for (file, obname) in items:
             me, h, z0 = load_lib_mesh(file, obname)
-            if kind == "peach":
+            if kind in TINTS:
                 me = me.copy()
                 for i, m in enumerate(me.materials):
                     if m and is_leaf_mat(m.name):
-                        m2 = m.copy(); tint_leaf_material(m2, pink=True); me.materials[i] = m2
+                        m2 = m.copy(); tint_leaf_material(m2, tint=TINTS[kind]); add_fog(m2); me.materials[i] = m2
             lst.append((me, h, z0))
         VARIANTS[kind] = lst
     done = set()
@@ -936,7 +946,7 @@ def make_variants():
             for m in me.materials:
                 if m and m.name not in done:
                     done.add(m.name)
-                    if kind != "peach" and is_leaf_mat(m.name):
+                    if kind not in TINTS and is_leaf_mat(m.name):
                         tint_leaf_material(m)
                     add_fog(m)
     print("[wl] tree library:", {k: [(round(h, 2)) for (_, h, _) in v] for k, v in VARIANTS.items()})
@@ -1244,6 +1254,83 @@ def stone_lantern(b, x, y):
     cone(b, x, y, 1.1, 0.5, 0.1, 0.4, GRANITE, n=8, uv=False)
     prism(b, x, y, 1.45, 0.06, 0.3, GRANITE, n=6)
 
+def tower_block(b, cx, cy, w, d, floors, ang=0.0, glassy=False, z0=None):
+    """现代楼房：逐层窗带（玻璃 + 外墙），顶部女儿墙与设备间。"""
+    if z0 is None:
+        z0 = max(ground(cx + sx * w / 2, cy + sy * d / 2) for sx in (-1, 1) for sy in (-1, 1)) - 0.1
+    fh = 0.6
+    rbox(b, cx, cy, z0 - 0.3, w + 0.8, d + 0.8, 0.35, CONCRETE, ang)
+    wall = FACADE2 if random.random() < 0.3 else FACADE
+    if glassy:
+        rbox(b, cx, cy, z0, w, d, floors * fh, GLASS, ang)
+        for k in range(floors):
+            rbox(b, cx, cy, z0 + k * fh + fh - 0.08, w + 0.06, d + 0.06, 0.08, CONCRETE, ang)
+    else:
+        rbox(b, cx, cy, z0, w, d, floors * fh, wall, ang)
+        for k in range(floors):
+            rbox(b, cx, cy, z0 + k * fh + 0.18, w + 0.05, d + 0.05, 0.26, GLASS, ang)
+    zt = z0 + floors * fh
+    rbox(b, cx, cy, zt, w + 0.1, d + 0.1, 0.12, CONCRETE, ang)
+    rbox(b, cx + w * 0.2, cy, zt + 0.12, w * 0.3, d * 0.4, 0.5, CONCRETE, ang)
+    keep(cx, cy, max(w, d) * 0.8)
+
+def city(x0s, y0s, x1s, y1s, floors=(4, 11), glassy=0.35, bw=12.0, bd=10.0, street=2.4, density=0.9):
+    """现代城区：沥青街道网格 + 每个街区一块铺装地块 + 1~3 栋楼 + 行道树。"""
+    b = B("City")
+    x = x0s
+    while x + bw < x1s:
+        y = y0s
+        while y + bd < y1s:
+            cx, cy = x + bw / 2, y + bd / 2
+            if (lake_depth(cx, cy) < -6 and ground(cx, cy) < 2.0 and not blocked(cx, cy)
+                    and isl_rho(cx, cy)[0] < 0.93 and random.random() < density):
+                gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
+                box(b, cx, cy, gz - 0.35, bw + street, bd + street, 0.4, ASPHALT)
+                box(b, cx, cy, gz + 0.05, bw - 0.8, bd - 0.8, 0.06, STONE)
+                keep(cx, cy, max(bw, bd) * 0.75)
+                for i in range(random.randint(1, 3)):
+                    w, d = random.uniform(2.6, 4.4), random.uniform(2.2, 3.4)
+                    bx = cx + random.uniform(-bw / 2 + w / 2 + 0.6, bw / 2 - w / 2 - 0.6)
+                    by = cy + random.uniform(-bd / 2 + d / 2 + 0.6, bd / 2 - d / 2 - 0.6)
+                    tower_block(b, bx, by, w, d, random.randint(*floors), 0.0, glassy=random.random() < glassy, z0=gz + 0.11)
+                for i in range(2):
+                    plant("ginkgo" if random.random() < 0.5 else "tree", cx + random.uniform(-bw / 2, bw / 2), cy + random.uniform(-bd / 2, bd / 2), random.uniform(1.0, 1.4), z=gz + 0.1)
+            y += bd + street
+        x += bw + street
+    b.build()
+
+def town(x0s, y0s, x1s, y1s, bw=11.0, bd=9.0, street=2.2, density=0.85):
+    """街区式老城：街道网格、每个街区一块铺地与沿街对齐的房屋，偶有院落与行道树。"""
+    bb = B("Town")
+    x = x0s
+    while x + bw < x1s:
+        y = y0s
+        while y + bd < y1s:
+            cx, cy = x + bw / 2, y + bd / 2
+            ok = (lake_depth(cx, cy) < -4 and ground(cx, cy) < 1.6 and isl_rho(cx, cy)[0] < 0.94
+                  and not blocked(cx, cy) and random.random() < density)
+            if ok:
+                gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
+                box(bb, cx, cy, gz - 0.35, bw + street * 0.8, bd + street * 0.8, 0.42, STONE)
+                keep(cx, cy, max(bw, bd) * 0.75)
+                if random.random() < 0.12:
+                    hall_jn(bb, cx, cy, random.uniform(3.2, 4.2), random.uniform(2.0, 2.6), 1.15, z0=gz + 0.07, double=random.random() < 0.5, stair=True)
+                else:
+                    for row, sy in ((0, -1), (1, 1)):
+                        n = random.randint(3, 4)
+                        for k in range(n):
+                            w = bw / n - 0.5
+                            hx = x + w / 2 + 0.25 + k * (bw / n)
+                            hy = cy + sy * (bd / 2 - 1.3)
+                            house(hx, hy, w, random.uniform(1.8, 2.3), random.uniform(0.7, 1.15), 0.0 if random.random() < 0.85 else math.pi / 2)
+                    if random.random() < 0.7:
+                        plant(random.choice(["tree", "tree", "willow", "ginkgo"]), cx + random.uniform(-2, 2), cy + random.uniform(-0.8, 0.8), random.uniform(1.1, 1.6), z=gz + 0.07)
+                if random.random() < 0.5:
+                    plant("tree", x + bw + street / 2, y + random.uniform(1, bd - 1), random.uniform(1.0, 1.4))
+            y += bd + street
+        x += bw + street
+    bb.build()
+
 def boat(x, y, ang, L, W, canopy=True):
     b = B("Boat")
     M = 10
@@ -1399,14 +1486,12 @@ def build_scene():
         rbox(b, x, y, ground(x, y) - 0.02, 1.6, 0.9, 0.05, STONE, math.atan2(dy, dx))
         s += 1.5
     b.build()
-    for i in range(130):
-        x, y = random.uniform(61, 75), random.uniform(-64, 64)
-        if lake_depth(x, y) < -3 and ground(x, y) < 1.2 and not blocked(x, y):
-            house(x, y, random.uniform(2.4, 3.8), random.uniform(1.8, 2.6), random.uniform(0.8, 1.2), random.uniform(-0.3, 0.3))
+    town(60, -62, 74, 62)                       # 湖滨老城（街区式）
+    city(73, -70, 84, 70, floors=(4, 11))       # 外圈城市天际线
     for i in range(160):
-        x, y = random.uniform(60, 75), random.uniform(-72, 72)
+        x, y = random.uniform(60, 76), random.uniform(-72, 72)
         if lake_depth(x, y) < -2 and ground(x, y) < 1.5 and not blocked(x, y):
-            plant(random.choice(["tree", "tree", "willow"]), x, y, random.uniform(1.3, 1.8))
+            plant(random.choice(["tree", "tree", "willow", "ginkgo"]), x, y, random.uniform(1.3, 1.8))
 
     # ---- 船
     for (x, y, a, L, W, c) in ((20.0, -12.0, 0.4, 4.4, 1.7, True), (-22.0, 8.0, 1.9, 4.2, 1.6, True), (14.0, 22.0, 2.8, 4.0, 1.6, True),
@@ -1447,7 +1532,8 @@ def build_scene():
                     slope = math.hypot(zx, zy) / 1.2
                     dens = 0.85 + 0.3 * (fbm(xx * 0.1 + 2, yy * 0.1 + 4, 3) - 0.5)
                     if slope < 2.2 and random.random() < dens:
-                        kind = "pine" if (z > 6 or random.random() < 0.55) else "tree"
+                        rr = random.random()
+                        kind = "maple" if rr < 0.06 else ("ginkgo" if rr < 0.1 else ("pine" if (z > 6 or rr < 0.6) else "tree"))
                         plant(kind, xx, yy, random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85))
                         cnt += 1
             x += 0.9
@@ -1460,7 +1546,7 @@ def build_scene():
             continue
         z, k = terrain(x, y)
         if k == 'land' and z < 1.0 and lake_depth(x, y) < -2 and random.random() < 0.6:
-            plant(random.choice(["tree", "willow", "bush"]), x, y, random.uniform(1.2, 1.7))
+            plant(random.choice(["tree", "willow", "bush", "ginkgo", "maple"]), x, y, random.uniform(1.2, 1.7))
     # 岸边与平地灌木
     for i in range(2500):
         x, y = random.uniform(x0, x1), random.uniform(y0, y1)
@@ -1701,7 +1787,9 @@ if WEB:
         "backdrop": [[0.84, 0.89, 0.89], [0.93, 0.95, 0.94]],
         "water": ["LakeWater"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.84, 0.92, 0.96],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
-        "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()}})
+        "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
+        "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
+        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(190,40,25,0.8)", "ginkgo": "rgba(240,185,50,0.82)"}})
     print(f"[wl] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}")
 else:
     setup_mist()

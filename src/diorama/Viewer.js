@@ -6,6 +6,15 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { Water } from 'three/examples/jsm/objects/Water.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
 
 const BASE = import.meta.env.BASE_URL;
 const TEX = BASE + 'dioramas/textures/';
@@ -13,10 +22,19 @@ const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) || Math
 
 // 画质档位：先按显卡猜一个起点，运行 3 秒后按帧率自动升降
 const TIERS = {
-  high: { dpr: 2, shadow: 4096, soft: true, water: 1024, treesInReflection: true, treeShadow: true },
-  mid: { dpr: 1.25, shadow: 2048, soft: true, water: 512, treesInReflection: false, treeShadow: true },
-  low: { dpr: 1, shadow: 1024, soft: false, water: 256, treesInReflection: false, treeShadow: false },
+  high: { dpr: 2, shadow: 4096, soft: true, water: 1024, treesInReflection: true, treeShadow: true, gtao: true, dof: true, bloom: true, aa: true },
+  mid: { dpr: 1.25, shadow: 2048, soft: true, water: 512, treesInReflection: false, treeShadow: true, gtao: false, dof: true, bloom: true, aa: true },
+  low: { dpr: 1, shadow: 1024, soft: false, water: 256, treesInReflection: false, treeShadow: false, gtao: false, dof: false, bloom: false, aa: false },
 };
+
+function gradientTexture(c0, c1) {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 256;
+  const ctx = c.getContext('2d'); const g = ctx.createLinearGradient(0, 0, 0, 256);
+  const css = (v) => 'rgb(' + v.map((x) => Math.round(x * 255)).join(',') + ')';
+  g.addColorStop(0, css(c0)); g.addColorStop(1, css(c1));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 4, 256);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+}
 function guessTier(renderer) {
   if (isMobile) return 'mid';
   try {
@@ -44,8 +62,10 @@ const MATERIALS = {
   Dirt: { set: 'Rock051', repeat: 0.5, tint: [1.2, 1.05, 0.85], roughness: 0.95 },
   GardenRock: { set: 'Rock051', repeat: 0.6, tint: [1.0, 0.98, 0.9], roughness: 0.9 },
   Finial: { metalness: 0.9, roughness: 0.3 }, GoldTrim: { metalness: 0.6, roughness: 0.4 },
+  Steel: { metalness: 0.6, roughness: 0.45 }, Concrete: { set: 'Rock051', normalOnly: true, repeat: 1.2, roughness: 0.85 }, Asphalt: { roughness: 0.95 },
+  Glass: { metalness: 0.7, roughness: 0.18, envMapIntensity: 1.2 }, RedBrick: { set: 'PavingStones128', normalOnly: true, repeat: 1.5, roughness: 0.85 },
 };
-const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x3f8f7c, distortion: 0.5, size: 3.5 } };
+const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x3f8f7c, distortion: 0.5, size: 3.5 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
 
 const texCache = new Map();
 function loadTexture(name, { gray = false, srgb = true } = {}) {
@@ -128,12 +148,12 @@ function sunDirection(eulerDeg) {
 }
 function toThree(v) { return new THREE.Vector3(v.x, v.z, -v.y); }   // Blender Z-up → three Y-up
 
-function impostorAtlas(front, top, pink) {
+function impostorAtlas(front, top, tint) {
   const c = document.createElement('canvas'); c.width = 1024; c.height = 1024;
   const ctx = c.getContext('2d');
   ctx.drawImage(front, 0, 0, 512, 1024);
   ctx.drawImage(top, 512, 0, 512, 512);
-  if (pink) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = 'rgba(245,150,175,0.72)'; ctx.fillRect(0, 0, 1024, 1024); }
+  if (tint) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = tint; ctx.fillRect(0, 0, 1024, 1024); }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   return tex;
 }
@@ -159,19 +179,21 @@ async function buildPlants(scene, meta, onProgress) {
   const plants = meta.plants; if (!plants || !plants.length) return 0;
   const treesMeta = await (await fetch(BASE + 'dioramas/trees/trees.json')).json();
   const groups = new Map();   // key(kind_idx[+pink]) → [[x,y,z,h,rot]...]
+  const srcMap = Object.assign({ peach: 'willow' }, meta.plant_src || {});
+  const tintMap = Object.assign({ peach: 'rgba(245,150,175,0.72)' }, meta.plant_tint || {});
   for (const [kind, vi, x, y, z, h, rot] of plants) {
-    const src = kind === 'peach' ? 'willow' : kind;
-    const key = `${src}_${vi}${kind === 'peach' ? '#pink' : ''}`;
+    const src = srcMap[kind] || kind;
+    const key = `${src}_${vi}${tintMap[kind] ? '#' + kind : ''}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push([x, y, z, h, rot]);
   }
   let done = 0;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   for (const [key, list] of groups) {
-    const base = key.replace('#pink', ''); const pink = key.endsWith('#pink');
+    const base = key.split('#')[0]; const tintKind = key.split('#')[1];
     const info = treesMeta[base]; if (!info) continue;
     const [front, top] = await Promise.all([loadImage(BASE + `dioramas/trees/${base}_front.png`), loadImage(BASE + `dioramas/trees/${base}_top.png`)]);
-    const tex = impostorAtlas(front, top, pink);
+    const tex = impostorAtlas(front, top, tintKind ? tintMap[tintKind] : null);
     const geo = impostorGeometry(info.front_h, info.front_w, info.top, info.kind);
     const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9, metalness: 0 });
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
@@ -190,19 +212,23 @@ async function buildPlants(scene, meta, onProgress) {
 
 export async function startDiorama(id, ui) {
   const canvas = document.getElementById('scene');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
   let tier = guessTier(renderer);
   const applyTier = () => { const q = TIERS[tier]; renderer.setPixelRatio(Math.min(devicePixelRatio, q.dpr)); renderer.shadowMap.type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap; };
   applyTier();
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.98;
-  renderer.setClearColor(0x000000, 0);
+  renderer.setClearColor(0xe8e2d2, 1);
 
   const meta = await (await fetch(BASE + `dioramas/${id}/scene.json`)).json();
   ui.setTitle(meta.title);
   const scene = new THREE.Scene();
   const fogC = new THREE.Color(...(meta.fog || [0.9, 0.9, 0.9]));
   scene.fog = new THREE.Fog(fogC, meta.camera.dist * 1.3, meta.camera.dist * 3.2);
+  const bd = meta.backdrop || [[0.9, 0.9, 0.9], [0.95, 0.95, 0.95]];
+  const cleanBg = gradientTexture(bd[1], bd[0]);
+  scene.background = cleanBg;
+  let skyTex = null;
 
   // 相机
   const cam = meta.camera;
@@ -233,10 +259,11 @@ export async function startDiorama(id, ui) {
   scene.add(sun, sun.target);
   scene.add(new THREE.HemisphereLight(0xbfd4ee, 0x6a7a55, 0.55));
   try {
-    const hdr = await new RGBELoader().loadAsync(BASE + 'dioramas/env/kloppenheim_06_puresky_1k.hdr');
+    const hdr = await new RGBELoader().loadAsync(BASE + 'dioramas/env/' + (meta.hdri || 'kloppenheim_06_puresky_1k.hdr'));
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(hdr).texture;
-    scene.environmentIntensity = 0.45; hdr.dispose(); pm.dispose();
+    scene.environmentIntensity = 0.45; pm.dispose();
+    skyTex = hdr;
   } catch (e) { console.warn('HDRI 加载失败', e); }
 
   // 模型
@@ -288,9 +315,44 @@ export async function startDiorama(id, ui) {
       if (hide) for (const t of trees) t.visible = true;
     };
   }
+  // 后处理：环境光遮蔽（GTAO）、移轴景深、柔光、暗角、输出色调映射、SMAA
+  let composer = null, bokeh = null, gtao = null, dofK = 1;
+  const buildComposer = () => {
+    const q = TIERS[tier];
+    composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    gtao = null; bokeh = null;
+    if (q.gtao) {
+      gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+      gtao.output = GTAOPass.OUTPUT.Default;
+      gtao.updateGtaoMaterial({ radius: 2.2, distanceExponent: 1, thickness: 1.2, scale: 1.2, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+      gtao.blendIntensity = 0.85;
+      // 卡片树是 alpha 镂空的面片，GTAO 的法线/深度通道不认 alpha，会把整张卡当实心方块压黑：算遮蔽时把树隐藏
+      const origRender = gtao.render.bind(gtao);
+      gtao.render = (r, wb, rb, dt, mask) => { for (const tr of trees) tr.visible = false; origRender(r, wb, rb, dt, mask); for (const tr of trees) tr.visible = true; };
+      composer.addPass(gtao);
+    }
+    if (q.dof && dofK > 0) {
+      bokeh = new BokehPass(scene, camera, { focus: camera.position.distanceTo(controls.target), aperture: 0.00006 * dofK, maxblur: 0.0075 * Math.min(1.3, dofK) });
+      composer.addPass(bokeh);
+    }
+    if (q.bloom) composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.14, 0.5, 0.92));
+    const vig = new ShaderPass(VignetteShader); vig.uniforms.offset.value = 0.98; vig.uniforms.darkness.value = 0.42;
+    composer.addPass(vig);
+    composer.addPass(new OutputPass());
+    if (q.aa) { try { composer.addPass(new SMAAPass()); } catch (e) { try { composer.addPass(new SMAAPass(innerWidth, innerHeight)); } catch (e2) { /* 无 AA */ } } }
+    composer.setPixelRatio(renderer.getPixelRatio());
+    composer.setSize(innerWidth, innerHeight);
+  };
+  buildComposer();
+  const setSky = (on) => {
+    if (on && skyTex) { scene.background = skyTex; scene.backgroundBlurriness = 0.015; scene.backgroundIntensity = 0.9; scene.fog.color.copy(fogC).lerp(new THREE.Color(0.86, 0.86, 0.9), 0.4); }
+    else { scene.background = cleanBg; scene.fog.color.copy(fogC); }
+  };
+  const setDof = (k) => { dofK = k; buildComposer(); };
   const setTier = (name) => {
     if (!TIERS[name] || name === tier) return;
-    tier = name; applyTier();
+    tier = name; applyTier(); buildComposer();
     const q = TIERS[tier];
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     sun.shadow.mapSize.set(q.shadow, q.shadow);
@@ -316,14 +378,15 @@ export async function startDiorama(id, ui) {
   };
   const onInteract = () => { controls.autoRotate = false; clearTimeout(autoTimer); autoTimer = setTimeout(() => { if (ui.autoRotateWanted()) controls.autoRotate = true; }, 6000); };
   canvas.addEventListener('pointerdown', onInteract); canvas.addEventListener('wheel', onInteract, { passive: true });
-  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); fitFov(); });
+  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); fitFov(); composer.setSize(innerWidth, innerHeight); });
   renderer.setSize(innerWidth, innerHeight);
   renderer.setAnimationLoop(() => {
     const dt = clock.getDelta();
     if (document.visibilityState === 'visible') adapt(Math.min(dt, 0.25));
     for (const w of waters) w.material.uniforms.time.value += dt * 0.35;
     controls.update();
-    renderer.render(scene, camera);
+    if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(controls.target);
+    composer.render(dt);
   });
-  return { scene, camera, controls, renderer, setAutoRotate: (v) => { controls.autoRotate = v; }, setTier, getTier: () => tier };
+  return { scene, camera, controls, renderer, setAutoRotate: (v) => { controls.autoRotate = v; }, setTier, getTier: () => tier, setSky, setDof };
 }

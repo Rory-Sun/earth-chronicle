@@ -16,5 +16,9 @@ startDiorama(id, ui).then((app) => {
   const btn = el('#btn-rotate');
   btn.addEventListener('click', () => { wantAuto = !wantAuto; app.setAutoRotate(wantAuto); btn.classList.toggle('off', !wantAuto); });
   el('#btn-quality').addEventListener('click', () => { const order = ['low', 'mid', 'high']; app.setTier(order[(order.indexOf(app.getTier()) + 1) % 3]); });
+  let sky = false; const skyBtn = el('#btn-sky');
+  skyBtn.addEventListener('click', () => { sky = !sky; app.setSky(sky); skyBtn.textContent = sky ? '背景 天空' : '背景 纯净'; });
+  let dof = 1; const dofBtn = el('#btn-dof');
+  dofBtn.addEventListener('click', () => { dof = dof === 1 ? 2 : (dof === 2 ? 0 : 1); app.setDof(dof); dofBtn.textContent = '景深 ' + ['关', '中', '强'][dof]; });
   el('#btn-full').addEventListener('click', () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); });
 }).catch((e) => { console.error(e); ui.status('加载失败：' + (e.message || e)); });

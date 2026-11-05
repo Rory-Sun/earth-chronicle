@@ -88,7 +88,78 @@ def clean_materials():
                 slot.material = repl[slot.material]
     return info
 
-def export_scene(out_dir, remove_names, vcol_fn, uv_scale=1.0, extra=None):
+import random as _random
+_PT = list(range(256)); _random.Random(3).shuffle(_PT); _PT = _PT + _PT
+def _h(i, j):
+    return _PT[(_PT[i & 255] + j) & 255] / 255.0
+def vnoise(x, y):
+    xi, yi = math.floor(x), math.floor(y)
+    fx, fy = x - xi, y - yi
+    u, v = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)
+    a, b, c, d = _h(xi, yi), _h(xi + 1, yi), _h(xi, yi + 1), _h(xi + 1, yi + 1)
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v
+def fbm(x, y, octaves=3):
+    s, amp, f, tot = 0.0, 1.0, 1.0, 0.0
+    for _ in range(octaves):
+        s += amp * vnoise(x * f, y * f); tot += amp
+        amp *= 0.5; f *= 2.0
+    return s / tot
+
+def bake_ao_to_vcol(ob, samples=24, strength=0.7):
+    """用 Cycles 把环境光遮蔽烘到顶点色属性 AO，再乘进 Col（网页里的接触阴影/沟壑暗部）。"""
+    me = ob.data
+    col = me.color_attributes.get("Col")
+    if col is None:
+        return False
+    ao = me.color_attributes.get("AO") or me.color_attributes.new(name="AO", type='BYTE_COLOR', domain='CORNER')
+    me.color_attributes.active_color = ao
+    scene = bpy.context.scene
+    old_engine = scene.render.engine
+    try:
+        scene.render.engine = 'CYCLES'
+        scene.cycles.device = 'CPU'
+        scene.cycles.samples = samples
+        scene.cycles.bake_type = 'AO'
+        scene.render.bake.target = 'VERTEX_COLORS'
+        for o in bpy.context.view_layer.objects:
+            o.select_set(False)
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.bake(type='AO', target='VERTEX_COLORS')
+        cd, ad = col.data, ao.data
+        for i in range(len(cd)):
+            a = ad[i].color[0]
+            k = 1.0 - strength + strength * a
+            c = cd[i].color
+            cd[i].color = (c[0] * k, c[1] * k, c[2] * k, 1.0)
+        me.color_attributes.active_color = col
+        me.color_attributes.remove(ao)
+        print(f"[export] AO baked into vertex colors of {ob.name}")
+        return True
+    except Exception as e:
+        print("[export] AO bake failed:", e)
+        me.color_attributes.active_color = col
+        return False
+    finally:
+        scene.render.engine = old_engine
+
+def patchiness(ob, scale=0.06, lo=0.78, hi=1.12):
+    """大尺度色斑：地面不再是均匀铺开的草皮贴图。"""
+    me = ob.data
+    col = me.color_attributes.get("Col")
+    if col is None:
+        return
+    mw = ob.matrix_world
+    data = col.data
+    for poly in me.polygons:
+        for li in poly.loop_indices:
+            co = mw @ me.vertices[me.loops[li].vertex_index].co
+            k = lo + (hi - lo) * fbm(co.x * scale + 11, co.y * scale + 7, 3)
+            k2 = 0.9 + 0.2 * fbm(co.x * 0.5, co.y * 0.5, 2)
+            c = data[li].color
+            data[li].color = (c[0] * k * k2, c[1] * k * k2, c[2] * k * k2, 1.0)
+
+def export_scene(out_dir, remove_names, vcol_fn, uv_scale=1.0, extra=None, ao_objects=("Island",)):
     os.makedirs(out_dir, exist_ok=True)
     # 1. 删除不需要的物体
     for ob in list(bpy.data.objects):
@@ -102,6 +173,9 @@ def export_scene(out_dir, remove_names, vcol_fn, uv_scale=1.0, extra=None):
         if not ob.data.uv_layers:
             box_uv(ob.data, uv_scale); n_uv += 1
         bake_vertex_colors(ob, vcol_fn)
+        if ob.name.split('.')[0] in ao_objects and ob.data.color_attributes.get("Col"):
+            patchiness(ob)
+            bake_ao_to_vcol(ob)
     # 4. 材质
     mats = clean_materials()
     # 5. 导出

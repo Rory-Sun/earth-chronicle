@@ -23,6 +23,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEX_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "textures_cc0"))   # ambientCG CC0 贴图（各沙盘共用），见该目录 README.md
 OUT = os.path.abspath(arg("--out", os.path.join(HERE, "output", "forbidden_city", "forbidden_city.png")))
 SAVE_BLEND = "--save" in argv
+WEB = "--export-glb" in argv          # 网页导出模式：树木只记录实例数据
+PLANTS = []                           # [kind, variant, x, y, z, height, rot]
 random.seed(11)
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -186,7 +188,7 @@ TRUNK = principled("Trunk", (0.22, 0.14, 0.08), rough=0.9)
 ROCK = principled("GardenRock", (0.38, 0.36, 0.32), rough=0.9, bevel=0.08)
 noise_mix(ROCK, (0.30, 0.28, 0.25), (0.48, 0.46, 0.42), 3.0, bump=0.8)
 FINIAL = principled("Finial", (1.0, 0.78, 0.25), rough=0.25, metal=1.0)
-WATER = principled("Water", (0.07, 0.20, 0.22), rough=0.04, spec=0.9, bevel=0)
+WATER = principled("Water", (0.10, 0.26, 0.24), rough=0.035, spec=0.9, bevel=0)
 GRASS = principled("Grass", (0.33, 0.44, 0.17), rough=0.95, bevel=0)
 nt = GRASS.node_tree
 _c = tex_node(nt, "Grass004", "Color", 0.8, 'Object', noncolor=False)
@@ -523,6 +525,149 @@ def wall_ring(b, x0, y0, x1, y1, h=0.7, t=0.45, z0=FLOOR, gate=True):
         cx = (x0 + x1) / 2
         hall(b, cx, y0, 1.3, 0.75, 0.5, plat_h=0.0, roof_h=0.5, stair=False, z0=z0)
 
+
+# ----------------------------------------------------------------------------- 树木模型库（Poly Haven CC0，assets/polyhaven/models/）
+def rgb(nt, c):
+    n = nt.nodes.new("ShaderNodeRGB")
+    n.outputs[0].default_value = (*c, 1)
+    return n.outputs[0]
+
+def mix_rgb(nt, a, b, fac=1.0, blend='MIX'):
+    m = nt.nodes.new("ShaderNodeMix")
+    m.data_type = 'RGBA'; m.blend_type = blend
+    if isinstance(fac, (int, float)):
+        m.inputs["Factor"].default_value = fac
+    else:
+        nt.links.new(fac, m.inputs["Factor"])
+    nt.links.new(a, m.inputs[6]); nt.links.new(b, m.inputs[7])
+    return m.outputs[2]
+
+VARIANTS = {}      # kind -> [(mesh, height, zmin)]
+TREE_H = {"tree": 1.5, "willow": 1.4, "pine": 1.7, "bush": 0.42, "ginkgo": 1.5, "maple": 1.4}
+PH_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "polyhaven", "models"))
+LIB_TREES = {
+    "tree": [("island_tree_01", "island_tree_01_LOD1"), ("island_tree_02", "island_tree_02_LOD1"), ("island_tree_03", "island_tree_03_LOD1")],
+    "willow": [("tree_small_02", "tree_small_02_LOD1")],
+    "pine": [("fir_sapling_medium", "fir_sapling_medium_a_LOD1"), ("fir_sapling_medium", "fir_sapling_medium_b_LOD1"),
+             ("fir_sapling_medium", "fir_sapling_medium_c_LOD1")],
+    "bush": [("shrub_01", "shrub_01_a_LOD1"), ("shrub_01", "shrub_01_b_LOD1"), ("shrub_03", "shrub_03_a_LOD1"), ("shrub_03", "shrub_03_b_LOD1")],
+    "maple": [("island_tree_02", "island_tree_02_LOD1"), ("island_tree_03", "island_tree_03_LOD1")],
+    "ginkgo": [("island_tree_01", "island_tree_01_LOD1"), ("island_tree_02", "island_tree_02_LOD1")],
+}
+TINTS = {"maple": ((0.74, 0.16, 0.08), 0.78), "ginkgo": ((0.96, 0.72, 0.16), 0.8)}
+_LOADED = {}
+def load_lib_mesh(file, obname):
+    key = (file, obname)
+    if key in _LOADED:
+        return _LOADED[key]
+    path = os.path.join(PH_DIR, file, file + ".blend")
+    with bpy.data.libraries.load(path, link=False) as (src, dst):
+        dst.objects = [obname]
+    ob = dst.objects[0]
+    me = ob.data
+    zs = [v.co.z for v in me.vertices]
+    res = (me, max(zs) - min(zs), min(zs))
+    bpy.data.objects.remove(ob)
+    _LOADED[key] = res
+    return res
+
+def is_leaf_mat(name):
+    n = name.lower()
+    return ('leaves' in n or 'twigs' in n or 'shrub' in n
+            or ('branches' in n and ('island_tree' in n or 'tree_small' in n)))
+
+def tint_leaf_material(mat, tint=None):
+    """把素材库叶片材质重建成简单 Principled（贴图 × 明亮绿色，alpha 镂空，逐棵随机色相/明度）。"""
+    nt = mat.node_tree
+    imgs = [n for n in nt.nodes if n.type == 'TEX_IMAGE' and n.image]
+    diff = next((n for n in imgs if 'diff' in n.image.name.lower()), None)
+    alpha = next((n for n in imgs if 'alpha' in n.image.name.lower() or 'mask' in n.image.name.lower()), None)
+    if diff is None:
+        return
+    diff.image.colorspace_settings.name = 'sRGB'
+    if alpha is not None:
+        alpha.image.colorspace_settings.name = 'Non-Color'
+    out = next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL' and n.is_active_output), None) \
+        or next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL'), None) or nt.nodes.new("ShaderNodeOutputMaterial")
+    for l in [l for l in nt.links if l.to_node == out]:
+        nt.links.remove(l)
+    p = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    p.inputs["Roughness"].default_value = 0.8
+    if "Specular IOR Level" in p.inputs:
+        p.inputs["Specular IOR Level"].default_value = 0.25
+    oi = nt.nodes.new("ShaderNodeObjectInfo")
+    hs = nt.nodes.new("ShaderNodeHueSaturation")
+    nt.links.new(map_range(nt, oi.outputs["Random"], 0.47, 0.53), hs.inputs["Hue"])
+    nt.links.new(map_range(nt, oi.outputs["Random"], 0.9, 1.25), hs.inputs["Value"])
+    nt.links.new(diff.outputs["Color"], hs.inputs["Color"])
+    col = hs.outputs["Color"]
+    if tint is not None:
+        col = mix_rgb(nt, col, rgb(nt, tint[0]), tint[1], 'MIX')
+    elif 'fir' in mat.name or 'twigs' in mat.name:
+        col = mix_rgb(nt, col, rgb(nt, (0.26, 0.50, 0.18)), 0.65, 'MIX')
+    elif 'tree_small' in mat.name:
+        col = mix_rgb(nt, col, rgb(nt, (0.44, 0.62, 0.22)), 0.55, 'MIX')
+    else:
+        col = mix_rgb(nt, col, rgb(nt, (0.27, 0.54, 0.19)), 0.55, 'MIX')
+    nt.links.new(col, p.inputs["Base Color"])
+    nt.links.new(alpha.outputs["Color"] if alpha is not None else diff.outputs["Alpha"], p.inputs["Alpha"])
+    nt.links.new(p.outputs["BSDF"], out.inputs["Surface"])
+
+def make_variants():
+    if WEB:
+        for kind, items in LIB_TREES.items():
+            VARIANTS[kind] = [(None, 1.0, 0.0)] * len(items)
+        return
+    for kind, items in LIB_TREES.items():
+        lst = []
+        for (file, obname) in items:
+            me, h, z0 = load_lib_mesh(file, obname)
+            if kind in TINTS:
+                me = me.copy()
+                for i, m in enumerate(me.materials):
+                    if m and is_leaf_mat(m.name):
+                        m2 = m.copy(); tint_leaf_material(m2, tint=TINTS[kind]); me.materials[i] = m2
+            lst.append((me, h, z0))
+        VARIANTS[kind] = lst
+    done = set()
+    for kind, lst in VARIANTS.items():
+        for (me, h, z0) in lst:
+            for m in me.materials:
+                if m and m.name not in done:
+                    done.add(m.name)
+                    if kind not in TINTS and is_leaf_mat(m.name):
+                        tint_leaf_material(m)
+    print("[fc] tree library loaded")
+
+N_PLANTS = 0
+def plant(kind, x, y, s=1.0, z=None):
+    global N_PLANTS
+    if z is None:
+        z = FLOOR
+    if WEB:
+        hh = s * TREE_H[kind] * random.uniform(0.9, 1.1)
+        PLANTS.append([kind, random.randrange(len(LIB_TREES[kind])), round(x, 2), round(y, 2), round(z, 2), round(hh, 2), round(random.uniform(0, 6.28), 2)])
+        N_PLANTS += 1
+        return None
+    me, h, z0 = random.choice(VARIANTS[kind])
+    k = s * TREE_H[kind] / h
+    ob = bpy.data.objects.new(kind, me)
+    ob.scale = (k * random.uniform(0.9, 1.1), k * random.uniform(0.9, 1.1), k)
+    ob.location = (x, y, z - z0 * k)
+    ob.rotation_euler = (0, 0, random.uniform(0, 6.28))
+    COL.objects.link(ob)
+    N_PLANTS += 1
+    return ob
+
+def tree_kind(x, y, z0):
+    """按位置选树种：景山松柏为主，宫内松柏，城外杨柳/阔叶，秋天点缀银杏与红叶。"""
+    r = random.random()
+    if z0 > 0.5:
+        return "pine" if r < 0.6 else ("ginkgo" if r < 0.72 else "tree")
+    if z0 >= FLOOR - 1e-6 and abs(x) < 44 and -60 < y < 52:
+        return "pine" if r < 0.65 else ("tree" if r < 0.92 else "ginkgo")
+    return "willow" if r < 0.4 else ("tree" if r < 0.8 else ("ginkgo" if r < 0.92 else "maple"))
+
 TREES = []   # (x, y, scale, z0)
 
 def compound(b, cx, cy, w, d, hall_w, hall_d, hall_h, roof_mat=GOLD, z0=FLOOR, side=True, double=False, trees=True):
@@ -593,10 +738,7 @@ def tree_obj(x, y, s=1.0, z0=FLOOR):
     return b.build(smooth=True)
 
 def bush(b, x, y, s=0.5, z0=FLOOR):
-    for i in range(3):
-        v, f = icosphere(x + random.uniform(-0.2, 0.2) * s, y + random.uniform(-0.2, 0.2) * s, z0 + 0.15 * s,
-                         random.uniform(0.2, 0.32) * s, sub=1, squash=0.7)
-        b.add(v, f, LEAF)
+    plant("bush", x, y, s * 1.6, z=z0)
 
 def tree_patch(x0, y0, x1, y1, n, s=(0.8, 1.2), z0=FLOOR):
     for _ in range(n):
@@ -1112,6 +1254,7 @@ def setup_render():
     scene.cycles.max_bounces = 6
     scene.cycles.diffuse_bounces = 3
     scene.cycles.glossy_bounces = 3
+    scene.cycles.transparent_max_bounces = 48   # 扫描树叶片 alpha 层数多
     scene.cycles.caustics_reflective = False
     scene.cycles.caustics_refractive = False
     scene.render.resolution_x = 2048
@@ -1139,6 +1282,7 @@ def setup_render():
 
 # ----------------------------------------------------------------------------- 执行
 t0 = time.time()
+make_variants()
 island()
 ground()
 city_wall()
@@ -1147,7 +1291,7 @@ wings()
 jingshan()
 outside_greenery()
 for (x, y, s, z0) in TREES:
-    tree_obj(x, y, s, z0)
+    plant(tree_kind(x, y, z0), x, y, s, z=z0)
 setup_camera_lights()
 print(f"[fc] scene built in {time.time() - t0:.1f}s, objects={len(COL.objects)}, trees={len(TREES)}")
 if "--export-glb" in argv:
@@ -1163,12 +1307,15 @@ if "--export-glb" in argv:
             k = random.Random(ob.name).random()
             return tuple(a + (b - a) * k for a, b in zip((0.08, 0.24, 0.07), (0.34, 0.48, 0.14)))
         return None
-    de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop"}, _vcol, uv_scale=1.0, extra={
+    de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop"}, _vcol, uv_scale=1.0, ao_objects=(), extra={
         "title": "北京故宫", "unit_m": 10,
         "camera": {"target": [0, 0, -8], "az": 33, "dist": 212, "pitch": 37, "lens": 48, "min_dist": 60, "max_dist": 420},
         "sun": {"euler_deg": [58, 0, 312], "color": [1.0, 0.91, 0.76], "strength": 2.5},
         "backdrop": [[0.90, 0.85, 0.72], [0.94, 0.90, 0.79]],
-        "water": ["Water"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.90, 0.87, 0.78]})
+        "water": ["Water"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.90, 0.87, 0.78],
+        "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
+        "plant_src": {"maple": "tree", "ginkgo": "tree"},
+        "plant_tint": {"maple": "rgba(190,40,25,0.8)", "ginkgo": "rgba(240,185,50,0.82)"}})
     print(f"[fc] web export done in {time.time() - t0:.1f}s")
 else:
     setup_render()

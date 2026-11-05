@@ -37,3 +37,11 @@ forbidden-city/output/forbidden_city/export_err.txt
 west-lake/output/west_lake/export_log.txt
 west-lake/output/west_lake/export_err.txt
 __pycache__/
+
+# 黄鹤楼沙盘渲染中间产物
+yellow-crane/output/yellow_crane/*.blend
+yellow-crane/output/yellow_crane/*.blend1
+yellow-crane/output/yellow_crane/preview*.png
+yellow-crane/output/yellow_crane/render_log.txt
+yellow-crane/output/yellow_crane/export_log.txt
+yellow-crane/output/yellow_crane/yellow_crane_v*.png

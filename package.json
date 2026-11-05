@@ -17,7 +17,10 @@
     "blender:westlake:preview": "\"D:/install/blender/blender.exe\" --background --python west-lake/build_west_lake.py -- --pct 40 --samples 16 --out west-lake/output/west_lake/preview.png",
     "blender:palace:web": "\"D:/install/blender/blender.exe\" --background --python forbidden-city/build_forbidden_city.py -- --export-glb public/dioramas/forbidden-city",
     "blender:westlake:web": "\"D:/install/blender/blender.exe\" --background --python west-lake/build_west_lake.py -- --export-glb public/dioramas/west-lake",
-    "blender:trees:web": "\"D:/install/blender/blender.exe\" --background --python tools/diorama_impostors.py -- --samples 32"
+    "blender:trees:web": "\"D:/install/blender/blender.exe\" --background --python tools/diorama_impostors.py -- --samples 32",
+    "blender:crane": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --samples 64 --save",
+    "blender:crane:preview": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --pct 40 --samples 16 --out yellow-crane/output/yellow_crane/preview.png",
+    "blender:crane:web": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --export-glb public/dioramas/yellow-crane"
   },
   "keywords": [],
   "author": "",

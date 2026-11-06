@@ -220,6 +220,7 @@ GREY_TILE2 = tile_material("HuiWa", (0.33, 0.34, 0.36), (0.46, 0.47, 0.49), roug
 FACADE3 = principled("Facade3", (0.70, 0.74, 0.78), rough=0.7)
 KERB = principled("Kerb", (0.66, 0.65, 0.60), rough=0.9, bevel=0)
 FLAT_ROOF = principled("FlatRoof", (0.26, 0.26, 0.25), rough=0.95, bevel=0)
+ROCK = noise_mix(principled("HillRock", (0.46, 0.44, 0.40), rough=0.9, bevel=0.04), (0.36, 0.34, 0.31), (0.56, 0.54, 0.49), 6.0, detail=5.0, bump=0.5)
 HEDGE = principled("Hedge", (0.15, 0.30, 0.11), rough=0.9, bevel=0)
 CARS = [principled(f"Car{i}", c, rough=0.3, coat=0.6, bevel=0) for i, c in enumerate(
     ((0.85, 0.85, 0.85), (0.62, 0.64, 0.67), (0.07, 0.07, 0.08), (0.60, 0.08, 0.06), (0.14, 0.20, 0.40), (0.76, 0.70, 0.58)))]
@@ -376,6 +377,32 @@ _wc3 = mix_rgb(nt, _wc2, rgb(nt, (0.84, 0.87, 0.86)), _ff.outputs[0], 'MIX')
 _sv = arg("--shorevar", "")
 _bc = {"1": _wc2, "2": _wc, "3": _wc3}.get(_sv, _wc if "--noshore" in argv else _wc3)
 nt.links.new(_bc, _p.inputs["Base Color"])
+# 光斑：高频噪波阈值得到细碎闪点，只在风吹皱的区域出现，并沿太阳方位（东北偏东）渐强
+_gl = noise(nt, 3.6, 1.0, distortion=0.4)   # 约 1~2 像素的闪点
+_glf0 = map_range(nt, _gl.outputs["Fac"], 0.0, 1.0, 0.66, 0.77); _glf0.node.clamp = True
+_glv = noise(nt, 1.1, 1.0)                                      # 闪点亮度随机
+_glfm = nt.nodes.new("ShaderNodeMath"); _glfm.operation = 'MULTIPLY'
+nt.links.new(_glf0, _glfm.inputs[0]); nt.links.new(map_range(nt, _glv.outputs["Fac"], 0.15, 1.3), _glfm.inputs[1])
+_glf = _glfm.outputs[0]
+_pos = nt.nodes.new("ShaderNodeSeparateXYZ")
+nt.links.new(texcoord(nt).outputs["Object"], _pos.inputs["Vector"])
+_proj = nt.nodes.new("ShaderNodeMath"); _proj.operation = 'MULTIPLY_ADD'
+nt.links.new(_pos.outputs["X"], _proj.inputs[0]); _proj.inputs[1].default_value = 0.88
+_projy = nt.nodes.new("ShaderNodeMath"); _projy.operation = 'MULTIPLY'
+nt.links.new(_pos.outputs["Y"], _projy.inputs[0]); _projy.inputs[1].default_value = 0.47
+nt.links.new(_projy.outputs[0], _proj.inputs[2])
+_dirf = map_range(nt, _proj.outputs[0], 0.0, 1.0, -15.0, 60.0); _dirf.node.clamp = True
+_g1 = nt.nodes.new("ShaderNodeMath"); _g1.operation = 'MULTIPLY'
+nt.links.new(_glf, _g1.inputs[0]); nt.links.new(_dirf, _g1.inputs[1])
+_g2 = nt.nodes.new("ShaderNodeMath"); _g2.operation = 'MULTIPLY'
+nt.links.new(_g1.outputs[0], _g2.inputs[0]); nt.links.new(map_range(nt, _wpf, 0.0, 1.0, 0.45, 0.72), _g2.inputs[1])
+_glit = map_range(nt, _g2.outputs[0], 0.0, 3.2, 0.0, 0.6); _glit.node.clamp = True
+if "--noglitter" in argv:
+    _glit = map_range(nt, _g2.outputs[0], 0.0, 0.0)
+if "--glitdiag" in argv:
+    _glit = map_range(nt, _dirf, 0.0, 3.0)
+nt.links.new(_glit, _p.inputs["Emission Strength"])
+_p.inputs["Emission Color"].default_value = (1.0, 0.96, 0.88, 1.0)
 _rgh2 = nt.nodes.new("ShaderNodeMath"); _rgh2.operation = 'ADD'
 nt.links.new(_rgh.outputs[0], _rgh2.inputs[0]); nt.links.new(_mrc(_sh, 0.0, 0.10), _rgh2.inputs[1])
 nt.links.new((_rgh2 if _sv == "2" else (_rgh if ("--noshore" in argv or _sv) else _rgh2)).outputs[0], _p.inputs["Roughness"])
@@ -1514,6 +1541,23 @@ def boat(x, y, ang, L, W, canopy=True):
     else:
         box(b, 0, 0, 0.17, L * 0.28, W * 0.6, 0.18, BOAT_WOOD)
     b.build(loc=(x, y, 0), rot=ang)
+def dock(x, y, ang, n, L=2.2, W=0.85):
+    """码头：伸入湖中的石砌栈桥，两侧成排停靠的游船（不带尾迹）。"""
+    b = B("Dock")
+    c, s = math.cos(ang), math.sin(ang)
+    length = n * (W + 0.25) / 2 + 1.0
+    rbox(b, x + c * length / 2, y + s * length / 2, -0.25, length, 0.55, 0.55, GRANITE, ang)
+    for i in range(4):
+        rbox(b, x + c * (0.8 + i * (length - 1.2) / 3), y + s * (0.8 + i * (length - 1.2) / 3), 0.3, 0.08, 0.08, 0.3, COLUMN, ang)
+    b.build()
+    keep(x + c * length / 2, y + s * length / 2, length / 2 + 1.5)
+    for i in range(n):
+        side = -1 if i % 2 == 0 else 1
+        d = 1.0 + (i // 2) * (W + 0.25)
+        bx = x + c * d - s * side * (0.28 + L / 2 - 0.3)
+        by = y + s * d + c * side * (0.28 + L / 2 - 0.3)
+        boat(bx, by, ang + side * math.pi / 2 + random.uniform(-0.05, 0.05), L * random.uniform(0.9, 1.05), W, True)
+
 def wake(x, y, ang, L, W, big):
     """船只尾迹：船尾两条开尔文斜波白沫带（半角 19.5°）+ 船尾扰动带，向后淡出。"""
     b = B("Wake")
@@ -1834,6 +1878,23 @@ def build_scene():
         boat(x, y, a, L, W, c)
         wake(x, y, a, L, W, c)
 
+    # ---- 游船群：湖滨码头、岳湖码头、花港码头；湖滨与苏堤附近散落的手划船
+    dock(55.6, 4.0, math.pi, 8)                 # 湖滨（向西伸入湖中）
+    dock(55.4, -22.0, math.pi, 6)
+    dock(8.0, 56.6, -math.pi / 2, 6)            # 北里湖 / 北山路
+    dock(-30.0, -62.4, math.pi / 2, 6)          # 花港观鱼
+    for i in range(14):
+        x, y = random.uniform(42.0, 53.0), random.uniform(-36.0, 20.0)
+        if lake_depth(x, y) > 2.5 and shore_dist(x, y) > 1.5 and not blocked_r(x, y, 1.0):
+            boat(x, y, random.uniform(0, 6.28), random.uniform(1.3, 1.7), 0.6, False)
+    for i in range(8):
+        x, y = random.uniform(-34.0, -26.0), random.uniform(-20.0, 20.0)
+        if lake_depth(x, y) > 2.5 and shore_dist(x, y) > 1.5:
+            boat(x, y, random.uniform(0, 6.28), random.uniform(1.3, 1.6), 0.6, False)
+    for (x, y, a) in ((44.0, 36.0, 1.1), (30.0, -30.0, 2.6), (-8.0, 30.0, 0.4)):   # 再来几艘行驶中的画舫
+        boat(x, y, a, 4.2, 1.6, True)
+        wake(x, y, a, 4.2, 1.6, True)
+
     # ---- 沿湖垂柳
     n = 170
     for i in range(n):
@@ -1849,7 +1910,8 @@ def build_scene():
             if not blocked(x2, y2) and ground(x2, y2) < 2.5:
                 plant("tree" if random.random() < 0.6 else "pine", x2, y2, random.uniform(1.3, 1.7))
 
-    # ---- 山林（实例化松树/阔叶树）
+    # ---- 山林（实例化松树/阔叶树）：斑块密度、坡向树种、成片秋色、林窗岩石
+    ROCKS = []
     x0, y0, x1, y1 = ISL
     cnt = 0
     y = y0 + 1.0
@@ -1864,14 +1926,61 @@ def build_scene():
                     zx = ground(xx + 0.6, yy) - ground(xx - 0.6, yy)
                     zy = ground(xx, yy + 0.6) - ground(xx, yy - 0.6)
                     slope = math.hypot(zx, zy) / 1.2
-                    dens = 0.85 + 0.3 * (fbm(xx * 0.1 + 2, yy * 0.1 + 4, 3) - 0.5)
-                    if slope < 2.2 and random.random() < dens:
+                    # 密度：大斑块空地（林窗、草坡）+ 中尺度起伏 + 高处稀疏；朝南坡阔叶多，朝北坡松林密
+                    clearing = smooth01((fbm(xx * 0.045 + 7, yy * 0.045 + 3, 3) - 0.60) / 0.12)
+                    dens = (0.95 - 0.8 * clearing) * (0.8 + 0.4 * (fbm(xx * 0.12 + 2, yy * 0.12 + 4, 3) - 0.5))
+                    if z > 14:
+                        dens *= max(0.35, 1.0 - (z - 14) / 12.0)
+                    south = zy < 0   # 地面向南降低 = 南坡
+                    if slope < 3.4 and random.random() < (dens if slope < 2.2 else dens * 0.6):
+                        aut = fbm(xx * 0.08 + 11, yy * 0.08 + 5, 3)
+                        p_maple = 0.04 + 0.5 * smooth01((aut - 0.52) / 0.2)
+                        p_gink = 0.03 + 0.4 * smooth01((fbm(xx * 0.07 + 23, yy * 0.07 + 17, 3) - 0.55) / 0.2)
                         rr = random.random()
-                        kind = "maple" if rr < 0.16 else ("ginkgo" if rr < 0.27 else ("pine" if (z > 6 or rr < 0.62) else "tree"))
-                        plant(kind, xx, yy, random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85))
+                        if rr < p_maple:
+                            kind = "maple"
+                        elif rr < p_maple + p_gink:
+                            kind = "ginkgo"
+                        else:
+                            p_pine = 0.35 if south else 0.75
+                            p_pine += 0.2 if z > 8 else 0.0
+                            kind = "pine" if random.random() < p_pine else "tree"
+                        sz = random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85) * (0.8 + 0.2 * (1 - clearing)) * (1.0 if slope < 2.2 else 0.75)
+                        if slope >= 2.2:
+                            kind = "pine"
+                        plant(kind, xx, yy, sz)
                         cnt += 1
+                    elif clearing > 0.55 and z > 3.0 and random.random() < 0.16:
+                        ROCKS.append((xx, yy))
             x += 0.9
         y += 0.9
+    # 林窗岩石（成堆的山岩）
+    b = B("HillRocks")
+    for (rx, ry) in ROCKS[:420]:
+        gz = ground(rx, ry)
+        for k in range(random.randint(2, 4)):
+            r = random.uniform(0.25, 0.6)
+            v, f = icosphere(rx + random.uniform(-0.5, 0.5), ry + random.uniform(-0.5, 0.5), gz + r * 0.25, r, sub=1, squash=0.6, jit=0.25)
+            b.add(v, f, ROCK)
+    b.build()
+    # 上山小径与山顶亭（西山、南屏山）
+    for (pts, top) in ((([(-44.0, 14.0), (-50.0, 12.0), (-56.0, 15.0), (-61.0, 11.0), (-66.0, 13.0), (-71.0, 9.0)], True)),
+                       (([(-16.0, -62.0), (-20.0, -67.0), (-16.0, -72.0), (-10.0, -76.0), (-6.0, -80.0)], True)),
+                       (([(10.0, 60.0), (14.0, 66.0), (12.0, 72.0), (16.0, 75.0)], False))):
+        b = B("HillPath")
+        P, L = polyline(pts)
+        s = 0.0
+        while s < L:
+            x, y, dx, dy = P(s)
+            x += 0.25 * math.sin(s * 1.7); y += 0.25 * math.cos(s * 1.3)
+            rbox(b, x, y, ground(x, y) - 0.02, 0.55, 0.3, 0.08, STONE, math.atan2(dy, dx))
+            keep(x, y, 0.35)
+            s += 0.5
+        if top:
+            x, y, _, _ = P(L)
+            pavilion_jn(b, x, y, 0.9, 0.8, n=6, z0=ground(x, y) + 0.05)
+        b.build()
+    print(f"[wl] hill rocks={min(len(ROCKS), 420)}")
     # 平地散树
     for i in range(1600):
         x, y = random.uniform(x0, x1), random.uniform(y0, y1)
@@ -2060,7 +2169,7 @@ def setup_render():
     scene.render.engine = 'CYCLES'
     scene.cycles.device = 'CPU'
     scene.cycles.samples = SAMPLES
-    scene.cycles.use_denoising = True
+    scene.cycles.use_denoising = "--nodenoise" not in argv
     try:
         scene.cycles.denoiser = 'OPENIMAGEDENOISE'
     except Exception:

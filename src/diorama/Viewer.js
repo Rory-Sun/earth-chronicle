@@ -65,7 +65,7 @@ const MATERIALS = {
   Steel: { metalness: 0.6, roughness: 0.45 }, Concrete: { set: 'Rock051', normalOnly: true, repeat: 1.2, roughness: 0.85 }, Asphalt: { roughness: 0.95 },
   Glass: { metalness: 0.7, roughness: 0.18, envMapIntensity: 1.2 }, RedBrick: { set: 'PavingStones128', normalOnly: true, repeat: 1.5, roughness: 0.85 },
 };
-const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x3f8f7c, distortion: 0.5, size: 3.5 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
+const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x2f4654, distortion: 1.6, size: 2.2 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
 
 const texCache = new Map();
 function loadTexture(name, { gray = false, srgb = true } = {}) {
@@ -383,7 +383,7 @@ export async function startDiorama(id, ui) {
   renderer.setAnimationLoop(() => {
     const dt = clock.getDelta();
     if (document.visibilityState === 'visible') adapt(Math.min(dt, 0.25));
-    for (const w of waters) w.material.uniforms.time.value += dt * 0.35;
+    for (const w of waters) w.material.uniforms.time.value += dt * 0.6;
     controls.update();
     if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(controls.target);
     composer.render(dt);

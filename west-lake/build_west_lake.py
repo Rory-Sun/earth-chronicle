@@ -247,7 +247,7 @@ nt = LAWN.node_tree
 _c = tex_node(nt, "Grass004", "Color", 0.9, 'Object', noncolor=False)
 _d = tex_node(nt, "Grass004", "Displacement", 0.9, 'Object')
 _n = noise(nt, 0.3, 3.0)
-_rp = ramp(nt, [(0.3, (0.72, 0.84, 0.50)), (0.7, (1.05, 1.02, 0.80))])
+_rp = ramp(nt, [(0.3, (0.88, 0.80, 0.52)), (0.7, (1.04, 0.94, 0.70))])
 nt.links.new(_n.outputs["Fac"], _rp.inputs["Fac"])
 nt.links.new(mul_color(nt, _c.outputs["Color"], _rp.outputs["Color"]), nt.nodes["Principled BSDF"].inputs["Base Color"])
 tex_bump(nt, _d, 0.9, 0.06)
@@ -261,10 +261,10 @@ _gd = tex_node(nt, "Grass004", "Displacement", 0.8, 'Object')
 _sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(texcoord(nt).outputs["Object"], _sep.inputs["Vector"])
 _n1 = noise(nt, 0.35, 3.0)
-_lawn_tint = ramp(nt, [(0.3, (0.78, 0.90, 0.55)), (0.7, (1.08, 1.05, 0.82))])
+_lawn_tint = ramp(nt, [(0.3, (0.90, 0.84, 0.56)), (0.7, (1.06, 0.98, 0.72))])
 nt.links.new(_n1.outputs["Fac"], _lawn_tint.inputs["Fac"])
 _grass_col = mul_color(nt, _gc.outputs["Color"], _lawn_tint.outputs["Color"])
-_hr = ramp(nt, [(0.0, (0.14, 0.32, 0.15)), (0.4, (0.13, 0.31, 0.17)), (1.0, (0.14, 0.30, 0.18))])
+_hr = ramp(nt, [(0.0, (0.20, 0.30, 0.14)), (0.4, (0.18, 0.28, 0.15)), (1.0, (0.20, 0.27, 0.16))])
 nt.links.new(map_range(nt, _sep.outputs["Z"], 0.0, 1.0, 1.5, 22.0), _hr.inputs["Fac"])
 _mn = noise(nt, 0.25, 5.0)
 _mount_col = mul_color(nt, _hr.outputs["Color"], map_range(nt, _mn.outputs["Fac"], 0.72, 1.22))
@@ -286,7 +286,7 @@ LAKEBED = principled("LakeBed", (0.30, 0.42, 0.30), rough=0.9, bevel=0)
 nt = LAKEBED.node_tree
 _sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(texcoord(nt).outputs["Object"], _sep.inputs["Vector"])
-_br = ramp(nt, [(0.0, (0.05, 0.20, 0.15)), (0.6, (0.20, 0.42, 0.28)), (1.0, (0.60, 0.60, 0.44))])
+_br = ramp(nt, [(0.0, (0.04, 0.08, 0.10)), (0.6, (0.08, 0.16, 0.17)), (1.0, (0.34, 0.36, 0.28))])
 nt.links.new(map_range(nt, _sep.outputs["Z"], 0.0, 1.0, -1.8, -0.1), _br.inputs["Fac"])
 _bn = noise(nt, 0.5, 4.0)
 nt.links.new(mul_color(nt, _br.outputs["Color"], map_range(nt, _bn.outputs["Fac"], 0.8, 1.15)), nt.nodes["Principled BSDF"].inputs["Base Color"])
@@ -294,24 +294,40 @@ _bd = tex_node(nt, "Grass004", "Displacement", 0.6, 'Object')
 tex_bump(nt, _bd, 0.5, 0.08)
 
 # 湖水：透射 + 多层波纹；阴影光线按透明处理（否则湖底一片死黑）
-WATER = principled("LakeWater", (0.42, 0.74, 0.62), rough=0.02, spec=0.6, bevel=0)
+WATER = principled("LakeWater", (0.18, 0.27, 0.32), rough=0.03, spec=0.85, bevel=0)
 nt = WATER.node_tree
 _p = nt.nodes["Principled BSDF"]
 if "Transmission Weight" in _p.inputs:
-    _p.inputs["Transmission Weight"].default_value = 0.92
+    _p.inputs["Transmission Weight"].default_value = 0.18
 _p.inputs["IOR"].default_value = 1.33
-_w1 = noise(nt, 0.9, 5.0, distortion=0.4)
-_b1 = bump_node(nt, _w1.outputs["Fac"], 0.16, 0.25)
-_w2 = noise(nt, 7.0, 3.0)
-_b2 = bump_node(nt, _w2.outputs["Fac"], 0.05, 0.05, prev_normal=_b1.outputs["Normal"])
+# 三层波纹：大尺度涌动、风吹的中尺度细波、微小碎波；粗糙度随细波起伏，形成水面光斑
+_w1 = noise(nt, 0.6, 4.0, distortion=0.6)
+_b1 = bump_node(nt, _w1.outputs["Fac"], 0.30, 0.6)
+_w2 = noise(nt, 4.5, 5.0, distortion=0.3)
+_b2 = bump_node(nt, _w2.outputs["Fac"], 0.35, 0.12, prev_normal=_b1.outputs["Normal"])
 _wave = nt.nodes.new("ShaderNodeTexWave")
 _wave.wave_type = 'BANDS'; _wave.bands_direction = 'DIAGONAL'
-_wave.inputs["Scale"].default_value = 0.3
-_wave.inputs["Distortion"].default_value = 7.0
-_wave.inputs["Detail"].default_value = 2.0
+_wave.inputs["Scale"].default_value = 1.4
+_wave.inputs["Distortion"].default_value = 9.0
+_wave.inputs["Detail"].default_value = 3.0
+_wave.inputs["Detail Scale"].default_value = 2.0
 nt.links.new(texcoord(nt).outputs["Object"], _wave.inputs["Vector"])
-_b3 = bump_node(nt, _wave.outputs["Fac"], 0.10, 0.15, prev_normal=_b2.outputs["Normal"])
-nt.links.new(_b3.outputs["Normal"], _p.inputs["Normal"])
+_b3 = bump_node(nt, _wave.outputs["Fac"], 0.22, 0.08, prev_normal=_b2.outputs["Normal"])
+_w4 = noise(nt, 22.0, 2.0)
+_b4 = bump_node(nt, _w4.outputs["Fac"], 0.10, 0.02, prev_normal=_b3.outputs["Normal"])
+nt.links.new(_b4.outputs["Normal"], _p.inputs["Normal"])
+# 风痕：大尺度噪波决定哪些区域平静如镜、哪些被风吹皱（粗糙度与细波强度同时受控）
+_wp = noise(nt, 0.045, 2.5, distortion=1.2)
+_wpf = map_range(nt, _wp.outputs["Fac"], 0.0, 1.0, 0.35, 0.72)
+_rgh = nt.nodes.new("ShaderNodeMath"); _rgh.operation = 'MULTIPLY'
+nt.links.new(map_range(nt, _w2.outputs["Fac"], 0.012, 0.10), _rgh.inputs[0])
+nt.links.new(map_range(nt, _wpf, 0.35, 1.6), _rgh.inputs[1])
+nt.links.new(_rgh.outputs[0], _p.inputs["Roughness"])
+nt.links.new(map_range(nt, _wpf, 0.08, 0.5), _b2.inputs["Strength"])
+nt.links.new(map_range(nt, _wpf, 0.05, 0.3), _b3.inputs["Strength"])
+# 水色随风痕与岸边略变：平静处更深更蓝，岸边树影下偏绿
+_wc = mix_rgb(nt, rgb(nt, (0.15, 0.24, 0.30)), rgb(nt, (0.20, 0.30, 0.31)), _wpf, 'MIX')
+nt.links.new(_wc, _p.inputs["Base Color"])
 _lp = nt.nodes.new("ShaderNodeLightPath")
 _tr = nt.nodes.new("ShaderNodeBsdfTransparent")
 _tr.inputs["Color"].default_value = (0.85, 0.95, 0.92, 1)
@@ -910,11 +926,11 @@ def tint_leaf_material(mat, pink=False, tint=None):
     elif pink:
         col = mix_rgb(nt, col, rgb(nt, (0.96, 0.62, 0.72)), 0.7, 'MIX')
     elif 'fir' in mat.name or 'twigs' in mat.name:
-        col = mix_rgb(nt, col, rgb(nt, (0.30, 0.60, 0.20)), 0.65, 'MIX')
+        col = mix_rgb(nt, col, rgb(nt, (0.24, 0.42, 0.27)), 0.65, 'MIX')
     elif 'tree_small' in mat.name:
         col = mix_rgb(nt, col, rgb(nt, (0.44, 0.62, 0.22)), 0.55, 'MIX')
     else:
-        col = mix_rgb(nt, col, rgb(nt, (0.27, 0.54, 0.19)), 0.55, 'MIX')
+        col = mix_rgb(nt, col, rgb(nt, (0.36, 0.48, 0.22)), 0.55, 'MIX')
     nt.links.new(col, p.inputs["Base Color"])
     nt.links.new(alpha.outputs["Color"] if alpha is not None else diff.outputs["Alpha"], p.inputs["Alpha"])
     nt.links.new(p.outputs["BSDF"], out.inputs["Surface"])
@@ -1533,7 +1549,7 @@ def build_scene():
                     dens = 0.85 + 0.3 * (fbm(xx * 0.1 + 2, yy * 0.1 + 4, 3) - 0.5)
                     if slope < 2.2 and random.random() < dens:
                         rr = random.random()
-                        kind = "maple" if rr < 0.06 else ("ginkgo" if rr < 0.1 else ("pine" if (z > 6 or rr < 0.6) else "tree"))
+                        kind = "maple" if rr < 0.16 else ("ginkgo" if rr < 0.27 else ("pine" if (z > 6 or rr < 0.62) else "tree"))
                         plant(kind, xx, yy, random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85))
                         cnt += 1
             x += 0.9
@@ -1715,7 +1731,7 @@ def setup_mist():
         return
     x0, y0, x1, y1 = ISL
     # 湖面薄雾：贴水低雾，随高度消散，带斑块（远景空气透视改在材质里按视距混色，见 add_fog）
-    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.6, 0.018, (0.90, 0.95, 0.95), 0.4, gradient=(-0.6, 1.6), noise_scale=0.035)
+    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.8, 0.026, (0.90, 0.94, 0.96), 0.4, gradient=(-0.6, 1.8), noise_scale=0.035)
 
 def setup_render():
     scene.render.engine = 'CYCLES'

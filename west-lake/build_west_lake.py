@@ -216,6 +216,15 @@ BOAT_WOOD = principled("BoatWood", (0.36, 0.22, 0.12), rough=0.5, coat=0.2)
 BOAT_DECK = principled("BoatDeck", (0.58, 0.46, 0.30), rough=0.6)
 BOAT_RED = principled("BoatRed", (0.55, 0.14, 0.10), rough=0.5, coat=0.2)
 REED = principled("Reed", (0.70, 0.60, 0.34), rough=0.85, bevel=0)
+GREY_TILE2 = tile_material("HuiWa", (0.33, 0.34, 0.36), (0.46, 0.47, 0.49), rough=0.6, coat=0.1)
+FACADE3 = principled("Facade3", (0.70, 0.74, 0.78), rough=0.7)
+KERB = principled("Kerb", (0.66, 0.65, 0.60), rough=0.9, bevel=0)
+FLAT_ROOF = principled("FlatRoof", (0.26, 0.26, 0.25), rough=0.95, bevel=0)
+HEDGE = principled("Hedge", (0.15, 0.30, 0.11), rough=0.9, bevel=0)
+CARS = [principled(f"Car{i}", c, rough=0.3, coat=0.6, bevel=0) for i, c in enumerate(
+    ((0.85, 0.85, 0.85), (0.62, 0.64, 0.67), (0.07, 0.07, 0.08), (0.60, 0.08, 0.06), (0.14, 0.20, 0.40), (0.76, 0.70, 0.58)))]
+FLOWERS = [principled("FlowerR", (0.80, 0.08, 0.10), rough=0.7, bevel=0), principled("FlowerY", (0.95, 0.75, 0.12), rough=0.7, bevel=0),
+           principled("FlowerP", (0.90, 0.45, 0.60), rough=0.7, bevel=0), principled("FlowerW", (0.92, 0.92, 0.86), rough=0.7, bevel=0)]
 REED_HEAD = principled("ReedHead", (0.60, 0.48, 0.28), rough=0.9, bevel=0)
 # 船只尾迹：白沫带，沿 UV.u 向后淡出、横向两侧羽化、噪波打碎
 WAKE = principled("Wake", (0.86, 0.90, 0.90), rough=0.55, spec=0.3, bevel=0)
@@ -284,6 +293,10 @@ _n1 = noise(nt, 0.35, 3.0)
 _lawn_tint = ramp(nt, [(0.3, (0.90, 0.84, 0.56)), (0.7, (1.06, 0.98, 0.72))])
 nt.links.new(_n1.outputs["Fac"], _lawn_tint.inputs["Fac"])
 _grass_col = mul_color(nt, _gc.outputs["Color"], _lawn_tint.outputs["Color"])
+# 大尺度斑驳：约四分之一面积偏枯黄/踩踏色，去掉"一张草皮贴图"的感觉
+_mot = noise(nt, 0.06, 2.0, distortion=0.5)
+_motf = map_range(nt, _mot.outputs["Fac"], 0.0, 1.0, 0.56, 0.74); _motf.node.clamp = True
+_grass_col = mix_rgb(nt, _grass_col, mul_color(nt, _grass_col, rgb(nt, (0.92, 0.82, 0.58))), _motf, 'MIX')
 _hr = ramp(nt, [(0.0, (0.20, 0.30, 0.14)), (0.4, (0.18, 0.28, 0.15)), (1.0, (0.20, 0.27, 0.16))])
 nt.links.new(map_range(nt, _sep.outputs["Z"], 0.0, 1.0, 1.5, 22.0), _hr.inputs["Fac"])
 _mn = noise(nt, 0.25, 5.0)
@@ -1308,15 +1321,32 @@ def pagoda(b, cx, cy, z0, stories, r0, sh, shrink=0.9, body=BRICK, roof=BRONZE_T
     for k in range(4):
         prism(b, cx, cy, zt + 0.15 + k * 0.25, 0.22 - 0.03 * k, 0.06, FINIAL, n=8)
 
-def house(x, y, w, d, h, ang, wall=WHITE_WALL):
+def house(x, y, w, d, h, ang, wall=WHITE_WALL, roof=DARK_TILE, flat=False, floors=2):
+    """民居：坡顶（粉墙黛瓦，偶有二层）或平顶楼房（外墙+窗带+女儿墙）。"""
     if isl_rho(x, y)[0] > 0.93:   # 岛缘之外不建房
         return
     b = B("House")
     z0 = ground(x, y) - 0.05
     box(b, 0, 0, z0 - 0.3, w + 0.2, d + 0.2, 0.3 + 0.08, GRANITE)
-    box(b, 0, 0, z0 + 0.08, w, d, h, wall)
-    box(b, 0, -d / 2 + 0.005, z0 + 0.2, w * 0.7, 0.03, h * 0.6, LATTICE)
-    hip_roof(b, 0, 0, z0 + 0.08 + h, w + 0.5, d + 0.5, 0.36 * d + 0.15, DARK_TILE, ridge=0.7, curl=0.1)
+    if flat:
+        fh = 0.55
+        H = floors * fh
+        box(b, 0, 0, z0 + 0.08, w, d, H, wall)
+        for k in range(floors):
+            box(b, 0, 0, z0 + 0.08 + k * fh + 0.16, w + 0.03, d + 0.03, 0.2, GLASS)
+        box(b, 0, 0, z0 + 0.08 + H, w + 0.08, d + 0.08, 0.06, FLAT_ROOF)
+        for (sx, sy, ww, dd) in ((0, -1, w + 0.08, 0.06), (0, 1, w + 0.08, 0.06), (-1, 0, 0.06, d + 0.08), (1, 0, 0.06, d + 0.08)):
+            box(b, sx * (w / 2 + 0.01), sy * (d / 2 + 0.01), z0 + 0.14 + H, ww, dd, 0.05, CONCRETE)   # 女儿墙
+        if random.random() < 0.6:
+            box(b, w * 0.2, d * 0.1, z0 + 0.14 + H, w * 0.3, d * 0.35, 0.25, CONCRETE)
+        if random.random() < 0.5:
+            box(b, -w * 0.25, -d * 0.15, z0 + 0.14 + H, 0.18, 0.18, 0.2, KERB)                    # 水箱
+    else:
+        box(b, 0, 0, z0 + 0.08, w, d, h, wall)
+        box(b, 0, -d / 2 + 0.005, z0 + 0.2, w * 0.7, 0.03, min(h, 1.0) * 0.6, LATTICE)
+        if h > 1.3:   # 二层：腰檐
+            box(b, 0, 0, z0 + 0.08 + h * 0.5, w + 0.3, d + 0.3, 0.05, roof)
+        hip_roof(b, 0, 0, z0 + 0.08 + h, w + 0.5, d + 0.5, 0.36 * d + 0.15, roof, ridge=random.uniform(0.55, 0.8), curl=0.1)
     b.build(loc=(x, y, 0), rot=ang)
     keep(x, y, max(w, d) * 0.7)
 
@@ -1355,7 +1385,10 @@ def tower_block(b, cx, cy, w, d, floors, ang=0.0, glassy=False, z0=None):
         z0 = max(ground(cx + sx * w / 2, cy + sy * d / 2) for sx in (-1, 1) for sy in (-1, 1)) - 0.1
     fh = 0.6
     rbox(b, cx, cy, z0 - 0.3, w + 0.8, d + 0.8, 0.35, CONCRETE, ang)
-    wall = FACADE2 if random.random() < 0.3 else FACADE
+    wall = pick([(FACADE, 0.5), (FACADE2, 0.25), (FACADE3, 0.25)])
+    if random.random() < 0.3:   # 裙楼
+        rbox(b, cx, cy, z0, w + 1.2, d + 1.0, 2 * fh, wall, ang)
+        rbox(b, cx, cy, z0 + 2 * fh, w + 1.3, d + 1.1, 0.1, CONCRETE, ang)
     if glassy:
         rbox(b, cx, cy, z0, w, d, floors * fh, GLASS, ang)
         for k in range(floors):
@@ -1366,6 +1399,7 @@ def tower_block(b, cx, cy, w, d, floors, ang=0.0, glassy=False, z0=None):
             rbox(b, cx, cy, z0 + k * fh + 0.18, w + 0.05, d + 0.05, 0.26, GLASS, ang)
     zt = z0 + floors * fh
     rbox(b, cx, cy, zt, w + 0.1, d + 0.1, 0.12, CONCRETE, ang)
+    rbox(b, cx, cy, zt + 0.12, w - 0.1, d - 0.1, 0.02, FLAT_ROOF, ang)
     rbox(b, cx + w * 0.2, cy, zt + 0.12, w * 0.3, d * 0.4, 0.5, CONCRETE, ang)
     keep(cx, cy, max(w, d) * 0.8)
 
@@ -1394,36 +1428,64 @@ def city(x0s, y0s, x1s, y1s, floors=(4, 11), glassy=0.35, bw=12.0, bd=10.0, stre
         x += bw + street
     b.build()
 
-def town(x0s, y0s, x1s, y1s, bw=11.0, bd=9.0, street=2.2, density=0.85):
-    """街区式老城：街道网格、每个街区一块铺地与沿街对齐的房屋，偶有院落与行道树。"""
+def pick(pairs):
+    r = random.random()
+    acc = 0.0
+    for v, pr in pairs:
+        acc += pr
+        if r < acc:
+            return v
+    return pairs[-1][0]
+
+def town(x0s, y0s, x1s, y1s, bw=11.0, bd=9.0, street=2.2, density=0.85, flat_x=68.0):
+    """街区式老城：奇数列错位的街区、尺寸随机的街道，房屋在墙面/屋顶/层数/朝向上各有变化，
+    离湖远的街区混入平顶楼房，少量街区做成小公园或公共建筑。"""
     bb = B("Town")
-    x = x0s
-    while x + bw < x1s:
-        y = y0s
-        while y + bd < y1s:
-            cx, cy = x + bw / 2, y + bd / 2
+    x, col = x0s, 0
+    while x + bw * 0.8 < x1s:
+        bwc = bw + random.uniform(-1.5, 1.5)
+        y = y0s + (bd * 0.45 if col % 2 else 0.0)
+        while y + bd * 0.8 < y1s:
+            bdc = bd + random.uniform(-1.0, 1.0)
+            cx, cy = x + bwc / 2, y + bdc / 2
             ok = (lake_depth(cx, cy) < -4 and ground(cx, cy) < 1.6 and isl_rho(cx, cy)[0] < 0.94
                   and not blocked(cx, cy) and random.random() < density)
             if ok:
-                gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
-                box(bb, cx, cy, gz - 0.35, bw + street * 0.8, bd + street * 0.8, 0.42, STONE)
-                keep(cx, cy, max(bw, bd) * 0.75)
-                if random.random() < 0.12:
+                gz = max(ground(cx + sx * bwc / 2, cy + sy * bdc / 2) for sx in (-1, 1) for sy in (-1, 1))
+                box(bb, cx, cy, gz - 0.35, bwc + street * 0.8, bdc + street * 0.8, 0.42, STONE)
+                keep(cx, cy, max(bwc, bdc) * 0.75)
+                rr = random.random()
+                if rr < 0.08:   # 小公园 / 小广场
+                    box(bb, cx, cy, gz + 0.07, bwc - 1.6, bdc - 1.6, 0.05, LAWN if random.random() < 0.6 else STONE)
+                    for i in range(3):
+                        plant(random.choice(["tree", "ginkgo", "willow", "maple"]), cx + random.uniform(-bwc / 3, bwc / 3), cy + random.uniform(-bdc / 3, bdc / 3), random.uniform(1.1, 1.5), z=gz + 0.1)
+                    if random.random() < 0.5:
+                        pavilion_jn(bb, cx, cy, 0.9, 0.8, n=6, z0=gz + 0.1)
+                elif rr < 0.17:  # 公共建筑
                     hall_jn(bb, cx, cy, random.uniform(3.2, 4.2), random.uniform(2.0, 2.6), 1.15, z0=gz + 0.07, double=random.random() < 0.5, stair=True)
                 else:
+                    far = cx > flat_x
                     for row, sy in ((0, -1), (1, 1)):
-                        n = random.randint(3, 4)
+                        n = random.randint(3, 5)
                         for k in range(n):
-                            w = bw / n - 0.5
-                            hx = x + w / 2 + 0.25 + k * (bw / n)
-                            hy = cy + sy * (bd / 2 - 1.3)
-                            house(hx, hy, w, random.uniform(1.8, 2.3), random.uniform(0.7, 1.15), 0.0 if random.random() < 0.85 else math.pi / 2)
-                    if random.random() < 0.7:
-                        plant(random.choice(["tree", "tree", "willow", "ginkgo"]), cx + random.uniform(-2, 2), cy + random.uniform(-0.8, 0.8), random.uniform(1.1, 1.6), z=gz + 0.07)
+                            w = bwc / n - random.uniform(0.4, 0.7)
+                            hx = x + w / 2 + 0.3 + k * (bwc / n) + random.uniform(-0.1, 0.1)
+                            hy = cy + sy * (bdc / 2 - random.uniform(1.1, 1.5))
+                            wall = pick([(WHITE_WALL, 0.55), (FACADE, 0.2), (GREYBRICK, 0.12), (FACADE2, 0.08), (YELLOW_WALL, 0.05)])
+                            roof = pick([(DARK_TILE, 0.72), (GREY_TILE2, 0.2), (BRONZE_TILE, 0.08)])
+                            h = random.uniform(0.7, 1.2) + (0.5 if random.random() < 0.2 else 0.0)
+                            ang = random.uniform(-0.07, 0.07) + (math.pi / 2 if random.random() < 0.12 else 0.0)
+                            house(hx, hy, w, random.uniform(1.7, 2.4), h, ang, wall=wall, roof=roof,
+                                  flat=far and random.random() < 0.3, floors=random.randint(2, 4))
+                    if random.random() < 0.8:
+                        plant(random.choice(["tree", "tree", "willow", "ginkgo", "maple"]), cx + random.uniform(-2, 2), cy + random.uniform(-0.8, 0.8), random.uniform(1.1, 1.6), z=gz + 0.07)
+                    if random.random() < 0.5:
+                        plant("bush", cx + random.uniform(-3, 3), cy + random.uniform(-0.6, 0.6), random.uniform(0.8, 1.2), z=gz + 0.07)
                 if random.random() < 0.5:
-                    plant("tree", x + bw + street / 2, y + random.uniform(1, bd - 1), random.uniform(1.0, 1.4))
-            y += bd + street
-        x += bw + street
+                    plant("tree", x + bwc + street / 2, y + random.uniform(1, bdc - 1), random.uniform(1.0, 1.4))
+            y += bdc + street * random.uniform(0.8, 1.3)
+        x += bwc + street
+        col += 1
     bb.build()
 
 def boat(x, y, ang, L, W, canopy=True):
@@ -1490,6 +1552,111 @@ def reeds(cx, cy, n, r=0.9, z0=-0.25):
         rod(b, (x, y, z0), (x + lx, y + ly, z0 + h), 0.026, REED)
         cone(b, x + lx, y + ly, z0 + h - 0.03, 0.045, 0.015, 0.16, REED_HEAD, n=5, uv=False)
     b.build()
+
+def blocked_r(x, y, k=1.0):
+    return any(math.hypot(x - kx, y - ky) < kr * k for (kx, ky, kr) in KEEP)
+
+ROAD_PTS = []   # (x, y, ang)
+def road_seg(b, x, y, ang, L=1.3, W=0.95):
+    gz = max(ground(x + dx, y + dy) for dx in (-0.45, 0.45) for dy in (-0.45, 0.45))
+    rbox(b, x, y, gz - 0.10, L + 0.02, W + 0.26, 0.15, KERB, ang)     # 人行道
+    rbox(b, x, y, gz - 0.10, L + 0.02, W, 0.14, ASPHALT, ang)         # 车道
+    ROAD_PTS.append((x, y, ang, gz + 0.04))
+    keep(x, y, 0.6)
+
+def car(b, x, y, ang, z):
+    m = random.choice(CARS)
+    L, W = random.uniform(0.16, 0.22), 0.085
+    rbox(b, x, y, z, L, W, 0.05, m, ang)
+    rbox(b, x - L * 0.05, y, z + 0.05, L * 0.55, W * 0.88, 0.04, GLASS, ang)
+
+def flower_bed(b, cx, cy, w, d, ang):
+    gz = ground(cx, cy)
+    rbox(b, cx, cy, gz, w, d, 0.12, HEDGE, ang)
+    m = random.choice(FLOWERS)
+    c, s = math.cos(ang), math.sin(ang)
+    k = 0
+    for i in range(int(w / 0.22)):
+        for j in range(int(d / 0.22)):
+            lx, ly = -w / 2 + 0.11 + i * 0.22 + random.uniform(-0.04, 0.04), -d / 2 + 0.11 + j * 0.22 + random.uniform(-0.04, 0.04)
+            v, f = icosphere(cx + lx * c - ly * s, cy + lx * s + ly * c, gz + 0.14, random.uniform(0.07, 0.10), sub=1, squash=0.7)
+            b.add(v, f, m if random.random() < 0.85 else HEDGE)
+            k += 1
+    keep(cx, cy, max(w, d) * 0.6)
+
+def shore_park():
+    """环湖公园带：北山路/南山路/杨公堤方向的环湖道路（遇建筑外移）、湖滨路、路上车辆、
+    沿路花坛、几处广场与通向湖边的小径。"""
+    b = B("ShorePark")
+    a, n_seg = 0.0, 0
+    while a < 2 * math.pi:
+        r = lake_r(a)
+        da = 1.25 / (r + 5)
+        for off in (5.2, 6.6, 8.0):
+            x, y = LC[0] + (r + off) * math.cos(a), LC[1] + (r + off) * math.sin(a)
+            if x > 56.5:
+                break                                   # 东岸由湖滨路承担
+            if ground(x, y) > 1.4 or isl_rho(x, y)[0] > 0.93 or blocked_r(x, y, 0.85):
+                continue
+            r2 = lake_r(a + da)
+            ang = math.atan2((r2 + off) * math.sin(a + da) - (r + off) * math.sin(a), (r2 + off) * math.cos(a + da) - (r + off) * math.cos(a))
+            road_seg(b, x, y, ang)
+            n_seg += 1
+            if random.random() < 0.09 and off == 5.2:     # 路侧花坛（湖一侧）
+                fx, fy = LC[0] + (r + 4.1) * math.cos(a), LC[1] + (r + 4.1) * math.sin(a)
+                if not blocked_r(fx, fy, 0.9) and ground(fx, fy) < 1.2:
+                    flower_bed(b, fx, fy, random.uniform(1.2, 2.0), random.uniform(0.5, 0.8), ang)
+            break
+        a += da
+    y = -58.0
+    while y < 58.0:                                     # 湖滨路（东岸，南北向）
+        if not blocked_r(59.3, y, 0.6):
+            road_seg(b, 59.3, y, math.pi / 2)
+            n_seg += 1
+        y += 1.25
+    # 行道树：路两侧交替，法桐/银杏为主
+    for (x, y, ang, z) in ROAD_PTS:
+        if random.random() < 0.42:
+            s = random.choice((-1, 1))
+            nx, ny = -math.sin(ang), math.cos(ang)
+            tx, ty = x + nx * 0.95 * s, y + ny * 0.95 * s
+            if not blocked_r(tx, ty, 0.5) and ground(tx, ty) < 1.4:
+                plant(pick([("tree", 0.6), ("ginkgo", 0.3), ("willow", 0.1)]), tx, ty, random.uniform(1.2, 1.6), z=ground(tx, ty))
+    # 车辆
+    n_car = 0
+    for (x, y, ang, z) in ROAD_PTS:
+        if random.random() < 0.33:
+            s = random.choice((-1, 1))
+            nx, ny = -math.sin(ang), math.cos(ang)
+            car(b, x + nx * 0.24 * s, y + ny * 0.24 * s, ang + (0.0 if s > 0 else math.pi), z)
+            n_car += 1
+    # 广场 + 小径 + 花坛
+    n_plaza = 0
+    for (px, py) in ((36.0, 61.5), (52.0, -47.5), (30.5, -59.5), (-24.0, -57.0), (-52.0, 44.0), (57.0, 22.0), (57.0, -26.0),
+                     (14.0, 63.5), (-12.0, 63.5), (-46.0, 10.0), (-48.0, -22.0), (10.0, -61.0), (46.0, 54.0), (-36.0, -58.0)):
+        if blocked_r(px, py, 0.8) or ground(px, py) > 1.3 or isl_rho(px, py)[0] > 0.93:
+            continue
+        gz = ground(px, py)
+        box(b, px, py, gz, 4.2, 3.0, 0.09, STONE)
+        keep(px, py, 2.4)
+        for (sx, sy) in ((-1, -1), (1, 1)):
+            flower_bed(b, px + sx * 1.4, py + sy * 0.9, 1.0, 0.5, 0.0)
+        for i in range(4):
+            plant("bush", px + random.uniform(-2.6, 2.6), py + random.choice((-1, 1)) * random.uniform(1.6, 2.0), random.uniform(0.7, 1.0), z=gz + 0.05)
+        # 小径：广场 → 湖边
+        dx, dy = LC[0] - px, LC[1] - py
+        L = math.hypot(dx, dy); dx, dy = dx / L, dy / L
+        s = 1.8
+        while s < 60:
+            x, y = px + dx * s, py + dy * s
+            if lake_depth(x, y) > -1.2:
+                break
+            if not blocked_r(x, y, 0.7):
+                rbox(b, x, y, ground(x, y) - 0.02, 0.6, 0.38, 0.06, STONE, math.atan2(dy, dx))
+            s += 0.55
+        n_plaza += 1
+    b.build()
+    print(f"[wl] shore park: road segments={n_seg}, cars={n_car}, plazas={n_plaza}")
 
 def embankment():
     """沿湖石砌驳岸：顺岸线的花岗岩条石；山脚与部分岸段留作自然岸，缺口处补芦苇。"""
@@ -1652,8 +1819,9 @@ def build_scene():
         if lake_depth(x, y) < -2 and ground(x, y) < 1.5 and not blocked(x, y):
             plant(random.choice(["tree", "tree", "willow", "ginkgo"]), x, y, random.uniform(1.3, 1.8))
 
-    # ---- 驳岸与芦苇（曲院风荷、花港一带再补几丛）
+    # ---- 驳岸与芦苇（曲院风荷、花港一带再补几丛）、环湖公园带
     embankment()
+    shore_park()
     for (x, y) in ((-43.0, 28.0), (-44.5, 14.0), (-41.0, 36.0), (-48.0, -8.0), (-44.0, -38.0), (-28.0, -51.0), (-31.5, 44.5)):
         if not blocked(x, y):
             reeds(x, y, random.randint(28, 44), r=1.2)
@@ -1749,16 +1917,16 @@ def setup_camera_lights():
 
     # 晨光：东北偏东、仰角 26°，偏暖
     sun_data = bpy.data.lights.new("Sun", 'SUN')
-    sun_data.energy = 4.0
-    sun_data.color = (1.0, 0.90, 0.76)
+    sun_data.energy = 4.8
+    sun_data.color = (1.0, 0.86, 0.70)
     sun_data.angle = math.radians(2.5)
     sun = bpy.data.objects.new("Sun", sun_data)
     COL.objects.link(sun)
-    sun.rotation_euler = mathutils.Euler((math.radians(58), 0, math.radians(118)), 'XYZ')
+    sun.rotation_euler = mathutils.Euler((math.radians(66), 0, math.radians(118)), 'XYZ')   # 仰角 24°，长影
     if "--sunonly" in argv:
         sun_data.energy = 1.6
     fill_data = bpy.data.lights.new("Fill", 'AREA')
-    fill_data.energy = 250
+    fill_data.energy = 330
     fill_data.size = 220
     fill_data.color = (0.78, 0.88, 1.0)
     fill = bpy.data.objects.new("Fill", fill_data)
@@ -1881,7 +2049,7 @@ def setup_mist():
         return
     x0, y0, x1, y1 = ISL
     # 湖面薄雾：贴水低雾，随高度消散，带斑块（远景空气透视改在材质里按视距混色，见 add_fog）
-    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.8, 0.024, (0.90, 0.94, 0.96), 0.4, gradient=(-0.6, 1.8), noise_scale=0.035)
+    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.8, 0.028, (0.92, 0.94, 0.95), 0.55, gradient=(-0.6, 1.8), noise_scale=0.035)
     # 西岸山脚雾带（山色空蒙）、北岸远景雾带：更高、更稀、斑块更大
     if "--nonewmist" in argv:
         return
@@ -1917,7 +2085,7 @@ def setup_render():
     vs = scene.view_settings
     vs.view_transform = 'Standard'   # AgX/Filmic 会把浅色背景板压灰、绿色变闷
     vs.look = 'None'
-    vs.exposure = 0.1
+    vs.exposure = 0.17
     vs.gamma = 1.0
     scene.render.filter_size = 1.6
     scene.render.film_transparent = False
@@ -1954,7 +2122,7 @@ if WEB:
     de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "LakeMist", "HillMist", "NorthMist", "Wake"}, _vcol, uv_scale=1.0, extra={
         "title": "杭州西湖", "unit_m": 25,
         "camera": {"target": [-5, 2, -4], "az": 34, "dist": 300, "pitch": 35, "lens": 45, "min_dist": 80, "max_dist": 600},
-        "sun": {"euler_deg": [58, 0, 118], "color": [1.0, 0.90, 0.76], "strength": 4.0},
+        "sun": {"euler_deg": [66, 0, 118], "color": [1.0, 0.86, 0.70], "strength": 4.6},
         "backdrop": [[0.84, 0.89, 0.89], [0.93, 0.95, 0.94]],
         "water": ["LakeWater"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.84, 0.92, 0.96],
         "hdri": "kloppenheim_06_puresky_1k.hdr",

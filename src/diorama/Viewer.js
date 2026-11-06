@@ -64,6 +64,8 @@ const MATERIALS = {
   Finial: { metalness: 0.9, roughness: 0.3 }, GoldTrim: { metalness: 0.6, roughness: 0.4 },
   Steel: { metalness: 0.6, roughness: 0.45 }, Concrete: { set: 'Rock051', normalOnly: true, repeat: 1.2, roughness: 0.85 }, Asphalt: { roughness: 0.95 },
   Reed: { roughness: 0.9 }, ReedHead: { roughness: 0.95 },
+  HuiWa: TILE([0.85, 0.87, 0.9]), Kerb: { set: 'PavingStones128', normalOnly: true, repeat: 2.0, roughness: 0.9 }, FlatRoof: { roughness: 0.95 },
+  Hedge: { roughness: 0.95 }, Facade3: { roughness: 0.7 },
   Glass: { metalness: 0.7, roughness: 0.18, envMapIntensity: 1.2 }, RedBrick: { set: 'PavingStones128', normalOnly: true, repeat: 1.5, roughness: 0.85 },
 };
 const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x3a5464, distortion: 1.0, size: 2.6 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };

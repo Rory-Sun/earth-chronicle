@@ -63,9 +63,10 @@ const MATERIALS = {
   GardenRock: { set: 'Rock051', repeat: 0.6, tint: [1.0, 0.98, 0.9], roughness: 0.9 },
   Finial: { metalness: 0.9, roughness: 0.3 }, GoldTrim: { metalness: 0.6, roughness: 0.4 },
   Steel: { metalness: 0.6, roughness: 0.45 }, Concrete: { set: 'Rock051', normalOnly: true, repeat: 1.2, roughness: 0.85 }, Asphalt: { roughness: 0.95 },
+  Reed: { roughness: 0.9 }, ReedHead: { roughness: 0.95 },
   Glass: { metalness: 0.7, roughness: 0.18, envMapIntensity: 1.2 }, RedBrick: { set: 'PavingStones128', normalOnly: true, repeat: 1.5, roughness: 0.85 },
 };
-const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x2f4654, distortion: 1.6, size: 2.2 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
+const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x3a5464, distortion: 1.0, size: 2.6 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
 
 const texCache = new Map();
 function loadTexture(name, { gray = false, srgb = true } = {}) {
@@ -123,15 +124,23 @@ function makeWaterNormals(n = 256) {
   const c = document.createElement('canvas'); c.width = c.height = n;
   const ctx = c.getContext('2d'); const d = ctx.createImageData(n, n);
   const h = new Float32Array(n * n);
-  const waves = [[3, 1, 0.5], [5, -2, 0.3], [-2, 7, 0.25], [8, 3, 0.15], [11, -6, 0.1], [1, 13, 0.08]];
+  // 多方向、多尺度的正弦波叠加（整数波数保证可平铺），振幅随波数衰减，相位随机：避免少数几组波形成规则格子
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const waves = [];
+  for (let i = 0; i < 22; i++) {
+    const k = 2 + Math.floor(rnd() * 26), ang = rnd() * Math.PI;
+    const a = Math.round(k * Math.cos(ang)), b = Math.round(k * Math.sin(ang));
+    if (a === 0 && b === 0) continue;
+    waves.push([a, b, 0.55 * Math.pow(Math.hypot(a, b), -1.1), rnd() * 2 * Math.PI]);
+  }
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    let v = 0; for (const [a, b, amp] of waves) v += amp * Math.sin(2 * Math.PI * (a * x + b * y) / n + a);
+    let v = 0; for (const [a, b, amp, ph] of waves) v += amp * Math.sin(2 * Math.PI * (a * x + b * y) / n + ph);
     h[y * n + x] = v;
   }
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
     const dx = h[y * n + (x + 1) % n] - h[y * n + (x + n - 1) % n];
     const dy = h[((y + 1) % n) * n + x] - h[((y + n - 1) % n) * n + x];
-    const nx = -dx * 1.5, ny = -dy * 1.5, nz = 1; const l = Math.hypot(nx, ny, nz);
+    const nx = -dx * 2.2, ny = -dy * 2.2, nz = 1; const l = Math.hypot(nx, ny, nz);
     const i = (y * n + x) * 4;
     d.data[i] = 128 + 127 * nx / l; d.data[i + 1] = 128 + 127 * ny / l; d.data[i + 2] = 128 + 127 * nz / l; d.data[i + 3] = 255;
   }
@@ -290,6 +299,10 @@ export async function startDiorama(id, ui) {
   for (const wm of waterMeshes) {
     const spec = WATER[wm.material.name] || WATER.LakeWater;
     const geo = wm.geometry.clone(); wm.updateWorldMatrix(true, false); geo.applyMatrix4(wm.matrixWorld); geo.rotateX(Math.PI / 2);
+    // 水面网格经 Draco 量化后顶点高度有微小抖动，反射会出现棋盘格：把高度拉平、重算法线，去掉顶点色
+    { const pos = geo.attributes.position; let zs = 0; for (let i = 0; i < pos.count; i++) zs += pos.getZ(i); zs /= pos.count;
+      for (let i = 0; i < pos.count; i++) pos.setZ(i, zs); pos.needsUpdate = true;
+      geo.deleteAttribute('color'); geo.deleteAttribute('normal'); geo.computeVertexNormals(); }
     const water = new Water(geo, {
       textureWidth: TIERS[tier].water, textureHeight: TIERS[tier].water, waterNormals, sunDirection: sunDir.clone(),
       sunColor: new THREE.Color(...meta.sun.color), waterColor: spec.color, distortionScale: spec.distortion, fog: true,

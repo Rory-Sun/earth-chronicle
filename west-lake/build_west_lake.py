@@ -215,6 +215,26 @@ TRUNK = principled("Trunk", (0.22, 0.14, 0.08), rough=0.9)
 BOAT_WOOD = principled("BoatWood", (0.36, 0.22, 0.12), rough=0.5, coat=0.2)
 BOAT_DECK = principled("BoatDeck", (0.58, 0.46, 0.30), rough=0.6)
 BOAT_RED = principled("BoatRed", (0.55, 0.14, 0.10), rough=0.5, coat=0.2)
+REED = principled("Reed", (0.70, 0.60, 0.34), rough=0.85, bevel=0)
+REED_HEAD = principled("ReedHead", (0.60, 0.48, 0.28), rough=0.9, bevel=0)
+# 船只尾迹：白沫带，沿 UV.u 向后淡出、横向两侧羽化、噪波打碎
+WAKE = principled("Wake", (0.86, 0.90, 0.90), rough=0.55, spec=0.3, bevel=0)
+nt = WAKE.node_tree
+_p = nt.nodes["Principled BSDF"]
+_sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+nt.links.new(texcoord(nt).outputs["UV"], _sep.inputs["Vector"])
+_fu = nt.nodes.new("ShaderNodeMath"); _fu.operation = 'POWER'; _fu.inputs[1].default_value = 1.7
+nt.links.new(map_range(nt, _sep.outputs["X"], 1.0, 0.0), _fu.inputs[0])
+_fv = nt.nodes.new("ShaderNodeMath"); _fv.operation = 'MULTIPLY'
+nt.links.new(_sep.outputs["Y"], _fv.inputs[0]); nt.links.new(map_range(nt, _sep.outputs["Y"], 4.0, 0.0), _fv.inputs[1])
+_fn = noise(nt, 26.0, 4.0, distortion=1.2)
+_a1 = nt.nodes.new("ShaderNodeMath"); _a1.operation = 'MULTIPLY'
+nt.links.new(_fu.outputs[0], _a1.inputs[0]); nt.links.new(_fv.outputs[0], _a1.inputs[1])
+_a2 = nt.nodes.new("ShaderNodeMath"); _a2.operation = 'MULTIPLY'
+_wn = map_range(nt, _fn.outputs["Fac"], 0.0, 1.0, 0.42, 0.78); _wn.node.clamp = True
+nt.links.new(_a1.outputs[0], _a2.inputs[0]); nt.links.new(_wn, _a2.inputs[1])
+_al = map_range(nt, _a2.outputs[0], 0.0, 0.62); _al.node.clamp = True
+nt.links.new(_al, _p.inputs["Alpha"])
 ASPHALT = principled("Asphalt", (0.30, 0.30, 0.29), rough=0.95)
 CONCRETE = principled("Concrete", (0.62, 0.62, 0.60), rough=0.85)
 GLASS = principled("Glass", (0.30, 0.40, 0.50), rough=0.15, metal=0.6, spec=0.8)
@@ -326,8 +346,28 @@ nt.links.new(_rgh.outputs[0], _p.inputs["Roughness"])
 nt.links.new(map_range(nt, _wpf, 0.08, 0.5), _b2.inputs["Strength"])
 nt.links.new(map_range(nt, _wpf, 0.05, 0.3), _b3.inputs["Strength"])
 # 水色随风痕与岸边略变：平静处更深更蓝，岸边树影下偏绿
-_wc = mix_rgb(nt, rgb(nt, (0.15, 0.24, 0.30)), rgb(nt, (0.20, 0.30, 0.31)), _wpf, 'MIX')
-nt.links.new(_wc, _p.inputs["Base Color"])
+_wc = mix_rgb(nt, rgb(nt, (0.14, 0.23, 0.30)), rgb(nt, (0.20, 0.30, 0.31)), _wpf, 'MIX')
+# 浅水带：靠岸处颜色略浅略绿、更粗糙；岸线一圈细碎白沫（shore 顶点属性见 lake_water）
+_sa = nt.nodes.new("ShaderNodeAttribute"); _sa.attribute_name = "shore"
+_sh = _sa.outputs["Fac"]
+def _mrc(sock, lo, hi, fmin=0.0, fmax=1.0):
+    """带钳位的 Map Range（钳位只限制在目标范围内，所以阈值要放在 From 范围里）。"""
+    s = map_range(nt, sock, lo, hi, fmin, fmax); s.node.clamp = True
+    return s
+_wc2 = mix_rgb(nt, _wc, rgb(nt, (0.27, 0.34, 0.33)), _mrc(_sh, 0.0, 0.45), 'MIX')
+_fn = noise(nt, 9.0, 3.0, distortion=0.4)
+_ff = nt.nodes.new("ShaderNodeMath"); _ff.operation = 'MULTIPLY'
+nt.links.new(_mrc(_fn.outputs["Fac"], 0.0, 1.0, 0.60, 1.0), _ff.inputs[0])   # 噪波 >0.6 处才有白沫
+nt.links.new(_mrc(_sh, 0.0, 0.8, 0.65, 1.0), _ff.inputs[1])                   # 距岸 <1 单位才有白沫
+_wc3 = mix_rgb(nt, _wc2, rgb(nt, (0.84, 0.87, 0.86)), _ff.outputs[0], 'MIX')
+_sv = arg("--shorevar", "")
+_bc = {"1": _wc2, "2": _wc, "3": _wc3}.get(_sv, _wc if "--noshore" in argv else _wc3)
+nt.links.new(_bc, _p.inputs["Base Color"])
+_rgh2 = nt.nodes.new("ShaderNodeMath"); _rgh2.operation = 'ADD'
+nt.links.new(_rgh.outputs[0], _rgh2.inputs[0]); nt.links.new(_mrc(_sh, 0.0, 0.10), _rgh2.inputs[1])
+nt.links.new((_rgh2 if _sv == "2" else (_rgh if ("--noshore" in argv or _sv) else _rgh2)).outputs[0], _p.inputs["Roughness"])
+if "--shorediag" in argv:   # 诊断：把 shore 属性直接显示为发光
+    nt.links.new(_sh, _p.inputs["Emission Color"]); _p.inputs["Emission Strength"].default_value = 1.0
 _lp = nt.nodes.new("ShaderNodeLightPath")
 _tr = nt.nodes.new("ShaderNodeBsdfTransparent")
 _tr.inputs["Color"].default_value = (0.85, 0.95, 0.92, 1)
@@ -766,11 +806,49 @@ def island():
     for poly in me.polygons:
         if poly.material_index == earth_idx:
             poly.use_smooth = False
-    # 湖水
-    w = B("Water")
-    w.add([(-66, -70, 0), (66, -70, 0), (66, 64, 0), (-66, 64, 0)], [(0, 1, 2, 3)], WATER)
-    w.build()
     print(f"[wl] island grid {nx}x{ny}, faces={len(faces)} in {time.time() - t0:.1f}s")
+
+SHORE_LINES = []   # (pts, half_width) 堤岸多段线（苏堤、白堤、西泠桥引堤），用于水面岸线距离
+def seg_dist(x, y, pts):
+    best = 1e9
+    for i in range(len(pts) - 1):
+        (ax, ay), (bx, by) = pts[i], pts[i + 1]
+        vx, vy = bx - ax, by - ay
+        tt = max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy)))
+        best = min(best, math.hypot(x - ax - vx * tt, y - ay - vy * tt))
+    return best
+
+def shore_dist(x, y):
+    """水面上某点到最近岸线的距离（外岸、孤山、小瀛洲、湖心亭、阮公墩、堤岸）。"""
+    d = lake_depth(x, y)
+    e = ((x + 19) / 15.5) ** 2 + ((y - 46) / 6.3) ** 2
+    d = min(d, (math.sqrt(e) - 1.0) * 9.0)
+    r = math.hypot(x + 10, y + 24)
+    d = min(d, r - 10.8 if r > 9.85 else 8.9 - r)
+    d = min(d, math.hypot(x - 6, y + 2) - 2.7, math.hypot(x + 6, y - 12) - 2.4)
+    for (pts, hw) in SHORE_LINES:
+        d = min(d, seg_dist(x, y, pts) - hw)
+    return d
+
+def lake_water():
+    """湖水网格（1 单位），顶点属性 shore：0 开阔水面 → 1 岸线，材质用它做浅水带与白沫。"""
+    t0 = time.time()
+    w = B("Water")
+    x0, y0, x1, y1, step = -66, -70, 66, 64, 1.0
+    nx, ny = int((x1 - x0) / step) + 1, int((y1 - y0) / step) + 1
+    verts, sh = [], []
+    for j in range(ny):
+        for i in range(nx):
+            x, y = x0 + i * step, y0 + j * step
+            verts.append((x, y, 0.0))
+            sh.append(1.0 - smooth01(shore_dist(x, y) / 2.6))
+    faces = [(j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i) for j in range(ny - 1) for i in range(nx - 1)]
+    w.add(verts, faces, WATER)
+    ob = w.build()
+    attr = ob.data.color_attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
+    for k, s in enumerate(sh):
+        attr.data[k].color = (s, s, s, 1.0)
+    print(f"[wl] lake water grid {nx}x{ny} in {time.time() - t0:.1f}s")
 # ----------------------------------------------------------------------------- 植被（实例化）
 KEEP = []   # (x, y, r) 禁止种树的区域
 def keep(x, y, r):
@@ -1090,6 +1168,7 @@ def arch_bridge(b, p0, p1, w, zt, rise, big=False):
 
 def causeway(name, pts, width, bridges, zt=0.36, tree_step=3.2, willow_s=(1.5, 1.9), peach=True):
     P, L = polyline(pts)
+    SHORE_LINES.append((pts, width / 2))
     b = B(name)
     cuts = sorted(bridges)
     spans, s = [], 0.0
@@ -1373,6 +1452,68 @@ def boat(x, y, ang, L, W, canopy=True):
     else:
         box(b, 0, 0, 0.17, L * 0.28, W * 0.6, 0.18, BOAT_WOOD)
     b.build(loc=(x, y, 0), rot=ang)
+def wake(x, y, ang, L, W, big):
+    """船只尾迹：船尾两条开尔文斜波白沫带（半角 19.5°）+ 船尾扰动带，向后淡出。"""
+    b = B("Wake")
+    th = math.radians(19.5)
+    Lw = L * (1.9 if big else 1.6)
+    def ribbon(p0, p1, w0, w1, n=10):
+        dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+        Ls = math.hypot(dx, dy); nx, ny = -dy / Ls, dx / Ls
+        rows = []
+        for i in range(n + 1):
+            tt = i / n
+            cx, cy, ww = p0[0] + dx * tt, p0[1] + dy * tt, w0 + (w1 - w0) * tt
+            rows.append(((cx - nx * ww, cy - ny * ww, 0.012), (cx + nx * ww, cy + ny * ww, 0.012)))
+        verts = [q for r in rows for q in r]
+        faces, uvs = [], []
+        for i in range(n):
+            o = i * 2; q = o + 2
+            faces.append((o, o + 1, q + 1, q))
+            t0, t1 = i / n, (i + 1) / n
+            uvs.append([(t0, 0.0), (t0, 1.0), (t1, 1.0), (t1, 0.0)])
+        b.add(verts, faces, WAKE, uvs)
+    s0 = -L * 0.45
+    for sg in (-1, 1):
+        ribbon((s0, sg * W * 0.28), (s0 - Lw * math.cos(th), sg * (W * 0.28 + Lw * math.sin(th))), W * 0.12, W * 0.30)
+    ribbon((s0 + L * 0.05, 0.0), (s0 - Lw * 0.85, 0.0), W * 0.46, W * 0.16)
+    b.build(loc=(x, y, 0), rot=ang)
+
+def reeds(cx, cy, n, r=0.9, z0=-0.25):
+    """岸边芦苇丛：细杆 + 穗头，秋季枯黄。"""
+    b = B("Reeds")
+    for i in range(n):
+        a = random.uniform(0, 6.28); rr = r * math.sqrt(random.random())
+        x, y = cx + rr * math.cos(a), cy + rr * math.sin(a)
+        h = random.uniform(0.55, 0.95)
+        lx, ly = random.uniform(-0.12, 0.12), random.uniform(-0.12, 0.12)
+        rod(b, (x, y, z0), (x + lx, y + ly, z0 + h), 0.026, REED)
+        cone(b, x + lx, y + ly, z0 + h - 0.03, 0.045, 0.015, 0.16, REED_HEAD, n=5, uv=False)
+    b.build()
+
+def embankment():
+    """沿湖石砌驳岸：顺岸线的花岗岩条石；山脚与部分岸段留作自然岸，缺口处补芦苇。"""
+    b = B("Embankment")
+    a, n_curb, n_reed = 0.0, 0, 0
+    while a < 2 * math.pi:
+        r = lake_r(a)
+        da = 1.2 / r
+        x, y = LC[0] + (r + 0.35) * math.cos(a), LC[1] + (r + 0.35) * math.sin(a)
+        r2 = lake_r(a + da)
+        ang = math.atan2((r2 + 0.35) * math.sin(a + da) - (r + 0.35) * math.sin(a), (r2 + 0.35) * math.cos(a + da) - (r + 0.35) * math.cos(a))
+        natural = ground(LC[0] + (r + 3.0) * math.cos(a), LC[1] + (r + 3.0) * math.sin(a)) > 1.6
+        gap = fbm(math.cos(a) * 5 + 1, math.sin(a) * 5 + 3, 2) > 0.60
+        if not blocked(x, y) and not natural and not gap:
+            rbox(b, x, y, -0.35 + random.uniform(-0.03, 0.03), 1.25, 0.5, 0.66, GRANITE, ang)
+            n_curb += 1
+        elif (gap or natural) and not blocked(x, y) and random.random() < 0.3:
+            rx, ry = LC[0] + (r - 0.2) * math.cos(a), LC[1] + (r - 0.2) * math.sin(a)
+            reeds(rx, ry, random.randint(22, 40), r=random.uniform(0.7, 1.1))
+            n_reed += 1
+        a += da
+    b.build()
+    print(f"[wl] embankment segments={n_curb}, reed patches={n_reed}")
+
 # ----------------------------------------------------------------------------- 场景布置
 def build_scene():
     make_variants()
@@ -1389,6 +1530,8 @@ def build_scene():
     dike(b, polyline([(-39.5, 50.5), (-43.0, 52.5)])[0], 0.0, 4.0, 2.2, 0.36)
     b.build()
     keep(-36.5, 49, 4)
+    SHORE_LINES.append(([(-33.5, 47.5), (-43.0, 52.5)], 1.1))
+    lake_water()
 
     # ---- 孤山：楼外楼、平湖秋月、西泠印社、文澜阁、中山公园
     b = B("GuShan")
@@ -1509,12 +1652,19 @@ def build_scene():
         if lake_depth(x, y) < -2 and ground(x, y) < 1.5 and not blocked(x, y):
             plant(random.choice(["tree", "tree", "willow", "ginkgo"]), x, y, random.uniform(1.3, 1.8))
 
-    # ---- 船
+    # ---- 驳岸与芦苇（曲院风荷、花港一带再补几丛）
+    embankment()
+    for (x, y) in ((-43.0, 28.0), (-44.5, 14.0), (-41.0, 36.0), (-48.0, -8.0), (-44.0, -38.0), (-28.0, -51.0), (-31.5, 44.5)):
+        if not blocked(x, y):
+            reeds(x, y, random.randint(28, 44), r=1.2)
+
+    # ---- 船（含尾迹）
     for (x, y, a, L, W, c) in ((20.0, -12.0, 0.4, 4.4, 1.7, True), (-22.0, 8.0, 1.9, 4.2, 1.6, True), (14.0, 22.0, 2.8, 4.0, 1.6, True),
                                (36.0, -36.0, 0.9, 4.0, 1.5, True), (-20.0, -42.0, 2.3, 3.8, 1.5, True),
                                (30.0, 10.0, 1.2, 1.6, 0.6, False), (-28.0, 30.0, 0.3, 1.6, 0.6, False), (5.0, -45.0, 2.0, 1.5, 0.6, False),
                                (42.0, 30.0, 0.7, 1.5, 0.6, False), (-15.0, 25.0, 1.4, 1.6, 0.6, False), (24.0, 40.0, 2.6, 1.5, 0.6, False)):
         boat(x, y, a, L, W, c)
+        wake(x, y, a, L, W, c)
 
     # ---- 沿湖垂柳
     n = 170
@@ -1731,7 +1881,12 @@ def setup_mist():
         return
     x0, y0, x1, y1 = ISL
     # 湖面薄雾：贴水低雾，随高度消散，带斑块（远景空气透视改在材质里按视距混色，见 add_fog）
-    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.8, 0.026, (0.90, 0.94, 0.96), 0.4, gradient=(-0.6, 1.8), noise_scale=0.035)
+    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.8, 0.024, (0.90, 0.94, 0.96), 0.4, gradient=(-0.6, 1.8), noise_scale=0.035)
+    # 西岸山脚雾带（山色空蒙）、北岸远景雾带：更高、更稀、斑块更大
+    if "--nonewmist" in argv:
+        return
+    volume_box("HillMist", -100, -86, -0.3, -50, 84, 5.5, 0.013, (0.92, 0.94, 0.97), 0.3, gradient=(-0.3, 5.5), noise_scale=0.022)
+    volume_box("NorthMist", -70, 48, -0.3, 60, 84, 4.0, 0.010, (0.92, 0.94, 0.97), 0.3, gradient=(-0.3, 4.0), noise_scale=0.025)
 
 def setup_render():
     scene.render.engine = 'CYCLES'
@@ -1796,7 +1951,7 @@ if WEB:
         hi = (0.42, 0.50, 0.40) if nrm.z < 0.45 else (0.45, 0.62, 0.42)
         lo = (1.0, 1.0, 0.85)
         return tuple(lo[i] + (hi[i] - lo[i]) * f for i in range(3))
-    de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "LakeMist"}, _vcol, uv_scale=1.0, extra={
+    de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "LakeMist", "HillMist", "NorthMist", "Wake"}, _vcol, uv_scale=1.0, extra={
         "title": "杭州西湖", "unit_m": 25,
         "camera": {"target": [-5, 2, -4], "az": 34, "dist": 300, "pitch": 35, "lens": 45, "min_dist": 80, "max_dist": 600},
         "sun": {"euler_deg": [58, 0, 118], "color": [1.0, 0.90, 0.76], "strength": 4.0},

@@ -1,4 +1,4 @@
-// 沙盘 3D 查看器：加载 Blender 导出的 glb + scene.json，按材质名映射 CC0 贴图，实时反射水面，
+// 沙盘 3D 查看器：加载 Blender 导出的 glb + scene.json，按材质名映射 CC0 贴图，实时反射水面（西湖用 LakeSurface.js），
 // HDRI 环境光与太阳阴影，西湖的树木用实例化卡片树（impostor），轨道控制 + 自动旋转。
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { Water } from 'three/examples/jsm/objects/Water.js';
+import { LakeSurface } from './LakeSurface.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
@@ -300,6 +301,22 @@ export async function startDiorama(id, ui) {
   const waterNormals = makeWaterNormals();
   const waters = [];
   for (const wm of waterMeshes) {
+    if (wm.material.name === 'LakeWater') {
+      // 西湖湖面：水体色 + 镜面倒影 + 条带风痕（见 LakeSurface.js）；顶点色 R = 近岸程度，G = 水深
+      const geo = wm.geometry.clone(); wm.updateWorldMatrix(true, false); geo.applyMatrix4(wm.matrixWorld);
+      const pos = geo.attributes.position, colAttr = geo.attributes.color;
+      let ys = 0; for (let i = 0; i < pos.count; i++) ys += pos.getY(i); ys /= pos.count;
+      const shore = new Float32Array(pos.count * 2);
+      for (let i = 0; i < pos.count; i++) { pos.setY(i, ys); shore[i * 2] = colAttr ? colAttr.getX(i) : 0; shore[i * 2 + 1] = colAttr ? colAttr.getY(i) : 1; }
+      pos.needsUpdate = true;
+      geo.setAttribute('shore', new THREE.BufferAttribute(shore, 2));
+      geo.deleteAttribute('color'); geo.deleteAttribute('normal'); geo.computeVertexNormals();
+      const lake = new LakeSurface(geo, { level: ys, size: TIERS[tier].water, waterNormals, sunDirection: sunDir, sunColor: new THREE.Color(...meta.sun.color), sky: skyTex });
+      lake.receiveShadow = true; lake.renderOrder = 2;
+      wm.removeFromParent();
+      scene.add(lake); waters.push(lake);
+      continue;
+    }
     const spec = WATER[wm.material.name] || WATER.LakeWater;
     const geo = wm.geometry.clone(); wm.updateWorldMatrix(true, false); geo.applyMatrix4(wm.matrixWorld); geo.rotateX(Math.PI / 2);
     // 水面网格经 Draco 量化后顶点高度有微小抖动，反射会出现棋盘格：把高度拉平、重算法线，去掉顶点色
@@ -325,7 +342,7 @@ export async function startDiorama(id, ui) {
   for (const w of waters) {
     const orig = w.onBeforeRender;
     w.onBeforeRender = function (r, s, c, g, m, gr) {
-      const hide = !TIERS[tier].treesInReflection;
+      const hide = !TIERS[tier].treesInReflection && !w.isLakeSurface;   // 西湖的山林倒影是湖面的主体，各档都画
       if (hide) for (const t of trees) t.visible = false;
       orig.call(this, r, s, c, g, m, gr);
       if (hide) for (const t of trees) t.visible = true;
@@ -373,6 +390,7 @@ export async function startDiorama(id, ui) {
     if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     sun.shadow.mapSize.set(q.shadow, q.shadow);
     for (const t of trees) t.castShadow = q.treeShadow;
+    for (const w of waters) if (w.isLakeSurface) w.setSize(q.water);
     scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; });
     ui.tier && ui.tier(tier);
   };

@@ -50,3 +50,16 @@ npm run blender:westlake:preview
 `--nonewmist`（只保留贴水薄雾）、`--shorediag`（把 shore 属性显示为发光）。
 
 坐标：1 个 Blender 单位 ≈ 25 米，y 轴正方向为北，湖面 z = 0。
+
+## 网页版湖面
+
+网页版（`src/diorama/LakeSurface.js`）按成图的湖水原理做了实时版本，不再用 three.js 自带的 Water.js：
+
+- 水体色：不随波纹明暗的散射色，读水面网格的 `shore` 顶点色（R 近岸、G 水深）做深浅渐变，只接收阳光阴影；
+- 镜面倒影：平面反射画山、树、建筑和船（背景留空），天空按反射方向查 HDRI 并对齐太阳方位，波纹只扰动倒影；
+- 条带风痕：沿风向拉长的噪波决定平静与吹皱，驱动波纹强度、倒影模糊和闪点，并随时间缓慢漂移；
+- 闪点大小按屏幕像素自适应；近岸半透明透出湖床，岸线有白沫；
+- 各画质档的倒影里都画树（倒影贴图分辨率随档位 1024 / 512 / 256）。
+
+可调参数都是材质 uniform（`skyGain`、`skyMax`、`reflRange`、`ripple`、`distortion`、`glitter`、`ambient`、`sunGain` 等），
+浏览器控制台里用 `__diorama.scene.children.find(o => o.isLakeSurface).material.uniforms` 实时试。

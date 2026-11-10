@@ -217,7 +217,7 @@ BOAT_DECK = principled("BoatDeck", (0.58, 0.46, 0.30), rough=0.6)
 BOAT_RED = principled("BoatRed", (0.55, 0.14, 0.10), rough=0.5, coat=0.2)
 REED = principled("Reed", (0.70, 0.60, 0.34), rough=0.85, bevel=0)
 GREY_TILE2 = tile_material("HuiWa", (0.33, 0.34, 0.36), (0.46, 0.47, 0.49), rough=0.6, coat=0.1)
-FACADE3 = principled("Facade3", (0.70, 0.74, 0.78), rough=0.7)
+FACADE3 = principled("Facade3", (0.50, 0.54, 0.58), rough=0.75)
 KERB = principled("Kerb", (0.66, 0.65, 0.60), rough=0.9, bevel=0)
 FLAT_ROOF = principled("FlatRoof", (0.26, 0.26, 0.25), rough=0.95, bevel=0)
 ROCK = noise_mix(principled("HillRock", (0.46, 0.44, 0.40), rough=0.9, bevel=0.04), (0.36, 0.34, 0.31), (0.56, 0.54, 0.49), 6.0, detail=5.0, bump=0.5)
@@ -248,8 +248,8 @@ nt.links.new(_al, _p.inputs["Alpha"])
 ASPHALT = principled("Asphalt", (0.30, 0.30, 0.29), rough=0.95)
 CONCRETE = principled("Concrete", (0.62, 0.62, 0.60), rough=0.85)
 GLASS = principled("Glass", (0.30, 0.40, 0.50), rough=0.15, metal=0.6, spec=0.8)
-FACADE = noise_mix(principled("Facade", (0.78, 0.76, 0.72), rough=0.7), (0.70, 0.68, 0.64), (0.86, 0.84, 0.80), 6.0)
-FACADE2 = principled("Facade2", (0.86, 0.80, 0.68), rough=0.7)
+FACADE = noise_mix(principled("Facade", (0.60, 0.58, 0.54), rough=0.75), (0.54, 0.52, 0.48), (0.67, 0.65, 0.60), 6.0)
+FACADE2 = principled("Facade2", (0.64, 0.58, 0.47), rough=0.75)
 
 LEAF = leaf_material("Leaf", (0.13, 0.33, 0.12), (0.30, 0.48, 0.18), sss=0)
 WILLOW = leaf_material("WillowLeaf", (0.38, 0.55, 0.19), (0.58, 0.70, 0.30), sss=0)
@@ -298,10 +298,11 @@ _grass_col = mul_color(nt, _gc.outputs["Color"], _lawn_tint.outputs["Color"])
 _mot = noise(nt, 0.06, 2.0, distortion=0.5)
 _motf = map_range(nt, _mot.outputs["Fac"], 0.0, 1.0, 0.56, 0.74); _motf.node.clamp = True
 _grass_col = mix_rgb(nt, _grass_col, mul_color(nt, _grass_col, rgb(nt, (0.92, 0.82, 0.58))), _motf, 'MIX')
-_hr = ramp(nt, [(0.0, (0.20, 0.30, 0.14)), (0.4, (0.18, 0.28, 0.15)), (1.0, (0.20, 0.27, 0.16))])
+_hr = ramp(nt, [(0.0, (0.15, 0.19, 0.09)), (0.4, (0.13, 0.17, 0.09)), (1.0, (0.15, 0.17, 0.10))])
 nt.links.new(map_range(nt, _sep.outputs["Z"], 0.0, 1.0, 1.5, 22.0), _hr.inputs["Fac"])
 _mn = noise(nt, 0.25, 5.0)
 _mount_col = mul_color(nt, _hr.outputs["Color"], map_range(nt, _mn.outputs["Fac"], 0.72, 1.22))
+_mount_col = mix_rgb(nt, _mount_col, mul_color(nt, _grass_col, rgb(nt, (0.50, 0.47, 0.36))), 0.6, 'MIX')
 _geo = nt.nodes.new("ShaderNodeNewGeometry")
 _nsep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(_geo.outputs["Normal"], _nsep.inputs["Vector"])
@@ -327,95 +328,113 @@ nt.links.new(mul_color(nt, _br.outputs["Color"], map_range(nt, _bn.outputs["Fac"
 _bd = tex_node(nt, "Grass004", "Displacement", 0.6, 'Object')
 tex_bump(nt, _bd, 0.5, 0.08)
 
-# 湖水：透射 + 多层波纹；阴影光线按透明处理（否则湖底一片死黑）
+# 湖水：真实水面没有"漫反射表面"。水体颜色来自浑浊水体的散射（用平法线的漫反射近似，不随波纹明暗，
+# 仍能接收投影），其上是菲涅耳加权的镜面倒影（天空、山、树、建筑），波纹只扰动倒影；风痕条带决定
+# 哪里平静如镜、哪里被吹皱；近岸水浅处略透出湖床。Principled 节点仅保留给网页导出读取颜色，不参与渲染。
 WATER = principled("LakeWater", (0.18, 0.27, 0.32), rough=0.03, spec=0.85, bevel=0)
 nt = WATER.node_tree
 _p = nt.nodes["Principled BSDF"]
-if "Transmission Weight" in _p.inputs:
-    _p.inputs["Transmission Weight"].default_value = 0.18
-_p.inputs["IOR"].default_value = 1.33
-# 三层波纹：大尺度涌动、风吹的中尺度细波、微小碎波；粗糙度随细波起伏，形成水面光斑
-_w1 = noise(nt, 0.6, 4.0, distortion=0.6)
-_b1 = bump_node(nt, _w1.outputs["Fac"], 0.30, 0.6)
-_w2 = noise(nt, 4.5, 5.0, distortion=0.3)
-_b2 = bump_node(nt, _w2.outputs["Fac"], 0.35, 0.12, prev_normal=_b1.outputs["Normal"])
-_wave = nt.nodes.new("ShaderNodeTexWave")
-_wave.wave_type = 'BANDS'; _wave.bands_direction = 'DIAGONAL'
-_wave.inputs["Scale"].default_value = 1.4
-_wave.inputs["Distortion"].default_value = 9.0
-_wave.inputs["Detail"].default_value = 3.0
-_wave.inputs["Detail Scale"].default_value = 2.0
-nt.links.new(texcoord(nt).outputs["Object"], _wave.inputs["Vector"])
-_b3 = bump_node(nt, _wave.outputs["Fac"], 0.22, 0.08, prev_normal=_b2.outputs["Normal"])
-_w4 = noise(nt, 22.0, 2.0)
-_b4 = bump_node(nt, _w4.outputs["Fac"], 0.10, 0.02, prev_normal=_b3.outputs["Normal"])
-nt.links.new(_b4.outputs["Normal"], _p.inputs["Normal"])
-# 风痕：大尺度噪波决定哪些区域平静如镜、哪些被风吹皱（粗糙度与细波强度同时受控）
-_wp = noise(nt, 0.045, 2.5, distortion=1.2)
-_wpf = map_range(nt, _wp.outputs["Fac"], 0.0, 1.0, 0.35, 0.72)
-_rgh = nt.nodes.new("ShaderNodeMath"); _rgh.operation = 'MULTIPLY'
-nt.links.new(map_range(nt, _w2.outputs["Fac"], 0.012, 0.10), _rgh.inputs[0])
-nt.links.new(map_range(nt, _wpf, 0.35, 1.6), _rgh.inputs[1])
-nt.links.new(_rgh.outputs[0], _p.inputs["Roughness"])
-nt.links.new(map_range(nt, _wpf, 0.08, 0.5), _b2.inputs["Strength"])
-nt.links.new(map_range(nt, _wpf, 0.05, 0.3), _b3.inputs["Strength"])
-# 水色随风痕与岸边略变：平静处更深更蓝，岸边树影下偏绿
-_wc = mix_rgb(nt, rgb(nt, (0.14, 0.23, 0.30)), rgb(nt, (0.20, 0.30, 0.31)), _wpf, 'MIX')
-# 浅水带：靠岸处颜色略浅略绿、更粗糙；岸线一圈细碎白沫（shore 顶点属性见 lake_water）
-_sa = nt.nodes.new("ShaderNodeAttribute"); _sa.attribute_name = "shore"
-_sh = _sa.outputs["Fac"]
+_out = nt.nodes["Material Output"]
+for _l in [l for l in nt.links if l.to_node == _out]:
+    nt.links.remove(_l)
 def _mrc(sock, lo, hi, fmin=0.0, fmax=1.0):
     """带钳位的 Map Range（钳位只限制在目标范围内，所以阈值要放在 From 范围里）。"""
     s = map_range(nt, sock, lo, hi, fmin, fmax); s.node.clamp = True
     return s
-_wc2 = mix_rgb(nt, _wc, rgb(nt, (0.27, 0.34, 0.33)), _mrc(_sh, 0.0, 0.45), 'MIX')
+def _math(op, a, b=None):
+    n = nt.nodes.new("ShaderNodeMath"); n.operation = op
+    for i, v in enumerate((a, b)):
+        if v is None:
+            continue
+        if isinstance(v, (int, float)):
+            n.inputs[i].default_value = v
+        else:
+            nt.links.new(v, n.inputs[i])
+    return n.outputs[0]
+# 顶点属性：R = shore（0 开阔 → 1 岸线，2.6 单位内），G = deep（0 岸边 → 1 湖心，14 单位内）
+_sa = nt.nodes.new("ShaderNodeAttribute"); _sa.attribute_name = "shore"
+_sc = nt.nodes.new("ShaderNodeSeparateColor")
+nt.links.new(_sa.outputs["Color"], _sc.inputs["Color"])
+_sh, _deep = _sc.outputs[0], _sc.outputs[1]
+# 风痕：沿风向拉长的条带噪波，calm = 1 处平静如镜
+_wm = nt.nodes.new("ShaderNodeMapping")
+_wm.inputs["Rotation"].default_value = (0, 0, math.radians(24))
+_wm.inputs["Scale"].default_value = (0.022, 0.075, 1.0)
+nt.links.new(texcoord(nt).outputs["Object"], _wm.inputs["Vector"])
+_wp = nt.nodes.new("ShaderNodeTexNoise")
+_wp.inputs["Scale"].default_value = 1.0; _wp.inputs["Detail"].default_value = 3.0
+_wp.inputs["Distortion"].default_value = 0.8
+nt.links.new(_wm.outputs["Vector"], _wp.inputs["Vector"])
+_calm = _mrc(_wp.outputs["Fac"], 0.0, 1.0, 0.44, 0.60)
+_ruf = _math('SUBTRACT', 1.0, _calm)                         # 1 = 被风吹皱
+# 波纹：大涌动 + 风吹细波 + 斜向波列；强度随风痕变化
+_w1 = noise(nt, 0.5, 3.0, distortion=0.6)
+_b1 = bump_node(nt, _w1.outputs["Fac"], 0.10, 0.6)
+_w2 = noise(nt, 3.2, 4.0, distortion=0.3)
+_b2 = bump_node(nt, _w2.outputs["Fac"], 0.2, 0.12, prev_normal=_b1.outputs["Normal"])
+nt.links.new(_mrc(_ruf, 0.03, 0.30), _b2.inputs["Strength"])
+_wave = nt.nodes.new("ShaderNodeTexWave")
+_wave.wave_type = 'BANDS'; _wave.bands_direction = 'DIAGONAL'
+_wave.inputs["Scale"].default_value = 1.1
+_wave.inputs["Distortion"].default_value = 9.0
+_wave.inputs["Detail"].default_value = 3.0
+_wave.inputs["Detail Scale"].default_value = 2.0
+nt.links.new(texcoord(nt).outputs["Object"], _wave.inputs["Vector"])
+_b3 = bump_node(nt, _wave.outputs["Fac"], 0.1, 0.08, prev_normal=_b2.outputs["Normal"])
+nt.links.new(_mrc(_ruf, 0.02, 0.16), _b3.inputs["Strength"])
+_nrm = _b3.outputs["Normal"]
+# 水体颜色：湖心深、岸边浅，随风痕略变；岸线细碎白沫
+_deepc = mix_rgb(nt, rgb(nt, (0.135, 0.195, 0.190)), rgb(nt, (0.070, 0.130, 0.155)), _deep, 'MIX')
+_bodyc = mix_rgb(nt, _deepc, rgb(nt, (0.250, 0.290, 0.235)), _mrc(_sh, 0.0, 0.7), 'MIX')
+_bn = noise(nt, 0.09, 3.0, distortion=0.6)                    # 水色的大尺度不均匀（悬浮物、水草）
+_bodyc = mul_color(nt, _bodyc, map_range(nt, _bn.outputs["Fac"], 0.80, 1.18))
 _fn = noise(nt, 9.0, 3.0, distortion=0.4)
-_ff = nt.nodes.new("ShaderNodeMath"); _ff.operation = 'MULTIPLY'
-nt.links.new(_mrc(_fn.outputs["Fac"], 0.0, 1.0, 0.60, 1.0), _ff.inputs[0])   # 噪波 >0.6 处才有白沫
-nt.links.new(_mrc(_sh, 0.0, 0.8, 0.65, 1.0), _ff.inputs[1])                   # 距岸 <1 单位才有白沫
-_wc3 = mix_rgb(nt, _wc2, rgb(nt, (0.84, 0.87, 0.86)), _ff.outputs[0], 'MIX')
-_sv = arg("--shorevar", "")
-_bc = {"1": _wc2, "2": _wc, "3": _wc3}.get(_sv, _wc if "--noshore" in argv else _wc3)
-nt.links.new(_bc, _p.inputs["Base Color"])
-# 光斑：高频噪波阈值得到细碎闪点，只在风吹皱的区域出现，并沿太阳方位（东北偏东）渐强
-_gl = noise(nt, 3.6, 1.0, distortion=0.4)   # 约 1~2 像素的闪点
-_glf0 = map_range(nt, _gl.outputs["Fac"], 0.0, 1.0, 0.66, 0.77); _glf0.node.clamp = True
-_glv = noise(nt, 1.1, 1.0)                                      # 闪点亮度随机
-_glfm = nt.nodes.new("ShaderNodeMath"); _glfm.operation = 'MULTIPLY'
-nt.links.new(_glf0, _glfm.inputs[0]); nt.links.new(map_range(nt, _glv.outputs["Fac"], 0.15, 1.3), _glfm.inputs[1])
-_glf = _glfm.outputs[0]
+_ff = _math('MULTIPLY', _mrc(_fn.outputs["Fac"], 0.0, 1.0, 0.60, 1.0), _mrc(_sh, 0.0, 0.8, 0.65, 1.0))
+_bodyc = mix_rgb(nt, _bodyc, rgb(nt, (0.84, 0.87, 0.86)), _ff, 'MIX')
+_body = nt.nodes.new("ShaderNodeBsdfDiffuse")                 # 不接法线：用平面法线，波纹不产生"浮雕"明暗
+nt.links.new(_bodyc, _body.inputs["Color"])
+# 镜面倒影：粗糙度随风痕；反射权重 = 菲涅耳（按波纹法线）拉伸到俯视也看得见倒影的范围
+_gl = nt.nodes.new("ShaderNodeBsdfGlossy")
+_gl.inputs["Color"].default_value = (0.90, 0.96, 1.0, 1)
+nt.links.new(_mrc(_ruf, 0.012, 0.11), _gl.inputs["Roughness"])
+nt.links.new(_nrm, _gl.inputs["Normal"])
+_fr = nt.nodes.new("ShaderNodeFresnel")
+_fr.inputs["IOR"].default_value = 1.33
+nt.links.new(_nrm, _fr.inputs["Normal"])
+_REFL = (float(arg("--refl0", 0.21)), float(arg("--refl1", 0.75)))
+_refl = _mrc(_fr.outputs["Fac"], _REFL[0], _REFL[1], 0.02, 0.30)
+_surf = nt.nodes.new("ShaderNodeMixShader")
+nt.links.new(_refl, _surf.inputs[0]); nt.links.new(_body.outputs[0], _surf.inputs[1]); nt.links.new(_gl.outputs[0], _surf.inputs[2])
+# 光斑：细碎闪点，只在吹皱的区域出现，沿太阳方位（东北偏东）渐强
+_g0 = noise(nt, 3.6, 1.0, distortion=0.4)
+_glv = noise(nt, 1.1, 1.0)
+_glf = _math('MULTIPLY', _mrc(_g0.outputs["Fac"], 0.0, 1.0, 0.70, 0.80), map_range(nt, _glv.outputs["Fac"], 0.0, 1.2))
 _pos = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(texcoord(nt).outputs["Object"], _pos.inputs["Vector"])
-_proj = nt.nodes.new("ShaderNodeMath"); _proj.operation = 'MULTIPLY_ADD'
-nt.links.new(_pos.outputs["X"], _proj.inputs[0]); _proj.inputs[1].default_value = 0.88
-_projy = nt.nodes.new("ShaderNodeMath"); _projy.operation = 'MULTIPLY'
-nt.links.new(_pos.outputs["Y"], _projy.inputs[0]); _projy.inputs[1].default_value = 0.47
-nt.links.new(_projy.outputs[0], _proj.inputs[2])
-_dirf = map_range(nt, _proj.outputs[0], 0.0, 1.0, -15.0, 60.0); _dirf.node.clamp = True
-_g1 = nt.nodes.new("ShaderNodeMath"); _g1.operation = 'MULTIPLY'
-nt.links.new(_glf, _g1.inputs[0]); nt.links.new(_dirf, _g1.inputs[1])
-_g2 = nt.nodes.new("ShaderNodeMath"); _g2.operation = 'MULTIPLY'
-nt.links.new(_g1.outputs[0], _g2.inputs[0]); nt.links.new(map_range(nt, _wpf, 0.0, 1.0, 0.45, 0.72), _g2.inputs[1])
-_glit = map_range(nt, _g2.outputs[0], 0.0, 3.2, 0.0, 0.6); _glit.node.clamp = True
-if "--noglitter" in argv:
-    _glit = map_range(nt, _g2.outputs[0], 0.0, 0.0)
-if "--glitdiag" in argv:
-    _glit = map_range(nt, _dirf, 0.0, 3.0)
-nt.links.new(_glit, _p.inputs["Emission Strength"])
-_p.inputs["Emission Color"].default_value = (1.0, 0.96, 0.88, 1.0)
-_rgh2 = nt.nodes.new("ShaderNodeMath"); _rgh2.operation = 'ADD'
-nt.links.new(_rgh.outputs[0], _rgh2.inputs[0]); nt.links.new(_mrc(_sh, 0.0, 0.10), _rgh2.inputs[1])
-nt.links.new((_rgh2 if _sv == "2" else (_rgh if ("--noshore" in argv or _sv) else _rgh2)).outputs[0], _p.inputs["Roughness"])
-if "--shorediag" in argv:   # 诊断：把 shore 属性直接显示为发光
-    nt.links.new(_sh, _p.inputs["Emission Color"]); _p.inputs["Emission Strength"].default_value = 1.0
-_lp = nt.nodes.new("ShaderNodeLightPath")
+_proj = _math('ADD', _math('MULTIPLY', _pos.outputs["X"], 0.88), _math('MULTIPLY', _pos.outputs["Y"], 0.47))
+_dirf = _mrc(_proj, 0.0, 1.0, 0.0, 62.0)
+_glit = _mrc(_math('MULTIPLY', _math('MULTIPLY', _glf, _dirf), _mrc(_ruf, 0.0, 1.0, 0.2, 0.9)), 0.0, 3.0, 0.0, 0.6)
+_em = nt.nodes.new("ShaderNodeEmission")
+_em.inputs["Color"].default_value = (1.0, 0.96, 0.88, 1.0)
+if "--noglitter" not in argv:
+    nt.links.new(_glit, _em.inputs["Strength"])
+else:
+    _em.inputs["Strength"].default_value = 0.0
+if "--shorediag" in argv:
+    nt.links.new(_sa.outputs["Color"], _em.inputs["Color"]); _em.inputs["Strength"].default_value = 1.0
+_add = nt.nodes.new("ShaderNodeAddShader")
+nt.links.new(_surf.outputs[0], _add.inputs[0]); nt.links.new(_em.outputs[0], _add.inputs[1])
+# 近岸水浅：略透出湖床；阴影光线按透明处理（湖床才有光照）
 _tr = nt.nodes.new("ShaderNodeBsdfTransparent")
-_tr.inputs["Color"].default_value = (0.85, 0.95, 0.92, 1)
+_tr.inputs["Color"].default_value = (0.80, 0.90, 0.84, 1)
+_shal = nt.nodes.new("ShaderNodeMixShader")
+nt.links.new(_mrc(_sh, 0.0, 0.55, 0.45, 1.0), _shal.inputs[0])
+nt.links.new(_add.outputs[0], _shal.inputs[1]); nt.links.new(_tr.outputs[0], _shal.inputs[2])
+_lp = nt.nodes.new("ShaderNodeLightPath")
 _mix = nt.nodes.new("ShaderNodeMixShader")
 nt.links.new(_lp.outputs["Is Shadow Ray"], _mix.inputs[0])
-nt.links.new(_p.outputs["BSDF"], _mix.inputs[1])
-nt.links.new(_tr.outputs["BSDF"], _mix.inputs[2])
-nt.links.new(_mix.outputs["Shader"], nt.nodes["Material Output"].inputs["Surface"])
+nt.links.new(_shal.outputs[0], _mix.inputs[1]); nt.links.new(_tr.outputs[0], _mix.inputs[2])
+nt.links.new(_mix.outputs[0], _out.inputs["Surface"])
 
 # 地形切面：Rock051 层状岩 + 高度分层染色 + 裂缝
 EARTH = principled("EarthCut", (0.40, 0.29, 0.19), rough=0.95, bevel=0)
@@ -881,13 +900,14 @@ def lake_water():
         for i in range(nx):
             x, y = x0 + i * step, y0 + j * step
             verts.append((x, y, 0.0))
-            sh.append(1.0 - smooth01(shore_dist(x, y) / 2.6))
+            sd = shore_dist(x, y)
+            sh.append((1.0 - smooth01(sd / 2.6), smooth01(sd / 14.0)))
     faces = [(j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i) for j in range(ny - 1) for i in range(nx - 1)]
     w.add(verts, faces, WATER)
     ob = w.build()
     attr = ob.data.color_attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
-    for k, s in enumerate(sh):
-        attr.data[k].color = (s, s, s, 1.0)
+    for k, (s, dp) in enumerate(sh):
+        attr.data[k].color = (s, dp, 0.0, 1.0)
     print(f"[wl] lake water grid {nx}x{ny} in {time.time() - t0:.1f}s")
 # ----------------------------------------------------------------------------- 植被（实例化）
 KEEP = []   # (x, y, r) 禁止种树的区域
@@ -995,7 +1015,7 @@ LIB_TREES = {
     "maple": [("island_tree_02", "island_tree_02_LOD1"), ("island_tree_03", "island_tree_03_LOD1")],
     "ginkgo": [("island_tree_01", "island_tree_01_LOD1"), ("island_tree_02", "island_tree_02_LOD1")],
 }
-TINTS = {"peach": ((0.96, 0.62, 0.72), 0.7), "maple": ((0.74, 0.16, 0.08), 0.78), "ginkgo": ((0.96, 0.72, 0.16), 0.8)}
+TINTS = {"peach": ((0.96, 0.62, 0.72), 0.7), "maple": ((0.60, 0.23, 0.09), 0.62), "ginkgo": ((0.82, 0.63, 0.18), 0.66)}
 _LOADED = {}
 def load_lib_mesh(file, obname):
     key = (file, obname)
@@ -1438,14 +1458,15 @@ def city(x0s, y0s, x1s, y1s, floors=(4, 11), glassy=0.35, bw=12.0, bd=10.0, stre
         y = y0s
         while y + bd < y1s:
             cx, cy = x + bw / 2, y + bd / 2
+            rim = max(isl_rho(cx + sx * (bw + street) / 2, cy + sy * (bd + street) / 2)[0] for sx in (-1, 1) for sy in (-1, 1))
             if (lake_depth(cx, cy) < -6 and ground(cx, cy) < 2.0 and not blocked(cx, cy)
-                    and isl_rho(cx, cy)[0] < 0.93 and random.random() < density):
+                    and rim < 0.985 and random.random() < density):
                 gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
                 box(b, cx, cy, gz - 0.35, bw + street, bd + street, 0.4, ASPHALT)
                 box(b, cx, cy, gz + 0.05, bw - 0.8, bd - 0.8, 0.06, STONE)
                 keep(cx, cy, max(bw, bd) * 0.75)
                 for i in range(random.randint(1, 3)):
-                    w, d = random.uniform(2.6, 4.4), random.uniform(2.2, 3.4)
+                    w, d = random.uniform(2.4, min(4.4, bw - 1.6)), random.uniform(2.2, 3.4)
                     bx = cx + random.uniform(-bw / 2 + w / 2 + 0.6, bw / 2 - w / 2 - 0.6)
                     by = cy + random.uniform(-bd / 2 + d / 2 + 0.6, bd / 2 - d / 2 - 0.6)
                     tower_block(b, bx, by, w, d, random.randint(*floors), 0.0, glassy=random.random() < glassy, z0=gz + 0.11)
@@ -1479,7 +1500,8 @@ def town(x0s, y0s, x1s, y1s, bw=11.0, bd=9.0, street=2.2, density=0.85, flat_x=6
                   and not blocked(cx, cy) and random.random() < density)
             if ok:
                 gz = max(ground(cx + sx * bwc / 2, cy + sy * bdc / 2) for sx in (-1, 1) for sy in (-1, 1))
-                box(bb, cx, cy, gz - 0.35, bwc + street * 0.8, bdc + street * 0.8, 0.42, STONE)
+                box(bb, cx, cy, gz - 0.35, bwc + street * 1.3, bdc + street * 1.3, 0.40, ASPHALT)
+                box(bb, cx, cy, gz - 0.35, bwc - 0.1, bdc - 0.1, 0.42, STONE)
                 keep(cx, cy, max(bwc, bdc) * 0.75)
                 rr = random.random()
                 if rr < 0.08:   # 小公园 / 小广场
@@ -1493,7 +1515,7 @@ def town(x0s, y0s, x1s, y1s, bw=11.0, bd=9.0, street=2.2, density=0.85, flat_x=6
                 else:
                     far = cx > flat_x
                     for row, sy in ((0, -1), (1, 1)):
-                        n = random.randint(3, 5)
+                        n = random.randint(3, 5) if bwc > 8 else random.randint(2, 3)
                         for k in range(n):
                             w = bwc / n - random.uniform(0.4, 0.7)
                             hx = x + w / 2 + 0.3 + k * (bwc / n) + random.uniform(-0.1, 0.1)
@@ -1856,8 +1878,8 @@ def build_scene():
         rbox(b, x, y, ground(x, y) - 0.02, 1.6, 0.9, 0.05, STONE, math.atan2(dy, dx))
         s += 1.5
     b.build()
-    town(60, -62, 74, 62)                       # 湖滨老城（街区式）
-    city(73, -70, 84, 70, floors=(4, 11))       # 外圈城市天际线
+    town(60.5, -62, 68.6, 62, bw=6.6, bd=9.0, street=2.0, density=0.95, flat_x=64.0)   # 湖滨老城（一列街区）
+    city(68.8, -36, 76.0, 36, floors=(3, 8), bw=5.0, bd=9.0, street=1.8, density=0.92)   # 其后的现代城区（岛缘内）
     for i in range(160):
         x, y = random.uniform(60, 76), random.uniform(-72, 72)
         if lake_depth(x, y) < -2 and ground(x, y) < 1.5 and not blocked(x, y):
@@ -1920,7 +1942,7 @@ def build_scene():
         while x < x1 - 1.0:
             xx, yy = x + random.uniform(-0.5, 0.5), y + random.uniform(-0.5, 0.5)
             rho, _, _ = isl_rho(xx, yy)
-            if rho < 0.985:
+            if rho < 0.996:
                 z, k = terrain(xx, yy)
                 if k == 'land' and 1.0 < z < 40.0 and not blocked(xx, yy):
                     zx = ground(xx + 0.6, yy) - ground(xx - 0.6, yy)
@@ -1952,6 +1974,11 @@ def build_scene():
                         cnt += 1
                     elif clearing > 0.55 and z > 3.0 and random.random() < 0.16:
                         ROCKS.append((xx, yy))
+                    elif slope < 3.4 and random.random() < 0.45:      # 林窗：灌木丛为主，偶有小树
+                        if random.random() < 0.85:
+                            plant("bush", xx, yy, random.uniform(1.2, 2.2))
+                        else:
+                            plant(random.choice(["tree", "pine", "ginkgo"]), xx, yy, random.uniform(0.6, 0.9))
             x += 0.9
         y += 0.9
     # 林窗岩石（成堆的山岩）
@@ -1990,6 +2017,24 @@ def build_scene():
         z, k = terrain(x, y)
         if k == 'land' and z < 1.0 and lake_depth(x, y) < -2 and random.random() < 0.6:
             plant(random.choice(["tree", "willow", "bush", "ginkgo", "maple"]), x, y, random.uniform(1.2, 1.7))
+    # 平地成片的公园树林（香樟为主，夹银杏、枫、松）
+    n_grove = 0
+    for i in range(400):
+        gx, gy = random.uniform(x0, x1), random.uniform(y0, y1)
+        if isl_rho(gx, gy)[0] > 0.95:
+            continue
+        z, k = terrain(gx, gy)
+        if k != 'land' or z > 1.2 or lake_depth(gx, gy) > -3.0:
+            continue
+        gr = random.uniform(2.0, 4.5)
+        for j in range(random.randint(6, 14)):
+            a = random.uniform(0, 6.28); rr = gr * math.sqrt(random.random())
+            x, y = gx + rr * math.cos(a), gy + rr * math.sin(a)
+            if blocked_r(x, y, 1.05) or isl_rho(x, y)[0] > 0.97 or ground(x, y) > 1.4 or lake_depth(x, y) > -1.5:
+                continue
+            plant(pick([("tree", 0.55), ("ginkgo", 0.13), ("maple", 0.08), ("willow", 0.12), ("pine", 0.12)]), x, y, random.uniform(1.2, 1.8))
+        n_grove += 1
+    print(f"[wl] groves={n_grove}")
     # 岸边与平地灌木
     for i in range(2500):
         x, y = random.uniform(x0, x1), random.uniform(y0, y1)
@@ -2066,6 +2111,13 @@ def setup_camera_lights():
         wnt.links.new(wmp.outputs["Vector"], env.inputs["Vector"])
         wnt.links.new(env.outputs["Color"], bg.inputs["Color"])
         bg.inputs["Strength"].default_value = 0.03 if "--sunonly" in argv else 0.25
+        wlp = wnt.nodes.new("ShaderNodeLightPath")
+        wst = wnt.nodes.new("ShaderNodeMapRange")
+        wst.inputs["To Min"].default_value = 0.25
+        wst.inputs["To Max"].default_value = float(arg("--skygloss", 0.34))
+        wnt.links.new(wlp.outputs["Is Glossy Ray"], wst.inputs["Value"])
+        if "--sunonly" not in argv:
+            wnt.links.new(wst.outputs["Result"], bg.inputs["Strength"])
         print(f"[wl] hdri sun u={u} rot={rot:.1f}")
     else:
         bg.inputs["Color"].default_value = (0.80, 0.87, 0.95, 1)
@@ -2237,7 +2289,7 @@ if WEB:
         "hdri": "kloppenheim_06_puresky_1k.hdr",
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
-        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(190,40,25,0.8)", "ginkgo": "rgba(240,185,50,0.82)"}})
+        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(160,62,28,0.66)", "ginkgo": "rgba(212,164,52,0.68)"}})
     print(f"[wl] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}")
 else:
     setup_mist()

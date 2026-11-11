@@ -651,11 +651,12 @@ def isl_rho(x, y):
 
 def _clipped_grid(x0, y0, x1, y1, step, zfn, rho_max=1.0):
     """按岛轮廓裁剪的规则网格：轮廓外的顶点拉回边界。返回 (verts, kinds, faces)。"""
-    nx, ny = int((x1 - x0) / step) + 1, int((y1 - y0) / step) + 1
+    nx, ny = int(math.ceil((x1 - x0) / step)) + 1, int(math.ceil((y1 - y0) / step)) + 1
+    sx, sy = (x1 - x0) / (nx - 1), (y1 - y0) / (ny - 1)
     verts, kinds, inside = [], [], []
     for j in range(ny):
         for i in range(nx):
-            x, y = x0 + i * step, y0 + j * step
+            x, y = x0 + i * sx, y0 + j * sy
             rho, cx, cy = isl_rho(x, y)
             ins = rho <= rho_max
             if not ins:
@@ -674,7 +675,7 @@ def island():
     t0 = time.time()
     b = B("Island")
     x0, y0, x1, y1 = ISL
-    verts, kinds, faces = _clipped_grid(x0, y0, x1, y1, 0.5, terrain)
+    verts, kinds, faces = _clipped_grid(x0, y0, x1, y1, 0.75 if WEB else 0.5, terrain)   # 网页版地形放粗一档
     off = len(b.v)
     b.v.extend(verts)
     for f in faces:

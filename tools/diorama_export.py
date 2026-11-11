@@ -181,7 +181,8 @@ def export_scene(out_dir, remove_names, vcol_fn, uv_scale=1.0, extra=None, ao_ob
     # 5. 导出
     path = os.path.join(out_dir, "scene.glb")
     kw = dict(filepath=path, export_format='GLB', export_apply=True,
-              export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6,
+              export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=10,
+              export_draco_normal_quantization=8, export_draco_color_quantization=8,
               export_materials='EXPORT', export_lights=False, export_cameras=False, export_animations=False,
               export_skins=False, export_morph=False, export_yup=True, export_texcoords=True, export_normals=True)
     try:
@@ -195,9 +196,18 @@ def export_scene(out_dir, remove_names, vcol_fn, uv_scale=1.0, extra=None, ao_ob
     if extra:
         meta.update(extra)
     with open(os.path.join(out_dir, "scene.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=1)
+        json.dump(_round(meta), f, ensure_ascii=False, separators=(",", ":"))   # 紧凑输出，小数留 3 位
     print(f"[export] {path}: {os.path.getsize(path) / 1e6:.1f} MB, objects={meta['objects']}, boxuv={n_uv}")
     return meta
+
+def _round(o):
+    if isinstance(o, float):
+        return round(o, 3)
+    if isinstance(o, dict):
+        return {k: _round(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_round(v) for v in o]
+    return o
 
 def smooth01(t):
     t = max(0.0, min(1.0, t))

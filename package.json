@@ -20,7 +20,8 @@
     "blender:trees:web": "\"D:/install/blender/blender.exe\" --background --python tools/diorama_impostors.py -- --samples 32",
     "blender:crane": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --samples 64 --save",
     "blender:crane:preview": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --pct 40 --samples 16 --out yellow-crane/output/yellow_crane/preview.png",
-    "blender:crane:web": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --export-glb public/dioramas/yellow-crane"
+    "blender:crane:web": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --export-glb public/dioramas/yellow-crane",
+    "web:optimize": "python tools/optimize_web_assets.py"
   },
   "keywords": [],
   "author": "",

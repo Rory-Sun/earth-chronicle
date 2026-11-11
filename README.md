@@ -133,4 +133,9 @@ npm run blender:trees:web      # 渲染卡片树贴图 → public/dioramas/trees
 npm run blender:palace:web     # 导出故宫 → public/dioramas/forbidden-city/
 npm run blender:westlake:web   # 导出西湖 → public/dioramas/west-lake/
 npm run blender:crane:web      # 导出黄鹤楼 → public/dioramas/yellow-crane/
+npm run web:optimize           # 压缩共用资源：贴图与卡片树转 WebP 并缩小，天空图缩到 512 px
 ```
+
+网页资源体积就是加载时间（国内访问 GitHub Pages 只有每秒几十 KB）。共用的贴图、卡片树、天空图由
+`tools/optimize_web_assets.py` 压缩，合计约 2 MB；重新下载贴图或重新渲染卡片树后要再跑一次。
+网页导出（`--export-glb`）会把地形网格放粗一档、把花和山岩的小球降到最低面数，`scene.json` 紧凑输出。

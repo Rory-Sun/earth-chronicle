@@ -796,12 +796,13 @@ def island():
     t0 = time.time()
     b = B("Island")
     x0, y0, x1, y1 = ISL
-    step = 0.5
-    nx, ny = int((x1 - x0) / step) + 1, int((y1 - y0) / step) + 1
+    step = 0.75 if WEB else 0.5          # 网页版地形放粗一档（面数约减半，下载更快）
+    nx, ny = int(math.ceil((x1 - x0) / step)) + 1, int(math.ceil((y1 - y0) / step)) + 1
+    sx, sy = (x1 - x0) / (nx - 1), (y1 - y0) / (ny - 1)
     verts, kinds, inside = [], [], []
     for j in range(ny):
         for i in range(nx):
-            x, y = x0 + i * step, y0 + j * step
+            x, y = x0 + i * sx, y0 + j * sy
             rho, cx, cy = isl_rho(x, y)
             ins = rho <= 1.0
             if not ins:
@@ -1636,6 +1637,15 @@ def car(b, x, y, ang, z):
     rbox(b, x, y, z, L, W, 0.05, m, ang)
     rbox(b, x - L * 0.05, y, z + 0.05, L * 0.55, W * 0.88, 0.04, GLASS, ang)
 
+def ico_lite(*a, sub=1, **k):
+    """小球（花、山岩）：网页导出时降到最低面数。先按原细分生成一遍，使随机数的消耗与成图一致，两边布局才相同。"""
+    v, f = icosphere(*a, sub=sub, **k)
+    if WEB:
+        st = random.getstate()
+        v, f = icosphere(*a, sub=0, **k)
+        random.setstate(st)
+    return v, f
+
 def flower_bed(b, cx, cy, w, d, ang):
     gz = ground(cx, cy)
     rbox(b, cx, cy, gz, w, d, 0.12, HEDGE, ang)
@@ -1645,7 +1655,7 @@ def flower_bed(b, cx, cy, w, d, ang):
     for i in range(int(w / 0.22)):
         for j in range(int(d / 0.22)):
             lx, ly = -w / 2 + 0.11 + i * 0.22 + random.uniform(-0.04, 0.04), -d / 2 + 0.11 + j * 0.22 + random.uniform(-0.04, 0.04)
-            v, f = icosphere(cx + lx * c - ly * s, cy + lx * s + ly * c, gz + 0.14, random.uniform(0.07, 0.10), sub=1, squash=0.7)
+            v, f = ico_lite(cx + lx * c - ly * s, cy + lx * s + ly * c, gz + 0.14, random.uniform(0.07, 0.10), sub=1, squash=0.7)
             b.add(v, f, m if random.random() < 0.85 else HEDGE)
             k += 1
     keep(cx, cy, max(w, d) * 0.6)
@@ -1987,7 +1997,7 @@ def build_scene():
         gz = ground(rx, ry)
         for k in range(random.randint(2, 4)):
             r = random.uniform(0.25, 0.6)
-            v, f = icosphere(rx + random.uniform(-0.5, 0.5), ry + random.uniform(-0.5, 0.5), gz + r * 0.25, r, sub=1, squash=0.6, jit=0.25)
+            v, f = ico_lite(rx + random.uniform(-0.5, 0.5), ry + random.uniform(-0.5, 0.5), gz + r * 0.25, r, sub=1, squash=0.6, jit=0.25)
             b.add(v, f, ROCK)
     b.build()
     # 上山小径与山顶亭（西山、南屏山）

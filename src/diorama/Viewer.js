@@ -46,7 +46,7 @@ function guessTier(renderer) {
   return 'high';
 }
 
-// 材质名 → 贴图/参数（贴图名对应 public/dioramas/textures/<set>_<kind>.jpg）
+// 材质名 → 贴图/参数（贴图名对应 public/dioramas/textures/<set>_<kind>.webp，由 tools/optimize_web_assets.py 压缩）
 const TILE = (tint) => ({ set: 'RoofingTiles014A', gray: true, repeat: 0.38, tint, roughness: 0.42, envMapIntensity: 0.9 });
 const MATERIALS = {
   GlazedGold: TILE([1.75, 1.3, 0.35]), GlazedGreen: TILE([0.45, 1.1, 0.75]), GlazedBlack: TILE([0.35, 0.4, 0.5]),
@@ -95,7 +95,7 @@ function loadTexture(name, { gray = false, srgb = true } = {}) {
       resolve(tex);
     };
     img.onerror = () => resolve(null);
-    img.src = TEX + name + '.jpg';
+    img.src = TEX + name + '.webp';
   });
   texCache.set(key, p);
   return p;
@@ -162,11 +162,11 @@ function sunDirection(eulerDeg) {
 function toThree(v) { return new THREE.Vector3(v.x, v.z, -v.y); }   // Blender Z-up → three Y-up
 
 function impostorAtlas(front, top, tint) {
-  const c = document.createElement('canvas'); c.width = 1024; c.height = 1024;
+  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
   const ctx = c.getContext('2d');
-  ctx.drawImage(front, 0, 0, 512, 1024);
-  ctx.drawImage(top, 512, 0, 512, 512);
-  if (tint) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = tint; ctx.fillRect(0, 0, 1024, 1024); }
+  ctx.drawImage(front, 0, 0, 256, 512);
+  ctx.drawImage(top, 256, 0, 256, 256);
+  if (tint) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = tint; ctx.fillRect(0, 0, 512, 512); }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   return tex;
 }
@@ -202,10 +202,12 @@ async function buildPlants(scene, meta, onProgress) {
   }
   let done = 0;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-  for (const [key, list] of groups) {
+  const imgCache = new Map();
+  const img = (name) => { if (!imgCache.has(name)) imgCache.set(name, loadImage(BASE + `dioramas/trees/${name}.webp`)); return imgCache.get(name); };
+  await Promise.all([...groups].map(async ([key, list]) => {
     const base = key.split('#')[0]; const tintKind = key.split('#')[1];
-    const info = treesMeta[base]; if (!info) continue;
-    const [front, top] = await Promise.all([loadImage(BASE + `dioramas/trees/${base}_front.png`), loadImage(BASE + `dioramas/trees/${base}_top.png`)]);
+    const info = treesMeta[base]; if (!info) return;
+    const [front, top] = await Promise.all([img(base + '_front'), img(base + '_top')]);
     const tex = impostorAtlas(front, top, tintKind ? tintMap[tintKind] : null);
     const geo = impostorGeometry(info.front_h, info.front_w, info.top, info.kind);
     const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9, metalness: 0 });
@@ -219,7 +221,7 @@ async function buildPlants(scene, meta, onProgress) {
     mesh.instanceMatrix.needsUpdate = true;
     scene.add(mesh);
     done += list.length; onProgress && onProgress(done / plants.length);
-  }
+  }));
   return plants.length;
 }
 
@@ -271,8 +273,20 @@ export async function startDiorama(id, ui) {
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.35; sun.shadow.radius = 2;
   scene.add(sun, sun.target);
   scene.add(new THREE.HemisphereLight(0xbfd4ee, 0x6a7a55, 0.55));
+  // 天空图、树木贴图与模型同时开始下载（国内访问 GitHub Pages 很慢，串行等待会把延迟叠加起来）
+  let modelF = 0, plantF = meta.plants ? 0 : 1;
+  const report = () => ui.progress(0.08 + 0.57 * modelF + 0.33 * plantF);
+  const hdrP = new RGBELoader().loadAsync(BASE + 'dioramas/env/' + (meta.hdri || 'kloppenheim_06_puresky_1k.hdr').replace('_1k.hdr', '_512.hdr'));
+  hdrP.catch(() => {});
+  const plantsP = meta.plants ? buildPlants(scene, meta, (f) => { plantF = f; report(); }) : Promise.resolve();
+  plantsP.catch(() => {});
+  const draco = new DRACOLoader(); draco.setDecoderPath(BASE + 'draco/');
+  const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
+  const gltfP = loader.loadAsync(BASE + `dioramas/${id}/scene.glb`, (e) => { if (e.total) { modelF = 0.95 * e.loaded / e.total; report(); } });
+  gltfP.catch(() => {});
+  ui.status('加载模型…');
   try {
-    const hdr = await new RGBELoader().loadAsync(BASE + 'dioramas/env/' + (meta.hdri || 'kloppenheim_06_puresky_1k.hdr'));
+    const hdr = await hdrP;
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(hdr).texture;
     scene.environmentIntensity = 0.45; pm.dispose();
@@ -280,10 +294,7 @@ export async function startDiorama(id, ui) {
   } catch (e) { console.warn('HDRI 加载失败', e); }
 
   // 模型
-  ui.status('加载模型…');
-  const draco = new DRACOLoader(); draco.setDecoderPath(BASE + 'draco/');
-  const loader = new GLTFLoader(); loader.setDRACOLoader(draco);
-  const gltf = await loader.loadAsync(BASE + `dioramas/${id}/scene.glb`, (e) => { if (e.total) ui.progress(0.1 + 0.5 * e.loaded / e.total); });
+  const gltf = await gltfP;
   const root = gltf.scene;
   const waterMeshes = [];
   const tasks = [];
@@ -295,7 +306,7 @@ export async function startDiorama(id, ui) {
   });
   await Promise.all(tasks);
   scene.add(root);
-  ui.progress(0.65);
+  modelF = 1; report();
 
   // 水面：用 glb 里的水面几何做实时反射
   const waterNormals = makeWaterNormals();
@@ -336,7 +347,7 @@ export async function startDiorama(id, ui) {
   }
 
   // 树木（西湖）
-  if (meta.plants) { ui.status('种树…'); await buildPlants(scene, meta, (f) => ui.progress(0.65 + 0.33 * f)); }
+  if (meta.plants) { ui.status('种树…'); await plantsP; }
   const trees = []; scene.traverse((o) => { if (o.isInstancedMesh) trees.push(o); });
   // 水面反射里按档位决定是否画树（反射要把整个场景再画一遍）
   for (const w of waters) {

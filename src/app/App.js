@@ -35,7 +35,7 @@ export class App {
   }
 
   /** camera distance at which the whole globe sits comfortably inside the free area of the layout */
-  get homeDist() { return window.innerWidth <= 900 ? 3.7 : document.body.classList.contains('embed') ? 4.1 : 4.5; }
+  get homeDist() { return document.body.classList.contains('embed') ? 4.1 : window.innerWidth <= 900 ? 3.7 : 4.5; } // an embed has no sheet or side panel: the globe is simply centred
 
   setLoader(frac, text) {
     const fill = document.getElementById('loader-fill');

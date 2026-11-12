@@ -314,7 +314,7 @@ body.life #info, body.life #minimap, body.life #legend, body.life #scale-labels,
   .pill-btn { height: 30px; padding: 0 12px; font-size: 12px; margin-right: 2px; }
   #btn-help, #btn-home { display: none; }
   #minimap, #legend { display: none !important; }
-  .welcome { justify-content: center; padding-bottom: 5vh; background: linear-gradient(0deg, rgba(2,4,10,.88), rgba(2,4,10,0) 62%); }
+  .welcome { justify-content: center; padding-bottom: 5vh; background: linear-gradient(0deg, rgba(2,4,10,.95) 0, rgba(2,4,10,.84) 36%, rgba(2,4,10,0) 74%); }
   .welcome-card h2 { font-size: 30px; }
   .welcome-card p { font-size: 14px; margin-bottom: 22px; }
   .w-btn { flex: 1; padding: 0 12px; }

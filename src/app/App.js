@@ -34,6 +34,9 @@ export class App {
     this.years = 4540e6;
   }
 
+  /** camera distance at which the whole globe sits comfortably inside the free area of the layout */
+  get homeDist() { return window.innerWidth <= 900 ? 3.7 : document.body.classList.contains('embed') ? 4.1 : 4.5; }
+
   setLoader(frac, text) {
     const fill = document.getElementById('loader-fill');
     const status = document.getElementById('loader-status');
@@ -52,7 +55,7 @@ export class App {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.01, 5000);
-    this.camera.position.set(0, 0.6, 3.4);
+    this.camera.position.set(0, 0.6, 3.4).setLength(this.homeDist);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
@@ -139,6 +142,7 @@ export class App {
     this.life = new LifeTree({ onJump: (years) => { this.timeline.setYears(years); } });
     this.timeline = new Timeline({ onChange: (years, fromUser) => this.onTime(years, fromUser) });
     this.bindUI();
+    document.body.classList.add('mode-deep');
     this.onTime(this.timeline.years, false);
     const wantMode = new URLSearchParams(location.search).get('mode');
     if (wantMode && ['deep', 'human', 'now', 'moon', 'life'].includes(wantMode)) this.setMode(wantMode);
@@ -148,8 +152,14 @@ export class App {
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
+    // compile shaders and upload textures behind the loader, then let the bar visibly reach the end before fading
+    this.setLoader(0.94, '准备渲染');
+    const frame = () => new Promise((r) => { requestAnimationFrame(() => r()); setTimeout(r, 300); }); // timeout: rAF never fires in a hidden tab
+    await frame();
+    this.composer.render();
+    await frame();
     this.setLoader(1, '完成');
-    setTimeout(() => document.getElementById('loader').classList.add('done'), 300);
+    setTimeout(() => document.getElementById('loader').classList.add('done'), 520);
     this.idleTimer = 0;
     this.loop();
   }
@@ -176,6 +186,9 @@ export class App {
         pop.hidden = !show;
       });
     };
+    const legend = document.getElementById('legend');
+    const lgBtn = document.getElementById('legend-toggle');
+    if (lgBtn) lgBtn.addEventListener('click', () => lgBtn.setAttribute('aria-expanded', String(legend.classList.toggle('open'))));
     toggle('btn-settings', 'settings');
     toggle('btn-help', 'help');
     this.canvas.addEventListener('dblclick', (e) => this.focusAt(e.clientX, e.clientY));
@@ -212,7 +225,7 @@ export class App {
       this.flyToDir(dir, D, 3.2);
       this.info.showToast(`真实尺度：月球距离 ${(this.moon.position.length()).toFixed(1)} 个地球半径（今天约 38.4 万公里）`);
     } else {
-      this.flyToDir(this.camera.position.clone().normalize(), 3.4, 2.4);
+      this.flyToDir(this.camera.position.clone().normalize(), this.homeDist, 2.4);
       this.info.showToast('已恢复压缩的地月距离（便于同框观看）');
     }
     const cb = document.getElementById('opt-realscale');
@@ -273,6 +286,7 @@ export class App {
     if (legend) legend.hidden = mode !== 'human';
     const inTour = this.tour && this.tour.active;
     document.body.classList.toggle('life', mode === 'life');
+    for (const m of ['deep', 'human', 'now', 'moon', 'life']) document.body.classList.toggle('mode-' + m, m === mode);
     if (this.life) { this.life.setVisible(mode === 'life'); if (mode === 'life') this.life.setTime(this.years); }
     if (mode === 'moon' && this.moon) {
       this.setFocus('moon');
@@ -281,17 +295,17 @@ export class App {
         const toEarth = this.moon.position.clone().negate().normalize();
         const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), toEarth).normalize();
         const dir = toEarth.clone().multiplyScalar(0.72).addScaledVector(side, 0.65).add(new THREE.Vector3(0, 0.22, 0)).normalize();
-        this.flyToDir(dir, 0.9, 2.4);
+        this.flyToDir(dir, window.innerWidth <= 900 ? 1.0 : 1.22, 2.4);
         const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
         this.setSunTarget(dir.clone().multiplyScalar(0.72).addScaledVector(right, -0.55).add(new THREE.Vector3(0, 0.35, 0)).normalize());
       }
     } else if (this.focus === 'moon') {
       this.setFocus('earth');
-      if (!inTour) { this.flyToDir(this.camera.position.clone().normalize(), 3.4, 2.6); this.setSunTarget(null); }
+      if (!inTour) { this.flyToDir(this.camera.position.clone().normalize(), this.homeDist, 2.6); this.setSunTarget(null); }
     }
     if (mode === 'human') {
       this.earth.group.rotation.y = 0;
-      if (!inTour) this.flyToDir(new THREE.Vector3(0.92, 0.42, -0.25), 3.0, 2.0);
+      if (!inTour) this.flyToDir(new THREE.Vector3(0.92, 0.42, -0.25), this.homeDist * 0.86, 2.0);
     }
     this.timeline.setMode(mode);
     if (mode === 'now') {
@@ -414,7 +428,7 @@ export class App {
     this.camera.fov = aspect < 1 ? Math.min(95, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) / aspect))) : baseFov;
     // wide: the info panel sits on the left, nudge the globe right. narrow: the sheet covers the bottom, lift the globe.
     if (mobile) this.camera.setViewOffset(w, h, 0, h * 0.16, w, h);
-    else if (w > 900 && !document.body.classList.contains('embed')) this.camera.setViewOffset(w, h, -w * 0.11, -h * 0.03, w, h);
+    else if (w > 900 && !document.body.classList.contains('embed')) this.camera.setViewOffset(w, h, -w * 0.115, h * 0.022, w, h);
     else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);

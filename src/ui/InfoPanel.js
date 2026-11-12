@@ -10,6 +10,11 @@ export class InfoPanel {
     this.facts = document.getElementById('info-facts');
     this.stats = document.getElementById('info-stats');
     this.currentId = null;
+    this.toggle = document.getElementById('info-toggle');
+    this.toggle.addEventListener('click', () => {
+      const open = this.el.classList.toggle('expanded');
+      this.toggle.setAttribute('aria-expanded', String(open));
+    });
     this.toast = document.createElement('div');
     this.toast.id = 'toast';
     document.body.appendChild(this.toast);

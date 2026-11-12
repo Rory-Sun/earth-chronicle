@@ -66,6 +66,9 @@ out vec4 fragColor;
 #define gl_FragColor fragColor
 uniform sampler2D tColor, tNormal, tHeight, tMasksA, tMasksB, tLights, tClouds, tColorReal, tLightsReal, tCloudsReal;
 uniform float uReal;
+// the procedural deep-time cloud map is denser than the satellite one: remap it so continents stay readable
+#define PROC_CLOUD_LO 0.24
+#define PROC_CLOUD_HI 1.0
 uniform vec3 uSunDir;
 uniform float uSeaLevel, uVeg, uIceLat, uIceBoost, uErosion, uLava, uLights, uCloudOffset, uCloudShadow, uTime, uIsBase, uAtmoStrength, uSunIntensity, uNormalStrength, uCloudsOn, uSeaIce;
 uniform vec3 uOceanDeep, uOceanShallow, uAtmoColor, uHazeColor, uBarrenTint;
@@ -189,9 +192,9 @@ void main() {
 
   // --- cloud shadows
   vec2 cuv = vec2(uv.x + uCloudOffset, uv.y);
-  float cloud = mix(texture(tClouds, cuv).r, texture(tCloudsReal, cuv).r, uReal) * uCloudsOn;
+  float cloud = mix(smoothstep(PROC_CLOUD_LO, PROC_CLOUD_HI, texture(tClouds, cuv).r), texture(tCloudsReal, cuv).r, uReal) * uCloudsOn;
   vec2 cuvS = cuv + vec2(0.004, 0.0);
-  float cloudS = mix(texture(tClouds, cuvS).r, texture(tCloudsReal, cuvS).r, uReal) * uCloudsOn;
+  float cloudS = mix(smoothstep(PROC_CLOUD_LO, PROC_CLOUD_HI, texture(tClouds, cuvS).r), texture(tCloudsReal, cuvS).r, uReal) * uCloudsOn;
   float shadow = 1.0 - uCloudShadow * cloudS * 0.5;
 
   vec3 sunColor = vec3(1.0, 0.97, 0.93) * uSunIntensity * 1.15;
@@ -363,6 +366,9 @@ out vec4 fragColor;
 uniform sampler2D tClouds;
 uniform sampler2D tCloudsReal;
 uniform float uReal;
+// the procedural deep-time cloud map is denser than the satellite one: remap it so continents stay readable
+#define PROC_CLOUD_LO 0.24
+#define PROC_CLOUD_HI 1.0
 uniform vec3 uSunDir;
 uniform float uOffset;
 uniform float uOpacity;
@@ -376,7 +382,7 @@ in vec3 vLocal;
 ${noiseGLSL}
 void main() {
   vec2 uv = vec2(vUv.x + uOffset, vUv.y);
-  float c = mix(texture(tClouds, uv).r, texture(tCloudsReal, uv).r, uReal);
+  float c = mix(smoothstep(PROC_CLOUD_LO, PROC_CLOUD_HI, texture(tClouds, uv).r), texture(tCloudsReal, uv).r, uReal);
   float camDist = length(cameraPosition);
   float near = smoothstep(3.5, 1.4, camDist);
   float detail = fbm(normalize(vLocal) * 90.0 + uTime * 0.02);
@@ -390,7 +396,7 @@ void main() {
   float lit = smoothstep(-0.2, 0.35, NdL);
   // fake thickness shading: brighter tops, shaded bottoms via texture gradient toward sun
   vec2 duv = vec2(0.002, 0.0);
-  float cS = mix(texture(tClouds, uv + duv).r, texture(tCloudsReal, uv + duv).r, uReal);
+  float cS = mix(smoothstep(PROC_CLOUD_LO, PROC_CLOUD_HI, texture(tClouds, uv + duv).r), texture(tCloudsReal, uv + duv).r, uReal);
   float shade = clamp(1.0 - (cS - c) * 2.5, 0.55, 1.15);
   vec3 sunColor = vec3(1.0, 0.96, 0.9) * uSunIntensity;
   vec3 color = uTint * sunColor * (max(NdL, 0.0) * 0.9 + 0.1) * shade;

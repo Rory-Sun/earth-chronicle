@@ -25,6 +25,9 @@ export class Tour {
     $('tour-clear').addEventListener('click', () => document.body.classList.add('clear'));
     $('clear-exit').addEventListener('click', () => document.body.classList.remove('clear'));
     this.buildChips();
+    const minutes = Math.round(CHAPTERS.reduce((a, c) => a + c.dur + c.hold + 2.6, 0) / 60);
+    document.querySelectorAll('.chapter-count').forEach((el) => { el.textContent = CHAPTERS.length; });
+    document.querySelectorAll('.chapter-minutes').forEach((el) => { el.textContent = minutes; });
     window.addEventListener('keydown', (e) => {
       if (!this.active || (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'))) return;
       if (e.code === 'ArrowRight') { e.preventDefault(); this.go(this.index + 1); }
@@ -62,8 +65,7 @@ export class Tour {
     document.body.classList.add('tour');
     document.body.classList.remove('clear');
     this.root.hidden = false;
-    app.timeline.playing = false;
-    app.timeline.playBtn.textContent = '▶';
+    app.timeline.setPlaying(false);
     app.earth.group.rotation.y = 0;
     this.go(i);
   }

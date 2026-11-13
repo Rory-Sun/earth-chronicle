@@ -335,12 +335,12 @@ nt = TERRAIN.node_tree
 _p = nt.nodes["Principled BSDF"]
 _gc = tex_node(nt, "Grass004", "Color", 0.33, 'Object', noncolor=False)
 _gd = tex_node(nt, "Grass004", "Displacement", 0.33, 'Object')
-_moss = mul_color(nt, _gc.outputs["Color"], rgb(nt, (0.46, 0.52, 0.33)))
+_moss = mul_color(nt, _gc.outputs["Color"], rgb(nt, (0.50, 0.57, 0.35)))
 _mn = noise(nt, 0.55, 4.0, distortion=0.6)
-_moss = mix_rgb(nt, _moss, rgb(nt, (0.15, 0.22, 0.09)), clampv(map_range(nt, _mn.outputs["Fac"], 0.0, 0.6, 0.45, 0.70)), 'MIX')
+_moss = mix_rgb(nt, _moss, rgb(nt, (0.17, 0.25, 0.10)), clampv(map_range(nt, _mn.outputs["Fac"], 0.0, 0.65, 0.44, 0.68)), 'MIX')
 _sn = noise(nt, 0.20, 4.0, distortion=0.8)
 _soil = mul_color(nt, rgb(nt, (0.19, 0.155, 0.11)), map_range(nt, noise(nt, 3.0, 4.0).outputs["Fac"], 0.75, 1.25))
-_col = mix_rgb(nt, _moss, _soil, clampv(map_range(nt, _sn.outputs["Fac"], 0.0, 0.9, 0.42, 0.60)), 'MIX')
+_col = mix_rgb(nt, _moss, _soil, clampv(map_range(nt, _sn.outputs["Fac"], 0.0, 0.9, 0.46, 0.64)), 'MIX')
 nt.links.new(_col, _p.inputs["Base Color"])
 _tb = bump_node(nt, noise(nt, 2.4, 5.0).outputs["Fac"], 0.5, 0.06)
 tex_bump(nt, _gd, 0.6, 0.03, prev_normal=_tb.outputs["Normal"])
@@ -390,10 +390,15 @@ nt.links.new(mix_rgb(nt, _hsrc, rgb(nt, (0.20, 0.27, 0.12)), _hm.outputs[0], 'MI
 BAMBOO_LEAF = leaf_material("ZhuYe", (0.15, 0.27, 0.10), (0.27, 0.40, 0.15), sss=0, bump=0.3)
 BAMBOO_CULM = principled("ZhuGan", (0.40, 0.48, 0.20), rough=0.45, bevel=0)
 BANANA = leaf_material("BaJiao", (0.18, 0.40, 0.13), (0.32, 0.54, 0.19), sss=0, bump=0.3)
+PINE_PAD = leaf_material("SongZhen", (0.055, 0.14, 0.085), (0.11, 0.22, 0.115), sss=0, bump=1.0)       # 造型松的针叶云片
+PINE_BARK = noise_mix(principled("SongPi", (0.20, 0.13, 0.09), rough=0.9, bevel=0), (0.13, 0.085, 0.06), (0.28, 0.19, 0.13), 6.0, detail=5.0, bump=0.8)
+SHRUB = leaf_material("GuanMu", (0.10, 0.22, 0.075), (0.20, 0.35, 0.12), sss=0, bump=0.9)                # 修剪成球的灌木
+AZALEA = [principled("DuJuanHong", (0.80, 0.26, 0.40), rough=0.7, bevel=0), principled("DuJuanBai", (0.90, 0.88, 0.82), rough=0.7, bevel=0)]
 TUFT = leaf_material("YanJieCao", (0.07, 0.17, 0.06), (0.14, 0.27, 0.09), sss=0, bump=0.3)
 LOTUS_LEAF = leaf_material("LotusLeaf", (0.14, 0.34, 0.16), (0.24, 0.46, 0.22), sss=0, bump=0.4)
 LOTUS_FLOWER = principled("LotusFlower", (0.96, 0.72, 0.80), rough=0.7, bevel=0)
 TRUNK = principled("Trunk", (0.16, 0.11, 0.07), rough=0.9, bevel=0)
+WATER_VAT = principled("GangShui", (0.05, 0.09, 0.06), rough=0.08, spec=0.8, bevel=0)
 KOI = [principled("KoiR", (0.80, 0.20, 0.04), rough=0.4, bevel=0), principled("KoiW", (0.85, 0.82, 0.74), rough=0.4, bevel=0),
        principled("KoiY", (0.86, 0.52, 0.08), rough=0.4, bevel=0)]
 
@@ -426,10 +431,10 @@ _wp = noise(nt, 0.16, 3.0, distortion=0.6)                       # 几米尺度�
 _calm = _mrc(_wp.outputs["Fac"], 0.0, 1.0, 0.40, 0.58)
 _ruf = _math('SUBTRACT', 1.0, _calm)
 _w1 = noise(nt, 1.2, 3.0, distortion=0.5)
-_b1 = bump_node(nt, _w1.outputs["Fac"], 0.06, 0.3)
+_b1 = bump_node(nt, _w1.outputs["Fac"], 0.04, 0.3)
 _w2 = noise(nt, 6.0, 3.0, distortion=0.3)
 _b2 = bump_node(nt, _w2.outputs["Fac"], 0.1, 0.06, prev_normal=_b1.outputs["Normal"])
-nt.links.new(_mrc(_ruf, 0.03, 0.25), _b2.inputs["Strength"])
+nt.links.new(_mrc(_ruf, 0.015, 0.20), _b2.inputs["Strength"])
 _nrm = _b2.outputs["Normal"]
 _deepc = mix_rgb(nt, rgb(nt, (0.105, 0.185, 0.090)), rgb(nt, (0.048, 0.110, 0.062)), _deep, 'MIX')
 _bodyc = mix_rgb(nt, _deepc, rgb(nt, (0.19, 0.23, 0.13)), _mrc(_sh, 0.0, 0.7), 'MIX')
@@ -437,13 +442,13 @@ _bodyc = mul_color(nt, _bodyc, map_range(nt, noise(nt, 0.35, 3.0, distortion=0.6
 _body = nt.nodes.new("ShaderNodeBsdfDiffuse")
 nt.links.new(_bodyc, _body.inputs["Color"])
 _gl = nt.nodes.new("ShaderNodeBsdfGlossy")
-_gl.inputs["Color"].default_value = (0.84, 0.97, 0.88, 1)
+_gl.inputs["Color"].default_value = (0.78, 0.97, 0.84, 1)
 nt.links.new(_mrc(_ruf, 0.008, 0.07), _gl.inputs["Roughness"])
 nt.links.new(_nrm, _gl.inputs["Normal"])
 _fr = nt.nodes.new("ShaderNodeFresnel")
 _fr.inputs["IOR"].default_value = 1.33
 nt.links.new(_nrm, _fr.inputs["Normal"])
-_REFL = (float(arg("--refl0", 0.26)), float(arg("--refl1", 0.80)))
+_REFL = (float(arg("--refl0", 0.36)), float(arg("--refl1", 0.85)))
 _refl = _mrc(_fr.outputs["Fac"], _REFL[0], _REFL[1], 0.02, 0.30)
 _surf = nt.nodes.new("ShaderNodeMixShader")
 nt.links.new(_refl, _surf.inputs[0]); nt.links.new(_body.outputs[0], _surf.inputs[1]); nt.links.new(_gl.outputs[0], _surf.inputs[2])
@@ -1635,7 +1640,8 @@ def step_path(b, pts, w=1.1, mat=None):
         ln = ru(0.55, 0.95)
         x, y, dx, dy = P(min(L, s + ln / 2))
         if pond_sd(x, y) > 0.3:
-            rbox(b, x + ru(-0.05, 0.05), y + ru(-0.05, 0.05), ground(x, y) - 0.12, ln - 0.06, w * ru(0.82, 1.05), 0.16, mat, math.atan2(dy, dx) + ru(-0.06, 0.06))
+            # 每块石板高低略有参差：既像手工铺的，也保证小径交汇处的石板不会共面（共面会互相遮光，渲染成黑块）
+            rbox(b, x + ru(-0.05, 0.05), y + ru(-0.05, 0.05), ground(x, y) - 0.12, ln - 0.06, w * ru(0.82, 1.05), 0.165 + ru(0.0, 0.035), mat, math.atan2(dy, dx) + ru(-0.06, 0.06))
             keep(x, y, w * 0.6)
         s += ln
 
@@ -1954,8 +1960,68 @@ def mesh_banana(seed):
     bpy.data.objects.remove(ob)
     return me
 
+def mesh_gpine(seed):
+    """造型松（黑松 / 罗汉松）：盘曲的树干，层层平展的针叶云片。"""
+    rnd = random.Random(seed)
+    b = B("PineSrc")
+    h = rnd.uniform(4.2, 5.6)
+    a0 = rnd.uniform(0, 6.28)
+    pts = []
+    for k in range(8):
+        t = k / 7
+        r = 0.55 * math.sin(t * math.pi * 1.3) * (0.6 + 0.6 * t)
+        pts.append((r * math.cos(a0 + t * 2.2), r * math.sin(a0 + t * 2.2), h * t))
+    for k in range(7):
+        rod(b, pts[k], pts[k + 1], 0.16 * (1 - 0.72 * (k / 7)), PINE_BARK)
+    def pad(cx, cy, cz, r):
+        # 一片"云"由三团相叠的扁球组成，边缘起伏，不是一张光滑的圆盘
+        for (ox, oy, k) in ((0.0, 0.0, 1.0), (rnd.uniform(0.4, 0.6), rnd.uniform(-0.3, 0.3), 0.62), (rnd.uniform(-0.6, -0.4), rnd.uniform(-0.3, 0.3), 0.58)):
+            a = rnd.uniform(0, 6.28)
+            dx, dy = ox * math.cos(a) - oy * math.sin(a), ox * math.sin(a) + oy * math.cos(a)
+            v, f = icosphere(cx + dx * r, cy + dy * r, cz + rnd.uniform(-0.05, 0.08) * r, r * k, sub=2, squash=0.40, jit=0.17)
+            b.add(v, f, PINE_PAD)
+    n = rnd.randint(6, 8)
+    for i in range(n):
+        t = 0.36 + 0.60 * i / (n - 1)
+        k = min(6, int(t * 7)); u = t * 7 - k
+        base = tuple(pts[k][j] + (pts[k + 1][j] - pts[k][j]) * u for j in range(3))
+        ang = a0 + i * 2.4 + rnd.uniform(-0.4, 0.4)
+        L = rnd.uniform(1.0, 1.9) * (1.15 - 0.6 * t)
+        tip = (base[0] + math.cos(ang) * L, base[1] + math.sin(ang) * L, base[2] + rnd.uniform(-0.1, 0.25))
+        rod(b, base, tip, 0.05, PINE_BARK)
+        pad(tip[0], tip[1], tip[2] + 0.12, rnd.uniform(0.75, 1.1) * (1.1 - 0.45 * t))
+        if rnd.random() < 0.6:
+            m = tuple((base[j] + tip[j]) / 2 for j in range(3))
+            pad(m[0] + rnd.uniform(-0.2, 0.2), m[1] + rnd.uniform(-0.2, 0.2), m[2] + 0.15, rnd.uniform(0.5, 0.75))
+    pad(pts[-1][0], pts[-1][1], h + 0.1, rnd.uniform(0.8, 1.0))
+    ob = b.build(smooth=True)
+    me = ob.data
+    bpy.data.objects.remove(ob)
+    return me
+
+def mesh_shrub(seed, flower=None):
+    """修剪成球的灌木丛（黄杨、杜鹃）：几个相叠的扁球，杜鹃在表面缀花。"""
+    rnd = random.Random(seed)
+    b = B("ShrubSrc")
+    for k in range(rnd.randint(3, 5)):
+        r = rnd.uniform(0.36, 0.68)
+        cx, cy = rnd.uniform(-0.5, 0.5), rnd.uniform(-0.5, 0.5)
+        v, f = icosphere(cx, cy, r * 0.5, r, sub=2, squash=0.78, jit=0.07)
+        b.add(v, f, SHRUB)
+        if flower is not None:
+            for q in range(16):
+                a, e = rnd.uniform(0, 6.28), rnd.uniform(0.25, 1.4)
+                v, f = icosphere(cx + r * math.cos(e) * math.cos(a), cy + r * math.cos(e) * math.sin(a), r * 0.5 + r * 0.78 * math.sin(e), 0.055, sub=0, squash=0.8, jit=0.0)
+                b.add(v, f, flower)
+    ob = b.build(smooth=True)
+    me = ob.data
+    bpy.data.objects.remove(ob)
+    return me
+
 EXTRA = {}
 def make_extra_plants():
+    EXTRA["gpine"] = [mesh_gpine(71 + i) for i in range(3)]
+    EXTRA["shrub"] = [mesh_shrub(81), mesh_shrub(82), mesh_shrub(83, AZALEA[0]), mesh_shrub(84), mesh_shrub(85, AZALEA[1])]
     EXTRA["bamboo"] = [mesh_bamboo(31 + i) for i in range(4)]
     EXTRA["banana"] = [mesh_banana(51 + i) for i in range(3)]
     for k, lst in EXTRA.items():
@@ -2060,6 +2126,7 @@ def build_scene():
     # ---- 廊
     corridor("WestCorridor", [(-23.0, 14.4), (-23.0, 10.6), (-27.2, 10.6), (-27.2, 3.2), (-23.4, 3.2), (-23.4, -7.0), (-28.2, -7.0), (-28.2, -11.6)],
              open_bays={(4, 1, 1), (4, 2, 1)})
+    corridor("ResCorridor", [(X1 - 1.25, -4.9), (X1 - 1.25, 10.7)], w=1.4, rails=(1,), open_bays={(0, 2, 1), (0, 4, 1)})   # 住宅庭院东侧的廊
     corridor("EastCorridor", [(XP - 1.1, 11.6), (XP - 1.1, -3.0), (17.3, -3.0)], rails=(-1,), open_bays={(0, 3, -1)})
 
     # ---- 园墙：外墙、界墙、书斋小院（月洞门）
@@ -2177,9 +2244,12 @@ def build_scene():
                             ("ginkgo", -30.6, 23.2, 1.0),
                             ("willow", -13.2, -11.6, 0.9), ("willow", 11.6, 8.4, 0.95), ("willow", -20.6, 8.6, 0.85),
                             ("tree", -31.0, -1.0, 0.95), ("tree", 2.2, 24.4, 1.0), ("tree", -9.6, 24.6, 0.9),
-                            ("tree", 18.2, 5.0, 0.7), ("tree", 31.4, 6.4, 0.55), ("tree", 25.0, -17.2, 0.5), ("tree", 31.0, 22.6, 0.6),
-                            ("peach", 9.6, 17.0, 1.0), ("peach", 31.2, -3.6, 0.9), ("peach", -17.6, -10.4, 0.9), ("peach", 11.0, -20.6, 0.9)):
-        plant(kind, x, y, s)
+                            ("tree", 18.2, 5.0, 0.7), ("tree", 30.2, 4.6, 0.5), ("tree", 25.0, -17.2, 0.5), ("tree", 31.0, 22.6, 0.6),
+                            ("peach", 9.6, 17.0, 1.0), ("peach", 25.4, -1.4, 0.85), ("peach", -17.6, -10.4, 0.9), ("peach", 11.0, -20.6, 0.9)):
+        if kind == "pine":
+            inst("gpine", x, y, s * ru(0.95, 1.15))          # 园内用造型松，不用冷杉模型
+        else:
+            plant(kind, x, y, s)
         keep(x, y, 1.0)
     # 园外的大树（墙外借景）
     for (x, y, kind, s) in ((-37.0, -19.0, "tree", 1.1), (-37.4, -6.0, "tree", 1.25), (-37.2, 9.0, "tree", 1.05), (-36.6, 22.0, "ginkgo", 0.9),
@@ -2199,7 +2269,7 @@ def build_scene():
             if not blocked(x, y, 0.6):
                 inst("bamboo", x, y, ru(0.85, 1.2))
     # 芭蕉：粉墙前
-    for (x, y, s) in ((-32.4, 15.6, 1.1), (8.4, 15.4, 1.0), (21.6, -14.2, 1.0), (-1.6, -25.4, 1.05), (24.2, -19.4, 0.8), (32.6, 7.6, 0.85), (32.6, 20.0, 0.8),
+    for (x, y, s) in ((-32.4, 15.6, 1.1), (8.4, 15.4, 1.0), (21.6, -14.2, 1.0), (-1.6, -25.4, 1.05), (24.2, -19.4, 0.8), (24.6, 4.6, 0.85), (32.6, 20.0, 0.8),
                       (-13.6, -19.6, 0.95), (21.4, 14.4, 0.9), (13.6, -25.2, 0.95)):
         inst("banana", x, y, s)
     # 灌木：空地上按噪声成丛
@@ -2208,10 +2278,13 @@ def build_scene():
         x, y = ru(X0 + 0.8, X1 - 0.8), ru(Y0 + 0.8, Y1 - 0.8)
         if pond_sd(x, y) < 0.9 or blocked(x, y, 1.0):
             continue
-        if fbm(x * 0.22 + 5, y * 0.22 + 1, 3) < 0.50:
+        if fbm(x * 0.22 + 5, y * 0.22 + 1, 3) < 0.54:
             continue
-        plant("bush", x, y, ru(0.7, 1.5))
-        keep(x, y, 0.55)
+        if random.random() < 0.6:
+            inst("shrub", x, y, ru(0.7, 1.25))               # 修剪成球的灌木（成丛）
+        else:
+            plant("bush", x, y, ru(0.7, 1.3))
+            keep(x, y, 0.55)
         nb_ += 1
     for i in range(500):   # 园外
         a = ru(0, 6.28)
@@ -2222,11 +2295,21 @@ def build_scene():
         nb_ += 1
     # 盆景与陈设
     b = B("Furniture")
-    for (x, y) in ((24.4, -15.0), (32.6, -15.0), (24.4, -19.6), (32.6, -19.6), (26.6, -4.2), (30.2, -4.2), (24.4, 9.6), (32.6, 9.6), (9.0, 14.4),
+    for (x, y) in ((24.4, -15.0), (32.6, -15.0), (24.4, -19.6), (32.6, -19.6), (26.6, -4.2), (30.2, -4.2), (24.4, 9.6), (30.6, 9.8), (9.0, 14.4),
                    (21.6, 18.0), (-9.6, 8.6), (1.6, 8.6), (-26.6, 14.7), (-19.4, 14.7), (2.4, -18.9), (11.6, -23.8)):
         potted(b, x, y, s=ru(0.9, 1.3))
+    # 住宅天井：荷花缸、井
+    for (x, y) in ((25.2, -18.6), (31.6, -18.6), (26.2, 9.6), (-6.5, 8.6), (-1.5, 8.6)):
+        cone(b, x, y, GZ + 0.04, 0.34, 0.46, 0.62, GREYBRICK, n=14, uv=False)
+        disc(b, x, y, GZ + 0.60, 0.40, WATER_VAT, n=14)
+        for k in range(3):
+            a = ru(0, 6.28)
+            disc(b, x + 0.16 * math.cos(a), y + 0.16 * math.sin(a), GZ + 0.615, 0.15, LOTUS_LEAF, n=9)
+        keep(x, y, 0.8)
+    prism(b, 31.4, 20.6, GZ, 0.62, 0.55, GRANITE, n=8); prism(b, 31.4, 20.6, GZ + 0.5, 0.42, 0.06, GLASS_DARK, n=8)   # 井
+    keep(31.4, 20.6, 1.0)
     # 石桌石凳
-    for (x, y) in ((7.0, -21.4), (-29.4, 0.6), (31.0, 0.6)):
+    for (x, y) in ((7.0, -21.4), (-29.4, 0.6), (30.4, 0.8)):
         prism(b, x, y, GZ, 0.5, 0.62, GRANITE, n=12); prism(b, x, y, GZ + 0.62, 0.62, 0.1, GRANITE, n=16)
         for k in range(4):
             a = math.pi / 4 + math.pi / 2 * k
@@ -2461,7 +2544,7 @@ if WEB:
         "mat": {"EarthCut": {"repeat": 0.30}, "DaiWa": {"repeat": 0.55}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
-        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(150,52,26,0.60)", "ginkgo": "rgba(214,166,48,0.66)"}, "plant_top": False,
+        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(176,62,28,0.62)", "ginkgo": "rgba(214,166,48,0.66)"}, "plant_top": False,
         "instances": INST})
     print(f"[sz] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}, instance libs={len(INST)}, instances={sum(len(v) for v in INST.values())}")
 else:

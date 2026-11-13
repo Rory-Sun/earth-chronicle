@@ -2656,7 +2656,8 @@ if WEB:
         "mat": {"EarthCut": {"repeat": 0.30}, "DaiWa": {"repeat": 0.55}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
-        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(176,62,28,0.62)", "ginkgo": "rgba(214,166,48,0.66)"}, "plant_top": False,
+        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(156,54,26,0.62)", "ginkgo": "rgba(214,166,48,0.66)"}, "plant_top": False,
+        "plant_billboard": True,
         "instances": INST})
     print(f"[sz] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}, instance libs={len(INST)}, instances={sum(len(v) for v in INST.values())}")
 else:

@@ -150,6 +150,7 @@ Three.js 网页版（`dioramas/`）。网页版由同一套 Blender 脚本以 `-
 
 ```bash
 npm run blender:trees:web      # 渲染卡片树贴图 → public/dioramas/trees/（需 assets/polyhaven 素材）
+npm run blender:trees:bb       # 渲染多角度公告牌图集（8 方位 × 2 俯仰角）→ public/dioramas/trees/*_bb.png，之后跑 web:optimize
 npm run blender:palace:web     # 导出故宫 → public/dioramas/forbidden-city/
 npm run blender:westlake:web   # 导出西湖 → public/dioramas/west-lake/
 npm run blender:crane:web      # 导出黄鹤楼 → public/dioramas/yellow-crane/
@@ -160,3 +161,7 @@ npm run web:optimize           # 压缩共用资源：贴图与卡片树转 WebP
 沙盘共用的贴图、卡片树、天空图由 `tools/optimize_web_assets.py` 压缩，合计约 2 MB；重新下载贴图或重新渲染卡片树后要再跑一次
 （`npm run web:optimize` 会连同地球贴图一起处理）。
 网页导出（`--export-glb`）会把地形网格放粗一档、把花和山岩的小球降到最低面数，`scene.json` 紧凑输出。
+
+树木在网页里有两种画法：旧的交叉卡片（两张正视面片加一张俯视面片），和多角度公告牌（`src/diorama/TreeBillboards.js`：
+一张始终朝向镜头的面片，按镜头相对树的方位和俯仰从图集里选图并过渡）。`scene.json` 里 `plant_billboard: true` 的场景用后者，
+目前是苏州园林；其余沙盘仍用卡片。

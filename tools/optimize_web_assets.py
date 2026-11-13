@@ -98,7 +98,10 @@ for src in sorted(glob.glob(os.path.join(ROOT, "textures", "*.jpg"))):
     print(f"{name:34s} {a:7.0f} KB -> {b:6.0f} KB")
 for src in sorted(glob.glob(os.path.join(ROOT, "trees", "*.png"))):
     w0, h0 = Image.open(src).size
-    a, b = to_webp(src, size=(w0 // 2, h0 // 2), quality=84, alpha_quality=92, exact=True)
+    if src.endswith("_bb.png"):          # 多角度公告牌图集：小图已按用途定好尺寸，不再缩小
+        a, b = to_webp(src, quality=80, alpha_quality=88, exact=True)
+    else:
+        a, b = to_webp(src, size=(w0 // 2, h0 // 2), quality=84, alpha_quality=92, exact=True)
     tot_a += a; tot_b += b
     print(f"{os.path.basename(src):34s} {a:7.0f} KB -> {b:6.0f} KB")
 for src in sorted(glob.glob(os.path.join(ROOT, "env", "*_1k.hdr"))):

@@ -7,6 +7,7 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { Water } from 'three/examples/jsm/objects/Water.js';
 import { LakeSurface } from './LakeSurface.js';
+import { makeBillboardTrees } from './TreeBillboards.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
@@ -183,6 +184,15 @@ function impostorAtlas(front, top, tint) {
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   return tex;
 }
+function tintedAtlas(img, tint) {
+  // 公告牌图集：原图画进画布，需要时整体染色（枫红、银杏黄、桃花粉）
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  if (tint) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = tint; ctx.fillRect(0, 0, c.width, c.height); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
 function impostorGeometry(fh, fw, top, kind, withTop = true) {
   // 两张交叉的正视面片 + 一张俯视面片（树冠高度处）；UV 指向图集的左半/右上
   const pos = [], uv = [], nrm = [], idx = [];
@@ -220,6 +230,13 @@ async function buildPlants(scene, meta, onProgress) {
   await Promise.all([...groups].map(async ([key, list]) => {
     const base = key.split('#')[0]; const tintKind = key.split('#')[1];
     const info = treesMeta[base]; if (!info) return;
+    if (meta.plant_billboard && info.bb) {
+      // 多角度公告牌树（见 TreeBillboards.js）；scene.json 里 plant_billboard: true 的场景启用
+      const tex = tintedAtlas(await img(base + '_bb'), tintKind ? tintMap[tintKind] : null);
+      scene.add(makeBillboardTrees(tex, info.bb, list, { sunDirection: sunDirection(meta.sun.euler_deg), sunColor: new THREE.Color(...meta.sun.color) }));
+      done += list.length; onProgress && onProgress(done / plants.length);
+      return;
+    }
     const [front, top] = await Promise.all([img(base + '_front'), img(base + '_top')]);
     const tex = impostorAtlas(front, top, tintKind ? tintMap[tintKind] : null);
     // 建筑尺度的沙盘里大树的俯视面片会像一张悬空的圆盘，scene.json 可用 plant_top: false 关掉（灌木保留）

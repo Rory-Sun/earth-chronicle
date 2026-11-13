@@ -1935,7 +1935,8 @@ if WEB:
         "hdri": "belfast_sunset_puresky_1k.hdr",
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
-        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(190,40,25,0.8)", "ginkgo": "rgba(240,185,50,0.82)"}})
+        "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,
+        "plant_light": {"sunGain": 0.8, "ambSky": [0.31, 0.31, 0.29], "ambGround": [0.15, 0.14, 0.1], "sat": 0.92, "ao": 0.45}})
     print(f"[yc] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}")
 else:
     setup_mist()

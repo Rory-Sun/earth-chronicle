@@ -1315,7 +1315,8 @@ if "--export-glb" in argv:
         "water": ["Water"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.90, 0.87, 0.78],
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"maple": "tree", "ginkgo": "tree"},
-        "plant_tint": {"maple": "rgba(190,40,25,0.8)", "ginkgo": "rgba(240,185,50,0.82)"}})
+        "plant_tint": {"maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,
+        "plant_light": {"sunGain": 0.76, "ambSky": [0.3, 0.32, 0.31], "ambGround": [0.14, 0.14, 0.1], "sat": 0.88, "ao": 0.45}})
     print(f"[fc] web export done in {time.time() - t0:.1f}s")
 else:
     setup_render()

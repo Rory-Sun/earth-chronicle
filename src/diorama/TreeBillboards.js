@@ -70,6 +70,8 @@ const BILLBOARD_FRAG = /* glsl */`
   uniform float sunGain;
   uniform vec3 ambSky;
   uniform vec3 ambGround;
+  uniform float bbSat;
+  uniform float bbAO;
   varying vec3 vRight;
   varying vec3 vToCam;
   ${TILE_FN}
@@ -86,7 +88,9 @@ const BILLBOARD_FRAG = /* glsl */`
     vec3 n = normalize( vRight * ( vUv.x * 2.0 - 1.0 ) * 0.85 + vec3( 0.0, 1.0, 0.0 ) * ( vUv.y * 2.0 - 0.7 ) * 0.8 + vToCam * 0.55 );
     float ndl = clamp( dot( n, sunDirection ) * 0.6 + 0.4, 0.0, 1.0 );
     vec3 amb = mix( ambGround, ambSky, n.y * 0.5 + 0.5 );
-    vec3 col = c.rgb * ( amb + sunColor * sunGain * ndl * getShadowMask() );
+    vec3 base = mix( vec3( dot( c.rgb, vec3( 0.299, 0.587, 0.114 ) ) ), c.rgb, bbSat );
+    base *= mix( 1.0 - bbAO, 1.0, smoothstep( 0.08, 0.62, vUv.y ) );       // 树冠下部压暗：成片的林子才有层次
+    vec3 col = base * ( amb + sunColor * sunGain * ndl * getShadowMask() );
     gl_FragColor = vec4( col, 1.0 );
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -128,7 +132,7 @@ const DEPTH_VERT = /* glsl */`
  * @param tex   图集贴图（4×4 小图）
  * @param bb    trees.json 里这个变体的 bb 字段 { size, cz, rings: [低角, 高角] }
  * @param list  [[x, y, z, h, rot], ...]（Blender 坐标，Z 向上）
- * @param opts  { sunDirection: Vector3, sunColor: Color }
+ * @param opts  { sunDirection: Vector3, sunColor: Color, light?: scene.json 的 plant_light }
  */
 export function makeBillboardTrees(tex, bb, list, opts) {
   const geo = new PlaneGeometry(1, 1);
@@ -143,12 +147,20 @@ export function makeBillboardTrees(tex, bb, list, opts) {
     uniforms: UniformsUtils.merge([UniformsLib.fog, UniformsLib.lights, {
       sunColor: { value: new Color(1, 1, 1) }, sunDirection: { value: new Vector3(0, 1, 0) }, sunGain: { value: 0.80 },
       ambSky: { value: new Color(0.40, 0.45, 0.48) }, ambGround: { value: new Color(0.19, 0.21, 0.16) },
+      bbSat: { value: 1.0 }, bbAO: { value: 0.0 },
     }]),
     vertexShader: BILLBOARD_VERT, fragmentShader: BILLBOARD_FRAG, lights: true, fog: true,
   });
   Object.assign(mat.uniforms, shared);
   mat.uniforms.sunDirection.value.copy(opts.sunDirection).normalize();
   if (opts.sunColor) mat.uniforms.sunColor.value.copy(opts.sunColor);
+  // 各沙盘的光照差别很大（晨雾、夕照、晴天），scene.json 的 plant_light 可覆盖：{ sunGain, ambSky, ambGround, sat, ao }
+  const L = opts.light || {};
+  if (L.sunGain != null) mat.uniforms.sunGain.value = L.sunGain;
+  if (L.ambSky) mat.uniforms.ambSky.value.setRGB(...L.ambSky);
+  if (L.ambGround) mat.uniforms.ambGround.value.setRGB(...L.ambGround);
+  if (L.sat != null) mat.uniforms.bbSat.value = L.sat;
+  if (L.ao != null) mat.uniforms.bbAO.value = L.ao;
   const mesh = new InstancedMesh(geo, mat, list.length);
   const m4 = new Matrix4();
   list.forEach(([x, y, z, h, r], i) => {

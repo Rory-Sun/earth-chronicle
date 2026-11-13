@@ -164,4 +164,5 @@ npm run web:optimize           # 压缩共用资源：贴图与卡片树转 WebP
 
 树木在网页里有两种画法：旧的交叉卡片（两张正视面片加一张俯视面片），和多角度公告牌（`src/diorama/TreeBillboards.js`：
 一张始终朝向镜头的面片，按镜头相对树的方位和俯仰从图集里选图并过渡）。`scene.json` 里 `plant_billboard: true` 的场景用后者，
-目前是苏州园林；其余沙盘仍用卡片。
+四个沙盘现在都是公告牌；`plant_light` 按场景调树的明暗和饱和度（`sunGain`、`ambSky`、`ambGround`、`sat`、`ao`），
+网址加 `?bb=0` 可临时切回卡片对比。

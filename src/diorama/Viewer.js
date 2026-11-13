@@ -55,9 +55,10 @@ const MATERIALS = {
   WhiteMarble: { set: 'Marble020', repeat: 0.5, tint: [1.15, 1.12, 1.05], roughness: 0.5 },
   StonePaving: { set: 'PavingStones128', repeat: 0.7, tint: [1.05, 1.05, 1.0], roughness: 0.85 },
   Granite: { set: 'Rock051', normalOnly: true, repeat: 1.5, roughness: 0.8 },
-  Grass: { set: 'Grass004', repeat: 0.8, tint: [0.95, 1.0, 0.72], roughness: 0.95 },
-  Lawn: { set: 'Grass004', repeat: 0.9, tint: [0.95, 1.0, 0.72], roughness: 0.95 },
-  Terrain: { set: 'Grass004', repeat: 0.8, tint: [1.0, 1.02, 0.78], roughness: 0.95, vertexColors: true },
+  // 草地不用粗糙度贴图（matte）：那张图偏亮滑，太阳会在草坡上打出一片片白色高光
+  Grass: { set: 'Grass004', repeat: 0.8, tint: [0.95, 1.0, 0.72], roughness: 0.95, matte: true },
+  Lawn: { set: 'Grass004', repeat: 0.9, tint: [0.95, 1.0, 0.72], roughness: 0.95, matte: true },
+  Terrain: { set: 'Grass004', repeat: 0.8, tint: [1.0, 1.02, 0.78], roughness: 0.95, vertexColors: true, matte: true },
   EarthCut: { set: 'Rock051', repeat: 0.14, tint: [1.5, 1.4, 1.2], roughness: 0.95, vertexColors: true },
   LakeBed: { tint: [1, 1, 1], roughness: 0.9, vertexColors: true },
   Leaf: { tint: [1, 1, 1], roughness: 0.9, vertexColors: true },
@@ -75,7 +76,7 @@ const MATERIALS = {
 Object.assign(MATERIALS, {
   FangZhuan: { set: 'PavingStones128', repeat: 0.42, tint: [0.92, 0.94, 0.92], roughness: 0.9 },
   JieShi: { set: 'PavingStones128', repeat: 0.36, tint: [0.86, 0.86, 0.83], roughness: 0.9 },
-  TaiDi: { set: 'Grass004', repeat: 0.33, tint: [1.35, 1.25, 1.0], roughness: 0.95, vertexColors: true },
+  TaiDi: { set: 'Grass004', repeat: 0.33, tint: [1.35, 1.25, 1.0], roughness: 0.95, vertexColors: true, matte: true },
   ChiDi: { tint: [1, 1, 1], roughness: 0.9, vertexColors: true },
   TaiHuShi: { set: 'Rock051', normalOnly: true, repeat: 0.6, tint: [1.12, 1.12, 1.09], roughness: 0.88, vertexColors: true },
   HuangShi: { set: 'Rock051', normalOnly: true, repeat: 0.5, roughness: 0.9, vertexColors: true },
@@ -127,7 +128,7 @@ async function applyMaterial(mesh) {
     const [col, nor, rgh] = await Promise.all([
       spec.normalOnly ? null : loadTexture(spec.set + '_Color', { gray: !!spec.gray }),
       loadTexture(spec.set + '_NormalGL', { srgb: false }),
-      spec.normalOnly ? null : loadTexture(spec.set + '_Roughness', { srgb: false }),
+      spec.normalOnly || spec.matte ? null : loadTexture(spec.set + '_Roughness', { srgb: false }),
     ]);
     for (const t of [col, nor, rgh]) if (t) { t.repeat.set(spec.repeat, spec.repeat); }
     if (col) { mat.map = col; if (spec.gray) mat.color.multiplyScalar(1.0); }
@@ -223,6 +224,9 @@ async function buildPlants(scene, meta, onProgress) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push([x, y, z, h, rot]);
   }
+  // 网址加 ?bb=0 / ?bb=1 可临时切换卡片树和公告牌树，方便对比
+  const bbFlag = new URLSearchParams(location.search).get('bb');
+  const useBB = bbFlag === null ? !!meta.plant_billboard : bbFlag === '1';
   let done = 0;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
   const imgCache = new Map();
@@ -230,10 +234,10 @@ async function buildPlants(scene, meta, onProgress) {
   await Promise.all([...groups].map(async ([key, list]) => {
     const base = key.split('#')[0]; const tintKind = key.split('#')[1];
     const info = treesMeta[base]; if (!info) return;
-    if (meta.plant_billboard && info.bb) {
+    if (useBB && info.bb) {
       // 多角度公告牌树（见 TreeBillboards.js）；scene.json 里 plant_billboard: true 的场景启用
       const tex = tintedAtlas(await img(base + '_bb'), tintKind ? tintMap[tintKind] : null);
-      scene.add(makeBillboardTrees(tex, info.bb, list, { sunDirection: sunDirection(meta.sun.euler_deg), sunColor: new THREE.Color(...meta.sun.color) }));
+      scene.add(makeBillboardTrees(tex, info.bb, list, { sunDirection: sunDirection(meta.sun.euler_deg), sunColor: new THREE.Color(...meta.sun.color), light: meta.plant_light }));
       done += list.length; onProgress && onProgress(done / plants.length);
       return;
     }

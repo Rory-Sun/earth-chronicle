@@ -1,27 +1,40 @@
 // GLSL shaders for the Earth surface, atmosphere shell and cloud layer. (GLSL ES 3.0 via THREE.GLSL3)
 
+// Value noise. Written for compile time as much as for run time: Chrome on Windows hands shaders to the D3D
+// compiler, whose cost grows much faster than the amount of straight-line code. The planet shader calls fbm /
+// ridged 14 times; with a scalar hash per lattice corner that was 456 inlined hashes and a 9-17 s compile on a
+// first visit (integrated GPU). Two changes bring it to about 2 s with the same formulas and frame time:
+//   - the 8 corner hashes are computed as two vec4 (same operations per component as the scalar
+//     hash13(q) = fract(q.x * q.y * q.z * (q.x + q.y + q.z)), q = fract(p * 0.3183099 + (0.1, 0.2, 0.3)) * 17)
+//   - the four octaves are written out, which spares the compiler its loop analysis
+// A loop with a uniform bound compiles faster still (it is not unrolled) but costs 10-20% of frame time.
 export const noiseGLSL = /* glsl */ `
-float hash13(vec3 p) {
-  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
-  p *= 17.0;
-  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
 float vnoise(vec3 p) {
   vec3 i = floor(p);
   vec3 f = fract(p);
   f = f * f * (3.0 - 2.0 * f);
-  float n000 = hash13(i), n100 = hash13(i + vec3(1, 0, 0)), n010 = hash13(i + vec3(0, 1, 0)), n110 = hash13(i + vec3(1, 1, 0));
-  float n001 = hash13(i + vec3(0, 0, 1)), n101 = hash13(i + vec3(1, 0, 1)), n011 = hash13(i + vec3(0, 1, 1)), n111 = hash13(i + vec3(1, 1, 1));
-  return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y), mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
+  vec3 q0 = fract(i * 0.3183099 + vec3(0.1, 0.2, 0.3)) * 17.0;         // hash input at the cell's low corner
+  vec3 q1 = fract((i + 1.0) * 0.3183099 + vec3(0.1, 0.2, 0.3)) * 17.0; // ... and at its high corner
+  vec4 X = vec4(q0.x, q1.x, q0.x, q1.x), Y = vec4(q0.y, q0.y, q1.y, q1.y);
+  vec4 XY = X * Y, S = X + Y;
+  vec4 h0 = fract(XY * q0.z * (S + q0.z)); // n000 n100 n010 n110
+  vec4 h1 = fract(XY * q1.z * (S + q1.z)); // n001 n101 n011 n111
+  vec4 a = mix(vec4(h0.x, h0.z, h1.x, h1.z), vec4(h0.y, h0.w, h1.y, h1.w), f.x);
+  vec2 b = mix(a.xz, a.yw, f.y);
+  return mix(b.x, b.y, f.z);
 }
 float fbm(vec3 p) {
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * vnoise(p); p = p * 2.03 + 11.7; a *= 0.5; }
+  float v = 0.5 * vnoise(p); p = p * 2.03 + 11.7;
+  v += 0.25 * vnoise(p); p = p * 2.03 + 11.7;
+  v += 0.125 * vnoise(p); p = p * 2.03 + 11.7;
+  v += 0.0625 * vnoise(p);
   return v;
 }
 float ridged(vec3 p) {
-  float v = 0.0, a = 0.5;
-  for (int i = 0; i < 4; i++) { v += a * (1.0 - abs(2.0 * vnoise(p) - 1.0)); p = p * 2.1 + 3.3; a *= 0.5; }
+  float v = 0.5 * (1.0 - abs(2.0 * vnoise(p) - 1.0)); p = p * 2.1 + 3.3;
+  v += 0.25 * (1.0 - abs(2.0 * vnoise(p) - 1.0)); p = p * 2.1 + 3.3;
+  v += 0.125 * (1.0 - abs(2.0 * vnoise(p) - 1.0)); p = p * 2.1 + 3.3;
+  v += 0.0625 * (1.0 - abs(2.0 * vnoise(p) - 1.0));
   return v;
 }
 `;

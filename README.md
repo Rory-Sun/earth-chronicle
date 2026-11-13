@@ -51,8 +51,9 @@
 ## 目录结构
 
 ```
-tools/            Node 数据流水线：海岸线栅格化、地形/气候提示图、板块区域网格
-  build-data.mjs  → blender/input/*.png, public/data/regions.{bin,json}
+tools/            Node 数据流水线：海岸线栅格化、地形/气候提示图、板块区域多边形
+  build-data.mjs  → blender/input/*.png, src/data/regions.json
+  optimize_earth_textures.py  贴图转无损 WebP、生成首屏用的小图（npm run web:optimize）
   geo/features.mjs 手工编码的山脉、沙漠、雨林、冰盖、湖泊、城市、陆架、板块划分
 blender/
   build_earth.py  Blender 无头脚本：程序化材质 → 烘焙贴图 → 月球 → 场景 → glb/blend/渲染
@@ -60,13 +61,13 @@ blender/
   output/         earth_chronicle.blend、高度图、预览 PNG
   renders/        Cycles 预览渲染
 public/
-  textures/       烘焙贴图（颜色、法线、高度、遮罩、夜灯、云层、月球）
-  models/         earth.glb / moon.glb
-  data/           板块区域网格
+  textures/       烘焙贴图（颜色、法线、高度、遮罩、夜灯、云层、月球），每张有原尺寸和首屏用的小图
+  models/         Blender 导出的 earth.glb / moon.glb（网页不加载：月球在网页里就是一个代码生成的球体）
 src/
   app/            App.js（渲染循环、模式、UI 绑定）、Environment.js（时间 → 环境参数关键帧）
-  earth/          Earth.js（地球装配）、shaders.js（GLSL）、Plates.js（板块运动模型）、Sky.js、Migration.js
-  data/           eras.js（地质年代与事件文案）、migration.js（迁徙路线、遗址、人口）
+  earth/          Earth.js（地球装配）、shaders.js（GLSL）、Plates.js（板块运动模型）、Sky.js、Migration.js、
+                  textures.js（贴图分级加载）、regionMesh.js（启动时由多边形生成板块网格）
+  data/           eras.js（地质年代与事件文案）、migration.js（迁徙路线、遗址、人口）、regions.json（板块多边形）
   ui/             Timeline、InfoPanel、Labels、MiniMap（古地理小地图）
 ```
 
@@ -83,15 +84,31 @@ npm run build      # 产物在 dist/，任何静态服务器即可托管
 需要本机安装 Blender（脚本默认路径 `D:/install/blender/blender.exe`，可在 `package.json` 中修改）。
 
 ```bash
-npm run data                      # 生成提示图与板块网格（约 30 秒）
+npm run data                      # 生成提示图与板块多边形（约 30 秒）
 npm run blender -- --res 4096     # 烘焙 4K 贴图 + 导出 glb/blend + 预览渲染（CPU 约 10-25 分钟）
 npm run blender -- --res 8192 --skip-render   # 8K 版本
 npm run blender -- --res 2048 --only albedo,clouds  # 快速预览单张贴图
+npm run web:optimize              # 烘焙或处理 NASA 影像之后必跑：数据贴图转无损 WebP，生成首屏小图
 ```
+
+## 加载：先出画面，再补清晰度
+
+网页资源体积就是加载时间（国内访问 GitHub Pages 只有每秒几十 KB），所以首屏只下载开场画面用得到的东西，约 1.2 MB：
+
+- 每张贴图分两级。**首屏小图**（2K，遮罩 1K）由 `tools/optimize_earth_textures.py` 从原图生成：开场镜头里地球直径约 600 像素，
+  4K 贴图本来就是从 2K 那一级 mipmap 采样的，画面看不出差别。**原尺寸**（4K）在画面出来之后后台下载、逐张替换。
+- 卫星影像（NASA，近 3000 万年才用到）和月球的起伏贴图不在首屏里；用户切到「人类 / 现在 / 月球」或拉近镜头时，
+  对应的贴图会插队先下。直接用 `?mode=now`、`?mode=moon` 打开时，它们才算进首屏。
+- 高度和遮罩是数据不是图片，只用无损 WebP（比 PNG 小一半，解码后逐像素相同）。
+- 板块网格由 `src/data/regions.json` 里的多边形在启动时生成（约 0.3 秒），不再下载 2.6 MB 的二进制文件。
+- 着色器在下载贴图的同时编译，不再等贴图下完才卡住页面去编译。
+
+地址参数：`?lq` 只用首屏小图；`?hq=1` 见下；嵌入模式（`?embed=1`）只在拉近或进入月球模式时才下载原尺寸贴图。
 
 ## 8K 贴图
 
 运行过 `--res 8192` 烘焙后会生成 `earth_color_8k.webp` 与 `earth_normal_8k.webp`，在地址后加 `?hq=1` 即可加载 8K 版本（需显卡支持 8192 纹理）。默认使用 4K，以兼顾集成显卡。
+NASA 的 8K 卫星底图（3 MB）在桌面浏览器上自动使用，但只在画面切到卫星影像之后才开始下载。
 
 ## 操作
 
@@ -138,6 +155,6 @@ npm run blender:suzhou:web     # 导出苏州园林 → public/dioramas/suzhou-g
 npm run web:optimize           # 压缩共用资源：贴图与卡片树转 WebP 并缩小，天空图缩到 512 px
 ```
 
-网页资源体积就是加载时间（国内访问 GitHub Pages 只有每秒几十 KB）。共用的贴图、卡片树、天空图由
-`tools/optimize_web_assets.py` 压缩，合计约 2 MB；重新下载贴图或重新渲染卡片树后要再跑一次。
+沙盘共用的贴图、卡片树、天空图由 `tools/optimize_web_assets.py` 压缩，合计约 2 MB；重新下载贴图或重新渲染卡片树后要再跑一次
+（`npm run web:optimize` 会连同地球贴图一起处理）。
 网页导出（`--export-glb`）会把地形网格放粗一档、把花和山岩的小球降到最低面数，`scene.json` 紧凑输出。

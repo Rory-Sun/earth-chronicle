@@ -1,74 +1,41 @@
 import * as THREE from 'three';
 import { surfaceVertex, surfaceFragment, atmosphereVertex, atmosphereFragment, cloudsVertex, cloudsFragment } from './shaders.js';
 import { PLATE_INFO, plateQuaternion } from './Plates.js';
-
-const TEX_BASE = import.meta.env.BASE_URL + 'textures/';
-const DATA_BASE = import.meta.env.BASE_URL + 'data/';
-
-function loadTexture(loader, name, { srgb = false, anisotropy = 8 } = {}) {
-  return new Promise((resolve, reject) => {
-    loader.load(TEX_BASE + name, (tex) => {
-      tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.anisotropy = anisotropy;
-      tex.minFilter = THREE.LinearMipmapLinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.generateMipmaps = true;
-      resolve(tex);
-    }, undefined, reject);
-  });
-}
+import { buildRegionMeshes } from './regionMesh.js';
+import { placeholderTexture, streamFlags, PRIORITY } from './textures.js';
+import REGIONS from '../data/regions.json';
 
 export class Earth {
-  constructor(renderer, onProgress) {
+  /**
+   * Builds the whole planet synchronously with 1x1 stand-in textures, so the shaders can compile while the
+   * real textures download; `stream` (TextureStream) then fills the texture slots level by level.
+   */
+  constructor(renderer, stream) {
     this.renderer = renderer;
-    this.onProgress = onProgress || (() => {});
+    this.stream = stream;
     this.group = new THREE.Group();
     this.group.name = 'Earth';
     this.plates = {};
+    this.regions = REGIONS.regions; // [{ plate, rings }] present-day outlines, also used by the mini map
     this.sunDir = new THREE.Vector3(1, 0.2, 0.4).normalize();
     this.cloudOffset = 0;
     this.time = 0;
+    // satellite imagery: shown once all three NASA maps are in, faded in if that happens mid-session
+    this.realTarget = 0;
+    this.realFade = 0;
+    this.realHave = { colorReal: false, lightsReal: false, cloudsReal: false };
+    this.build();
+    this.registerTextures();
   }
 
-  async load() {
-    const loader = new THREE.TextureLoader();
-    const maxAniso = this.renderer.capabilities.getMaxAnisotropy();
-    const A = Math.min(8, maxAniso);
-    const params = new URLSearchParams(location.search);
-    const hq = params.has('hq') && this.renderer.capabilities.maxTextureSize >= 8192;
-    // the 8K satellite colour map is cheap (3 MB) and the biggest realism win: use it on desktop-class GPUs by default
-    const hqReal = hq || (this.renderer.capabilities.maxTextureSize >= 16384 && window.innerWidth > 900 && !params.has('embed') && !params.has('lq'));
-    const names = [
-      [hq ? 'earth_color_8k.webp' : 'earth_color.webp', { srgb: true, anisotropy: A }],
-      [hq ? 'earth_normal_8k.webp' : 'earth_normal.webp', { anisotropy: A }],
-      ['earth_height.png', { anisotropy: 2 }],
-      ['earth_masks_a.png', { anisotropy: 4 }],
-      ['earth_masks_b.png', { anisotropy: 4 }],
-      ['earth_lights.webp', { anisotropy: 4 }],
-      ['earth_clouds.webp', { anisotropy: 4 }],
-      // NASA Visible Earth (public domain): Blue Marble NG colour, Black Marble 2016 lights, Blue Marble clouds
-      [hqReal ? 'nasa_color_8k.webp' : 'nasa_color_4k.webp', { srgb: true, anisotropy: A }],
-      ['nasa_lights_4k.webp', { srgb: true, anisotropy: 4 }],
-      ['nasa_clouds_4k.webp', { anisotropy: 4 }],
-    ];
-    let done = 0;
-    const texes = await Promise.all(names.map(([n, o]) => loadTexture(loader, n, o).catch((e) => {
-      // 8K NASA colour is optional: fall back to the 4K file
-      if (n === 'nasa_color_8k.webp') return loadTexture(loader, 'nasa_color_4k.webp', o);
-      throw e;
-    }).then((t) => { done++; this.onProgress(done / (names.length + 1), n); return t; })));
-    const [tColor, tNormal, tHeight, tMasksA, tMasksB, tLights, tClouds, tColorReal, tLightsReal, tCloudsReal] = texes;
-    tHeight.minFilter = THREE.LinearFilter; tHeight.generateMipmaps = false; // keep height exact for the water line
+  get realReady() { return this.realHave.colorReal && this.realHave.lightsReal && this.realHave.cloudsReal; }
 
-    const regions = await this.loadRegions();
-    this.onProgress(1, 'regions');
-
+  build() {
+    const black = placeholderTexture(0, 0, 0, { repeatX: true });
     this.uniforms = {
-      tColor: { value: tColor }, tNormal: { value: tNormal }, tHeight: { value: tHeight },
-      tMasksA: { value: tMasksA }, tMasksB: { value: tMasksB }, tLights: { value: tLights }, tClouds: { value: tClouds },
-      tColorReal: { value: tColorReal }, tLightsReal: { value: tLightsReal }, tCloudsReal: { value: tCloudsReal }, uReal: { value: 1 },
+      tColor: { value: black }, tNormal: { value: placeholderTexture(128, 128, 255, { repeatX: true }) }, tHeight: { value: placeholderTexture(128, 128, 128, { repeatX: true }) },
+      tMasksA: { value: black }, tMasksB: { value: black }, tLights: { value: black }, tClouds: { value: black },
+      tColorReal: { value: black }, tLightsReal: { value: black }, tCloudsReal: { value: black }, uReal: { value: 0 },
       uSunDir: { value: this.sunDir },
       uSeaLevel: { value: 0 }, uVeg: { value: 1 }, uIceLat: { value: 90 }, uIceBoost: { value: 0 }, uErosion: { value: 0 },
       uLava: { value: 0 }, uLights: { value: 1 }, uCloudOffset: { value: 0 }, uCloudShadow: { value: 1 }, uTime: { value: 0 },
@@ -96,13 +63,17 @@ export class Earth {
 
     // base ocean sphere (fills gaps between drifting plates)
     const baseGeo = new THREE.SphereGeometry(1, 192, 96);
+    // The surface shader derives its normal from the position. Leaving the unused `normal` attribute on this
+    // one mesh made three.js build a second, otherwise identical program for it (the plates have no normals),
+    // and this shader takes ~17 s to compile on a first visit (Chrome/D3D on an integrated GPU).
+    baseGeo.deleteAttribute('normal');
     this.base = new THREE.Mesh(baseGeo, makeMaterial(true, 0.9975));
     this.base.name = 'ocean-base';
     this.group.add(this.base);
 
-    // plate region meshes
+    // plate region meshes (generated from the region polygons, see regionMesh.js)
     let i = 0;
-    for (const r of regions) {
+    for (const r of buildRegionMeshes(REGIONS.regions, REGIONS.cell)) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(r.pos, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(r.uv, 2));
@@ -117,9 +88,9 @@ export class Earth {
       i++;
     }
 
-    // clouds
+    // clouds (the two cloud maps are shared with the surface shader, which uses them for cloud shadows)
     this.cloudUniforms = {
-      tClouds: { value: tClouds }, tCloudsReal: { value: tCloudsReal }, uReal: this.uniforms.uReal, uSunDir: { value: this.sunDir }, uOffset: { value: 0 }, uOpacity: { value: 0.95 },
+      tClouds: this.uniforms.tClouds, tCloudsReal: this.uniforms.tCloudsReal, uReal: this.uniforms.uReal, uSunDir: { value: this.sunDir }, uOffset: { value: 0 }, uOpacity: { value: 0.95 },
       uSunIntensity: this.uniforms.uSunIntensity, uTint: { value: new THREE.Color(1, 1, 1) }, uTime: this.uniforms.uTime,
     };
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(1.0085, 160, 80), new THREE.ShaderMaterial({
@@ -150,19 +121,57 @@ export class Earth {
     this.clouds.renderOrder = 3; // under the migration routes (4-6): those are a diagram and must read through the weather
     this.atmosphere.name = 'atmosphere';
     this.group.add(this.atmosphere);
-    return this;
   }
 
-  async loadRegions() {
-    const meta = await (await fetch(DATA_BASE + 'regions.json')).json();
-    this.regionsMeta = meta;
-    const buf = await (await fetch(DATA_BASE + 'regions.bin')).arrayBuffer();
-    return meta.plates.map((p) => ({
-      plate: p.plate,
-      pos: new Float32Array(buf, p.posOffset, p.vertexCount * 3),
-      uv: new Float32Array(buf, p.uvOffset, p.vertexCount * 2),
-      idx: new Uint32Array(buf, p.idxOffset, p.triangleCount * 3),
-    }));
+  /**
+   * Texture slots and their levels. Level 0 is the first-paint size made by tools/optimize_earth_textures.py;
+   * the later levels are the full-size maps (and the optional 8K ones; ?hq adds the 8K procedural colour and
+   * normal maps). See streamFlags() for ?lq and ?embed.
+   */
+  registerTextures() {
+    const caps = this.renderer.capabilities;
+    const A = Math.min(8, caps.getMaxAnisotropy());
+    const { lq, embed, eager, hq: wantHq } = streamFlags();
+    const hq = wantHq && caps.maxTextureSize >= 8192;
+    // the 8K satellite colour map is the biggest realism win on desktop-class GPUs, but at 3 MB it only
+    // downloads once satellite imagery is actually on screen (and in a small embed only on a close-up)
+    const real8k = !lq && (hq || (caps.maxTextureSize >= 16384 && window.innerWidth > 900 && !embed));
+    this.eager = eager;
+    const hold = !eager;
+    const u = this.uniforms;
+    const lite = (file, priority) => ({ file, priority, tag: 'lite' });
+    const full = (file, priority) => (lq ? null : { file, priority, hold, tag: 'full' });
+    const extra = (file) => ({ file, priority: PRIORITY.extra, hold, tag: 'full' });
+    const slot = (key, uniform, group, opts, levels) => this.stream.add(key, {
+      group, opts: { repeatX: true, ...opts }, levels,
+      apply: (tex) => { u[uniform].value = tex; if (key in this.realHave) this.realHave[key] = true; },
+    });
+    const E = PRIORITY.earthFull, R = PRIORITY.realFull, RL = PRIORITY.realLite;
+    slot('color', 'tColor', 'earth', { srgb: true, anisotropy: A }, [lite('earth_color_2k.webp', 0), full('earth_color.webp', E), hq && extra('earth_color_8k.webp')]);
+    slot('normal', 'tNormal', 'earth', { anisotropy: A }, [lite('earth_normal_2k.webp', 0), full('earth_normal.webp', E + 3), hq && extra('earth_normal_8k.webp')]);
+    // height: no mipmaps, so the water line stays exact
+    slot('height', 'tHeight', 'earth', { anisotropy: 2, mipmaps: false }, [lite('earth_height_2k.webp', 0), full('earth_height.webp', E + 1)]);
+    slot('masksA', 'tMasksA', 'earth', { anisotropy: 4 }, [lite('earth_masks_a_1k.webp', 0), full('earth_masks_a.webp', E + 2)]);
+    slot('masksB', 'tMasksB', 'earth', { anisotropy: 4 }, [lite('earth_masks_b_1k.webp', 0), full('earth_masks_b.webp', E + 4)]);
+    slot('lights', 'tLights', 'earth', { anisotropy: 4 }, [lite('earth_lights.webp', 0)]);
+    slot('clouds', 'tClouds', 'earth', { anisotropy: 4 }, [lite('earth_clouds_2k.webp', 0), full('earth_clouds.webp', E + 5)]);
+    // NASA Visible Earth (public domain): Blue Marble NG colour, Black Marble 2016 lights, Blue Marble clouds
+    slot('colorReal', 'tColorReal', 'real', { srgb: true, anisotropy: A }, [lite('nasa_color_2k.webp', RL), full('nasa_color_4k.webp', R),
+      real8k && { file: 'nasa_color_8k.webp', priority: PRIORITY.extra, hold: true, tag: '8k' }]);
+    slot('cloudsReal', 'tCloudsReal', 'real', { anisotropy: 4 }, [lite('nasa_clouds_2k.webp', RL + 1), full('nasa_clouds_4k.webp', R + 1)]);
+    slot('lightsReal', 'tLightsReal', 'real', { srgb: true, anisotropy: 4 }, [lite('nasa_lights_2k.webp', RL + 2), full('nasa_lights_4k.webp', R + 2)]);
+  }
+
+  /** Slots whose first level must be in before the first frame; `real` adds the satellite maps (present-day deep links). */
+  criticalSlots(real = false) {
+    const keys = ['color', 'normal', 'height', 'masksA', 'masksB', 'lights', 'clouds'];
+    return real ? keys.concat(['colorReal', 'cloudsReal', 'lightsReal']) : keys;
+  }
+
+  /** Call once the critical textures are in: satellite imagery that is already complete shows without a fade. */
+  settle() {
+    this.realFade = this.realReady ? 1 : 0;
+    this.uniforms.uReal.value = this.realTarget * this.realFade;
   }
 
   /** Apply environment parameters (see Environment.js) */
@@ -180,7 +189,8 @@ export class Earth {
     u.uSeaIce.value = env.seaIce;
     // real satellite imagery for the recent past; procedural palaeo-surface further back (continents drift, biomes differ)
     const tMaReal = env.yearsBP / 1e6;
-    u.uReal.value = tMaReal <= 8 ? 1 : tMaReal >= 30 ? 0 : 1 - (tMaReal - 8) / 22;
+    this.realTarget = tMaReal <= 8 ? 1 : tMaReal >= 30 ? 0 : 1 - (tMaReal - 8) / 22;
+    u.uReal.value = this.realTarget * this.realFade; // until the NASA maps are in, the procedural surface stands in
     u.uOceanDeep.value.setRGB(env.oceanDeep[0], env.oceanDeep[1], env.oceanDeep[2]);
     u.uOceanShallow.value.setRGB(env.oceanShallow[0], env.oceanShallow[1], env.oceanShallow[2]);
     u.uAtmoColor.value.setRGB(env.atmoColor[0], env.atmoColor[1], env.atmoColor[2]);
@@ -204,6 +214,32 @@ export class Earth {
     this.uniforms.uCloudsOn.value = opts.clouds ? 1 : 0;
     this.atmosphere.visible = !!opts.atmosphere;
     this.uniforms.uCloudShadow.value = opts.clouds ? 1 : 0;
+    // satellite imagery that finishes downloading mid-session fades in over the procedural surface
+    if (this.realReady && this.realFade < 1) this.realFade = Math.min(1, this.realFade + dt / 1.5);
+    this.uniforms.uReal.value = this.realTarget * this.realFade;
+    this.hint(opts.globePx);
+  }
+
+  /**
+   * Tell the texture stream what is on screen, so that is what downloads next.
+   * @param globePx radius of the globe on screen in device pixels (undefined while the camera orbits the Moon)
+   */
+  hint(globePx) {
+    const real = this.realTarget > 0 && globePx !== undefined; // around the Moon the Earth is a small disc: no rush
+    if (real && !this.hintedReal) {
+      this.hintedReal = true;
+      this.stream.prioritize('real', 'lite');
+      if (this.eager) this.stream.prioritize('real', 'full');
+    }
+    // The first-paint maps are 2048 texels around the globe: one texel per pixel at the centre of the disc when
+    // its radius is 326 px. Well beyond that they start to look soft: fetch the full-size set of what is showing.
+    const close = globePx !== undefined && globePx > 430;
+    if (close) {
+      const group = this.realTarget > 0.5 ? 'real' : 'earth';
+      if (this.hintedClose !== group) { this.hintedClose = group; this.stream.prioritize(group, 'full'); }
+    }
+    // the 8K satellite map follows once satellite imagery is what the user is looking at
+    if (real && this.realFade >= 1 && (this.eager || close) && !this.hinted8k) { this.hinted8k = true; this.stream.prioritize('real', '8k'); }
   }
 
   setSunDir(dir) {

@@ -5,7 +5,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Earth } from '../earth/Earth.js';
-import { makeStars, makeSun, loadMoon, makeLensflare } from '../earth/Sky.js';
+import { makeStars, makeSun, makeMoon, makeLensflare } from '../earth/Sky.js';
+import { TextureStream } from '../earth/textures.js';
 import { lonLatToVec3 } from '../earth/Plates.js';
 import { Migration } from '../earth/Migration.js';
 import { environmentAt } from './Environment.js';
@@ -18,10 +19,6 @@ import { EVENTS, formatYears } from '../data/eras.js';
 import { humanEraAt, populationAt, formatPopulation } from '../data/migration.js';
 import { MOON_SITES, MOON_EVENTS, moonEraAt, moonEnvAt, moonLonLatToLocal } from '../data/moon.js';
 import { LifeTree } from '../ui/LifeTree.js';
-
-function loadImage(src) {
-  return new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = src; });
-}
 
 export class App {
   constructor(canvas) {
@@ -86,10 +83,10 @@ export class App {
     this.scene.add(this.sunLight);
     this.scene.add(new THREE.AmbientLight(0x223355, 0.15));
 
-    // earth
-    this.setLoader(0.02, '加载贴图');
-    this.earth = new Earth(renderer, (f, name) => this.setLoader(0.02 + f * 0.8, `加载 ${name}`));
-    await this.earth.load();
+    // earth: built at once with stand-in textures, so its shaders can compile while the textures download
+    this.setLoader(0.03, '加载贴图');
+    this.stream = new TextureStream(renderer);
+    this.earth = new Earth(renderer, this.stream);
     this.earth.setSunDir(this.sunDir);
     this.scene.add(this.earth.group);
 
@@ -99,12 +96,6 @@ export class App {
     this.labels = new Labels(this.camera);
     for (const s of this.migration.sites) this.labels.add(s.def.name, s.sprite, { cls: 'site' });
 
-    // paleogeographic minimap (uses region polygons + baked colour map)
-    try {
-      const [colorImg, landImg] = await Promise.all([loadImage(import.meta.env.BASE_URL + 'textures/earth_color.webp'), loadImage(import.meta.env.BASE_URL + 'textures/landmask_2k.png')]);
-      this.minimap = new MiniMap(this.earth.regionsMeta.regions, colorImg, landImg);
-    } catch (e) { console.warn('minimap failed', e); }
-
     // Chicxulub impact flash (child of the North American plate so it drifts with it)
     const flashTex = this.migration.glowTex;
     this.impactFlash = new THREE.Sprite(new THREE.SpriteMaterial({ map: flashTex, color: 0xffe8c0, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
@@ -113,22 +104,19 @@ export class App {
     this.earth.plates.NAM.add(this.impactFlash);
 
     // moon
-    this.setLoader(0.85, '加载 Blender 月球模型');
-    try {
-      this.moon = await loadMoon();
-      this.scene.add(this.moon);
-      this.moonLabels = new Labels(this.camera, { getCenter: () => this.moon.position });
-      this.moonSites = MOON_SITES.map((def) => {
-        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.migration.glowTex, color: def.kind === 'crew' ? '#ffd27a' : '#8fd0ff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.95 }));
-        const [x, y, z] = moonLonLatToLocal(def.lon, def.lat, 0.2727 * 1.012);
-        sprite.position.set(x, y, z);
-        sprite.scale.setScalar(0.022);
-        sprite.visible = false;
-        this.moon.add(sprite);
-        const label = this.moonLabels.add(def.name, sprite, { cls: 'site' });
-        return { def, sprite, label };
-      });
-    } catch (e) { console.warn('moon failed', e); }
+    this.moon = makeMoon(this.stream);
+    this.scene.add(this.moon);
+    this.moonLabels = new Labels(this.camera, { getCenter: () => this.moon.position });
+    this.moonSites = MOON_SITES.map((def) => {
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.migration.glowTex, color: def.kind === 'crew' ? '#ffd27a' : '#8fd0ff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.95 }));
+      const [x, y, z] = moonLonLatToLocal(def.lon, def.lat, 0.2727 * 1.012);
+      sprite.position.set(x, y, z);
+      sprite.scale.setScalar(0.022);
+      sprite.visible = false;
+      this.moon.add(sprite);
+      const label = this.moonLabels.add(def.name, sprite, { cls: 'site' });
+      return { def, sprite, label };
+    });
 
     // post-processing
     this.composer = new EffectComposer(renderer);
@@ -137,6 +125,20 @@ export class App {
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
+    // Only what the opening view needs goes in front of the loader: the first-paint textures (plus the
+    // satellite or Moon maps when the link opens straight into those modes). Everything else streams in
+    // afterwards. The shaders compile meanwhile instead of freezing the page once the downloads are done.
+    const wantMode = new URLSearchParams(location.search).get('mode');
+    const wanted = this.earth.criticalSlots(wantMode === 'human' || wantMode === 'now').map((key) => [key, 0]);
+    if (wantMode === 'moon') wanted.push(['moonColor', 1], ['moonNormal', 0]); else wanted.push(['moonColor', 0]);
+    let texturesIn = false, shadersIn = false;
+    const textures = this.stream.require(wanted, (done, total) => {
+      texturesIn = done === total;
+      this.setLoader(0.05 + 0.8 * done / total, texturesIn && !shadersIn ? '编译着色器' : `加载贴图 ${done}/${total}`);
+    });
+    textures.catch(() => {}); // reported by the await below
+    const shaders = this.precompile().then(() => { shadersIn = true; });
+
     // ui
     this.info = new InfoPanel();
     this.life = new LifeTree({ onJump: (years) => { this.timeline.setYears(years); } });
@@ -144,7 +146,6 @@ export class App {
     this.bindUI();
     document.body.classList.add('mode-deep');
     this.onTime(this.timeline.years, false);
-    const wantMode = new URLSearchParams(location.search).get('mode');
     if (wantMode && ['deep', 'human', 'now', 'moon', 'life'].includes(wantMode)) this.setMode(wantMode);
     this.tour = new Tour(this);
     document.getElementById('btn-tour').addEventListener('click', () => { if (this.tour.active) this.tour.stop(); else this.tour.start(0); });
@@ -152,7 +153,20 @@ export class App {
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
-    // compile shaders and upload textures behind the loader, then let the bar visibly reach the end before fading
+
+    await textures;
+    this.earth.settle();
+    // paleogeographic minimap: region polygons + the colour map and land mask (red channel of masks A) the globe
+    // has just loaded, so it costs no download of its own. Hidden in an embed, so not built there.
+    if (!document.body.classList.contains('embed')) try {
+      this.minimap = new MiniMap(this.earth.regions, this.slotImage('color'), this.slotImage('masksA'));
+      document.body.insertBefore(this.minimap.canvas, this.info.toast); // same stacking order as when it was built before the UI
+      this.minimap.setVisible(this.mode === 'deep');
+      if (this.mode === 'deep') this.minimap.update(this.env);
+    } catch (e) { console.warn('minimap failed', e); }
+    if (!shadersIn) this.setLoader(0.88, '编译着色器');
+    await shaders;
+    // upload the textures behind the loader, then let the bar visibly reach the end before fading
     this.setLoader(0.94, '准备渲染');
     const frame = () => new Promise((r) => { requestAnimationFrame(() => r()); setTimeout(r, 300); }); // timeout: rAF never fires in a hidden tab
     await frame();
@@ -162,6 +176,35 @@ export class App {
     setTimeout(() => document.getElementById('loader').classList.add('done'), 520);
     this.idleTimer = 0;
     this.loop();
+    this.stream.start(); // the rest (full-size maps, satellite imagery, Moon relief) arrives in the background
+  }
+
+  /** A texture slot's image as a 1024 x 512 canvas for the mini map, taken before the texture is uploaded. */
+  slotImage(key) {
+    const src = this.stream.sourceImage(key);
+    if (!src) throw new Error('no image for ' + key);
+    if (!src.flipped) return src.image;
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 512;
+    const ctx = c.getContext('2d');
+    ctx.translate(0, c.height); ctx.scale(1, -1); // the texture bitmap is stored bottom row first
+    ctx.drawImage(src.image, 0, 0, c.width, c.height);
+    return c;
+  }
+
+  /**
+   * Compile every shader in the scene without blocking the page. The planet shader alone takes many seconds
+   * on a first visit; started here it overlaps with the texture downloads. Programs depend on the render
+   * target they draw into, so compile for a target like the composer's (half-float, no tone mapping).
+   */
+  precompile() {
+    const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+    this.renderer.setRenderTarget(rt);
+    const done = this.renderer.compileAsync(this.scene, this.camera);
+    this.renderer.setRenderTarget(null);
+    // never wait forever on a driver that does not report completion: the first render then compiles what is left
+    const timeout = new Promise((resolve) => setTimeout(resolve, 90000));
+    return Promise.race([done, timeout]).catch((e) => console.warn('precompile failed', e)).then(() => rt.dispose());
   }
 
   bindUI() {
@@ -289,6 +332,7 @@ export class App {
     for (const m of ['deep', 'human', 'now', 'moon', 'life']) document.body.classList.toggle('mode-' + m, m === mode);
     if (this.life) { this.life.setVisible(mode === 'life'); if (mode === 'life') this.life.setTime(this.years); }
     if (mode === 'moon' && this.moon) {
+      this.stream.prioritize('moon', 'lite'); this.stream.prioritize('moon', 'full'); // the Moon is about to fill the frame
       this.setFocus('moon');
       if (!inTour) {
         // oblique view of the near side: Moon fills the frame, Earth sits off to one side of the sky
@@ -459,7 +503,11 @@ export class App {
       this.camera.position.copy(this.controls.target).addScaledVector(dir, f.fromDist + (f.toDist - f.fromDist) * s);
       if (f.t >= 1) this.flyTo = null;
     }
-    this.earth.update(dt, { clouds: this.opts.clouds, atmosphere: this.opts.atmosphere });
+    // radius of the globe on screen in device pixels: tells the texture stream when full-size maps are worth fetching
+    const camDist = this.camera.position.length();
+    const globePx = this.focus === 'moon' ? undefined
+      : this.renderer.domElement.height / 2 / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.sqrt(Math.max(camDist * camDist - 1, 0.05));
+    this.earth.update(dt, { clouds: this.opts.clouds, atmosphere: this.opts.atmosphere, globePx });
     this.earth.uniforms.uLights.value = this.opts.lights ? this.env.lights : 0;
     this.stars.material.uniforms.uTime.value += dt;
     this.stars.rotation.y += dt * 0.002;
@@ -472,6 +520,7 @@ export class App {
     } else if (this.moon) this.moon.rotation.y += dt * 0.01;
     this.migration.tick();
     this.controls.update();
+    this.stream.tick();
     this.bloom.enabled = this.opts.bloom;
     this.composer.render();
     this.labels.update(window.innerWidth, window.innerHeight, this.opts.labels && this.mode === 'human');

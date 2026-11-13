@@ -1,9 +1,7 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Lensflare, LensflareElement } from 'three/addons/objects/Lensflare.js';
 import { starsVertex, starsFragment } from './shaders.js';
-
-const BASE = import.meta.env.BASE_URL;
+import { placeholderTexture, streamFlags, PRIORITY } from './textures.js';
 
 function mulberry32(a) {
   return function () {
@@ -91,21 +89,34 @@ export function makeSun() {
   return sprite;
 }
 
-/** Load the Blender-modelled Moon (glb) and upgrade its material with the hi-res baked maps. */
-export async function loadMoon() {
-  const loader = new GLTFLoader();
-  const gltf = await loader.loadAsync(BASE + 'models/moon.glb');
-  let mesh = null;
-  gltf.scene.traverse((o) => { if (o.isMesh && !mesh) mesh = o; });
-  const texLoader = new THREE.TextureLoader();
-  const [map, normalMap] = await Promise.all([
-    texLoader.loadAsync(BASE + 'textures/moon_color.webp'),
-    texLoader.loadAsync(BASE + 'textures/moon_normal.webp'),
-  ]);
-  map.colorSpace = THREE.SRGBColorSpace;
-  normalMap.colorSpace = THREE.NoColorSpace;
-  map.anisotropy = normalMap.anisotropy = 4;
-  const mat = new THREE.MeshStandardMaterial({ map, normalMap, color: 0xd9d6d0, roughness: 0.95, metalness: 0.0, normalScale: new THREE.Vector2(1.2, 1.2) });
+/**
+ * The Moon: a sphere with the Blender-baked colour and normal maps. The mesh used to come from a 2.4 MB glb,
+ * but that file held nothing except this same UV sphere (radius 0.2727 = Moon/Earth ratio, 256 x 128
+ * segments) and two embedded textures the app replaced straight away, so it is generated here instead.
+ * The maps stream in through `stream`: a 512 px colour map first (the Moon is a few pixels wide in the opening
+ * view), the full maps when the user heads for the Moon.
+ */
+export function makeMoon(stream) {
+  const geo = new THREE.SphereGeometry(0.2727, 256, 128);
+  // the exported mesh had glTF texture coordinates (v runs from the north pole down): keep that layout so the
+  // maps and the normal-map handedness stay exactly as they were
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
+  const mesh = new THREE.Mesh(geo);
+  const mat = new THREE.MeshStandardMaterial({
+    map: placeholderTexture(150, 148, 144, { srgb: true }), normalMap: placeholderTexture(128, 128, 255),
+    color: 0xd9d6d0, roughness: 0.95, metalness: 0.0, normalScale: new THREE.Vector2(1.2, 1.2),
+  });
+  const { lq, eager } = streamFlags();
+  const full = (file) => (lq ? null : { file, priority: PRIORITY.moonFull, hold: !eager, tag: 'full' });
+  stream.add('moonColor', {
+    group: 'moon', opts: { srgb: true, anisotropy: 4 }, apply: (tex) => { mat.map = tex; },
+    levels: [{ file: 'moon_color_512.webp', priority: 0, tag: 'lite' }, full('moon_color.webp')],
+  });
+  stream.add('moonNormal', {
+    group: 'moon', opts: { anisotropy: 4 }, apply: (tex) => { mat.normalMap = tex; },
+    levels: [{ file: 'moon_normal_1k.webp', priority: PRIORITY.moonLite, tag: 'lite' }, full('moon_normal.webp')],
+  });
   // time-dependent look: magma ocean glow right after formation, mare basalts flooding the dark basins later
   const uniforms = { uMagma: { value: 0 }, uMare: { value: 1 } };
   mat.onBeforeCompile = (shader) => {
@@ -137,12 +148,8 @@ export async function loadMoon() {
   };
   mat.customProgramCacheKey = () => 'moon-time';
   mesh.material = mat;
-  mesh.geometry.computeVertexNormals();
   const group = new THREE.Group();
   group.name = 'moon';
-  mesh.position.set(0, 0, 0);
-  mesh.rotation.set(0, 0, 0);
-  mesh.scale.setScalar(1); // glb radius 0.2727 (Moon/Earth ratio)
   group.add(mesh);
   group.userData.mesh = mesh;
   group.userData.uniforms = uniforms;

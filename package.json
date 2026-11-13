@@ -24,7 +24,7 @@
     "blender:suzhou": "\"D:/install/blender/blender.exe\" --background --python suzhou-garden/build_suzhou_garden.py -- --samples 64 --save",
     "blender:suzhou:preview": "\"D:/install/blender/blender.exe\" --background --python suzhou-garden/build_suzhou_garden.py -- --pct 50 --samples 16 --out suzhou-garden/output/suzhou_garden/preview.png",
     "blender:suzhou:web": "\"D:/install/blender/blender.exe\" --background --python suzhou-garden/build_suzhou_garden.py -- --export-glb public/dioramas/suzhou-garden",
-    "web:optimize": "python tools/optimize_web_assets.py"
+    "web:optimize": "python tools/optimize_web_assets.py && python tools/optimize_earth_textures.py"
   },
   "keywords": [],
   "author": "",

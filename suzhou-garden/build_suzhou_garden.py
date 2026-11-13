@@ -398,6 +398,7 @@ TUFT = leaf_material("YanJieCao", (0.07, 0.17, 0.06), (0.14, 0.27, 0.09), sss=0,
 LOTUS_LEAF = leaf_material("LotusLeaf", (0.14, 0.34, 0.16), (0.24, 0.46, 0.22), sss=0, bump=0.4)
 LOTUS_FLOWER = principled("LotusFlower", (0.96, 0.72, 0.80), rough=0.7, bevel=0)
 TRUNK = principled("Trunk", (0.16, 0.11, 0.07), rough=0.9, bevel=0)
+BASKET = principled("ZhuKuang", (0.52, 0.40, 0.20), rough=0.8, bevel=0)
 CANOPY = principled("WuPeng", (0.035, 0.033, 0.030), rough=0.6, bevel=0)              # 乌篷
 DECK = principled("ChuanBan", (0.30, 0.20, 0.12), rough=0.7, bevel=0)
 WATER_VAT = principled("GangShui", (0.05, 0.09, 0.06), rough=0.08, spec=0.8, bevel=0)
@@ -719,7 +720,7 @@ def terrain(x, y):
         z = z + (-1.25 - z) * t
     return z, ('water' if sd < 0.0 else 'land')
 
-ISL = (-40.0, -41.5, 40.0, 33.0)
+ISL = (-40.0, -46.5, 40.0, 33.0)
 E_SUP = 0.35
 def isl_rho(x, y):
     x0, y0, x1, y1 = ISL
@@ -2129,6 +2130,12 @@ def wupeng(b, x, y, ang, L=6.0):
     sy = (-F.s, F.c)
     tube(b, [F.p(xx, 0.0, 0.38) for xx in (-1.25, -0.4, 0.45, 1.3)], sy, 0.68, CANOPY, seg=7, full=True)
     rod(b, F.p(-0.42 * L, 0.2, 0.5), F.p(-0.62 * L, 0.9, -0.1), 0.03, WOOD)
+    for xx in (-0.30 * L, 0.30 * L):                                   # 横舱板
+        F.box(b, xx, 0.0, 0.42, 0.16, 1.05, 0.05, WOOD)
+    for (xx, yy) in ((0.30 * L + 0.35, 0.18), (0.30 * L + 0.72, -0.12), (-0.30 * L - 0.4, -0.15)):   # 竹筐
+        X, Y = F.p(xx, yy)
+        cone(b, X, Y, 0.43, 0.15, 0.20, 0.24, BASKET, n=10, uv=False)
+    rod(b, F.p(-0.36 * L, -0.42, 0.50), F.p(0.44 * L, -0.36, 0.56), 0.022, BAMBOO_CULM)      # 竹篙
 
 def row_house(name, cx, cy, w, d, h):
     """墙外的邻家民居：粉墙、硬山瓦顶，楼上开窗。只作背景。"""
@@ -2165,12 +2172,19 @@ def canal_scene():
     for x0 in (-8.0, 24.5):                                                              # 河埠头：石阶伸入水中
         for k in range(5):
             box(b, x0, CANAL[1] - 0.26 - 0.32 * k, -1.2, 2.6, 0.32, 1.2 + GZ - 0.03 - 0.115 * (k + 1), SLAB)
-    for (x, y, a) in ((-6.6, CANAL[1] - 2.3, 0.05), (18.0, -35.6, 3.2), (-27.0, CANAL[0] + 1.1, 3.12)):
+    for (x, y, a) in ((-6.6, CANAL[1] - 2.3, 0.05), (17.0, -35.6, 3.2), (1.5, CANAL[0] + 1.2, 3.12)):
         wupeng(b, x, y, a)
     for x in (-33.0, -21.5, -1.5, 5.0, 19.0, 31.5):                                      # 临河系船石、石凳
         if isl_rho(x, -31.9)[0] < 0.97:
             box(b, x, -31.95, GZ, 1.5, 0.42, 0.42, GRANITE)
+    for k in range(-36, 36):                                                             # 对岸沿河小巷
+        xs_ = k + 0.5
+        if isl_rho(xs_, -40.0)[0] < 0.975:
+            box(b, xs_, (CANAL[0] - 0.55 - 40.0) / 2, GZ - 0.3, 1.0, 40.0 + CANAL[0] - 0.55, 0.33, STREET)
     b.build()
+    # 对岸的临河民居：只在东西两头各放一组，中间留空，不挡住拱桥和河面
+    for (hx, hw_, hd_, hh) in ((-24.6, 7.0, 4.4, 3.1), (-17.4, 6.4, 4.2, 5.2), (24.0, 8.0, 4.4, 5.2), (17.4, 4.6, 3.8, 2.9)):
+        row_house("Riverside", hx, -40.15 - hd_ / 2, hw_, hd_, hh)
     arch_bridge("CanalBridge", (12.0, CANAL[1] + 0.9), (12.0, CANAL[0] - 0.9), w=2.4, rise=1.35)
 
 # ----------------------------------------------------------------------------- 场景布置
@@ -2246,7 +2260,7 @@ def build_scene():
         ya, yb = -27.62, CANAL[1] + 0.55
         if isl_rho(xs_, ya)[0] < 0.985 and isl_rho(xs_, yb)[0] < 0.99:
             box(b, xs_, (ya + yb) / 2, GZ - 0.3, 1.0, ya - yb, 0.33, STREET)
-    keep_rect(-41, -41.5, 41, -27.6)
+    keep_rect(-41, -40.1, 41, -27.6)
     # 厅堂四周的砖铺散水
     for (cx_, cy_, w_, d_) in ((-4.0, 17.4, 13.6, 8.0), (-23.0, 19.0, 9.0, 6.6)):
         pave(b, cx_ - w_ / 2 - 1.7, cy_ - d_ / 2 - 1.7, cx_ + w_ / 2 + 1.7, cy_ + d_ / 2 + 1.7)
@@ -2345,14 +2359,18 @@ def build_scene():
                             (20.0, 30.0, "tree", 1.05), (29.6, 29.2, "tree", 0.9), (37.2, 18.0, "tree", 1.0), (37.3, 4.0, "tree", 0.9),
                             (37.2, -11.0, "tree", 0.95), (-37.0, 1.5, "pine", 1.2), (37.0, -24.0, "tree", 0.8),
                             (-30.0, -31.4, "willow", 1.0), (-15.5, -31.5, "willow", 0.9), (1.5, -31.4, "willow", 1.0), (30.0, -31.4, "willow", 0.85),
-                            (-21.0, -39.6, "willow", 1.0), (-9.0, -39.8, "willow", 0.9), (2.5, -39.8, "tree", 0.75), (19.5, -39.6, "willow", 0.95),
-                            (-30.0, -39.2, "maple", 0.9), (27.5, -39.2, "tree", 0.7)):
+                            (-9.5, -41.4, "willow", 0.95), (-2.0, -42.6, "tree", 0.8), (6.0, -41.2, "willow", 0.9), (11.5, -43.0, "maple", 0.9),
+                            (-30.5, -41.6, "willow", 0.9), (-12.6, -44.4, "tree", 0.7), (30.6, -41.4, "tree", 0.7)):
         plant(kind, x, y, s)
         keep(x, y, 1.2)
-    for i in range(60):                                                                   # 对岸的灌木（成丛）
-        x, y = ru(-33.0, 33.0), ru(-40.4, -38.8)
-        if isl_rho(x, y)[0] < 0.97 and abs(x - 12.0) > 2.2 and fbm(x * 0.3 + 2, 4.0, 2) > 0.52:
-            inst("shrub", x, y, ru(0.7, 1.2))
+    for i in range(260):                                                                  # 对岸的灌木（成丛，避开民居）
+        x, y = ru(-34.0, 34.0), ru(-45.4, -40.6)
+        if isl_rho(x, y)[0] < 0.962 and not blocked(x, y, 1.0) and fbm(x * 0.3 + 2, y * 0.3 + 4.0, 2) > 0.52:
+            if random.random() < 0.7:
+                inst("shrub", x, y, ru(0.7, 1.2))
+            else:
+                plant("bush", x, y, ru(0.8, 1.4))
+                keep(x, y, 0.55)
     # 竹：沿墙成片
     for (x0, y0, x1, y1, n) in ((-32.8, -9.0, -32.8, 12.5, 9), (-15.0, 25.6, 5.5, 25.6, 9), (19.0, 25.4, 22.0, 20.0, 3), (-32.6, -25.6, -29.5, -25.8, 2),
                                 (8.6, 25.6, 8.6, 21.5, 2), (-36.2, -24.0, -35.6, 24.0, 8), (35.6, -4.0, 36.2, 24.0, 4),
@@ -2425,7 +2443,7 @@ def build_scene():
     print(f"[sz] plants={N_PLANTS} (bushes {nb_}), tufts={nt_}, tile rows={N_ROWS}")
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 背景
-CAM = {"target": (0.0, -5.5, -2.0), "az": 34.0, "dist": 140.0, "pitch": 40.0, "lens": 45.0}
+CAM = {"target": (0.0, -7.5, -2.0), "az": 34.0, "dist": 147.0, "pitch": 40.0, "lens": 45.0}
 SUN = {"euler": (52.0, 0.0, -53.0), "color": (1.0, 0.93, 0.82), "energy": 3.8}
 def setup_camera_lights():
     cam_data = bpy.data.cameras.new("Cam")
@@ -2631,7 +2649,7 @@ if WEB:
         "camera": {"target": list(CAM["target"]), "az": CAM["az"], "dist": CAM["dist"] * 1.22, "pitch": CAM["pitch"], "lens": CAM["lens"], "min_dist": 30, "max_dist": 300},
         "sun": {"euler_deg": list(SUN["euler"]), "color": list(SUN["color"]), "strength": SUN["energy"]},
         "backdrop": [[0.86, 0.88, 0.86], [0.95, 0.955, 0.945]],
-        "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 64, "shadow_bias": 0.05, "fog": [0.90, 0.93, 0.93],
+        "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 68, "shadow_bias": 0.05, "fog": [0.90, 0.93, 0.93],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
         "lake": {"pscale": 4.0, "ripple": 0.10, "glitter": 0.0, "clear": 0.22, "reflRange": [0.26, 0.80], "distortion": 0.007,
                  "colDeep": [0.048, 0.110, 0.062], "colNear": [0.105, 0.185, 0.090], "colShore": [0.19, 0.23, 0.13]},

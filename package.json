@@ -21,6 +21,9 @@
     "blender:crane": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --samples 64 --save",
     "blender:crane:preview": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --pct 40 --samples 16 --out yellow-crane/output/yellow_crane/preview.png",
     "blender:crane:web": "\"D:/install/blender/blender.exe\" --background --python yellow-crane/build_yellow_crane.py -- --export-glb public/dioramas/yellow-crane",
+    "blender:suzhou": "\"D:/install/blender/blender.exe\" --background --python suzhou-garden/build_suzhou_garden.py -- --samples 64 --save",
+    "blender:suzhou:preview": "\"D:/install/blender/blender.exe\" --background --python suzhou-garden/build_suzhou_garden.py -- --pct 50 --samples 16 --out suzhou-garden/output/suzhou_garden/preview.png",
+    "blender:suzhou:web": "\"D:/install/blender/blender.exe\" --background --python suzhou-garden/build_suzhou_garden.py -- --export-glb public/dioramas/suzhou-garden",
     "web:optimize": "python tools/optimize_web_assets.py"
   },
   "keywords": [],

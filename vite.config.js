@@ -19,6 +19,7 @@ export default defineConfig({
         forbiddenCity: resolve(__dirname, 'dioramas/forbidden-city/index.html'),
         westLake: resolve(__dirname, 'dioramas/west-lake/index.html'),
         yellowCrane: resolve(__dirname, 'dioramas/yellow-crane/index.html'),
+        suzhouGarden: resolve(__dirname, 'dioramas/suzhou-garden/index.html'),
       },
     },
   },

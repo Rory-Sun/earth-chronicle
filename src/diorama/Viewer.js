@@ -70,6 +70,18 @@ const MATERIALS = {
   HillRock: { set: 'Rock051', repeat: 0.8, tint: [1.0, 0.97, 0.9], roughness: 0.9 },
   Glass: { metalness: 0.7, roughness: 0.18, envMapIntensity: 1.2 }, RedBrick: { set: 'PavingStones128', normalOnly: true, repeat: 1.5, roughness: 0.85 },
 };
+// 苏州园林（1 单位 = 1 米）的材质
+Object.assign(MATERIALS, {
+  FangZhuan: { set: 'PavingStones128', repeat: 0.42, tint: [0.92, 0.94, 0.92], roughness: 0.9 },
+  JieShi: { set: 'PavingStones128', repeat: 0.36, tint: [0.86, 0.86, 0.83], roughness: 0.9 },
+  TaiDi: { set: 'Grass004', repeat: 0.33, tint: [1.35, 1.25, 1.0], roughness: 0.95, vertexColors: true },
+  ChiDi: { tint: [1, 1, 1], roughness: 0.9, vertexColors: true },
+  TaiHuShi: { set: 'Rock051', normalOnly: true, repeat: 0.6, tint: [1.12, 1.12, 1.09], roughness: 0.88, vertexColors: true },
+  HuangShi: { set: 'Rock051', normalOnly: true, repeat: 0.5, roughness: 0.9, vertexColors: true },
+  JinShanShi: { set: 'Rock051', normalOnly: true, repeat: 1.2, roughness: 0.85 }, ShiBan: { set: 'Rock051', normalOnly: true, repeat: 1.0, roughness: 0.9 },
+  FenQiang: { roughness: 0.92 }, LiKeMu: { roughness: 0.55 }, ChuangGe: { roughness: 0.6 }, ChuangAn: { roughness: 0.2, envMapIntensity: 1.2 },
+  WaLong: { roughness: 0.6 }, WuJi: { roughness: 0.65 }, QingZhuan: { roughness: 0.85 }, HuaJie: { set: 'PavingStones128', normalOnly: true, repeat: 2.5, roughness: 0.85 },
+});
 const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x4f6b78, distortion: 0.9, size: 2.6 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
 
 const texCache = new Map();
@@ -101,9 +113,10 @@ function loadTexture(name, { gray = false, srgb = true } = {}) {
   return p;
 }
 
+let MAT_OVERRIDE = {};   // scene.json 的 mat 字段：逐场景覆盖贴图比例等
 async function applyMaterial(mesh) {
   const m = mesh.material; if (!m) return;
-  const spec = MATERIALS[m.name];
+  const spec = MATERIALS[m.name] ? Object.assign({}, MATERIALS[m.name], MAT_OVERRIDE[m.name]) : null;
   if (!spec) { m.roughness = Math.min(0.95, Math.max(0.35, m.roughness)); return; }
   const mat = new THREE.MeshStandardMaterial({ color: m.color.clone(), roughness: spec.roughness ?? m.roughness, metalness: spec.metalness ?? m.metalness });
   if (spec.tint) mat.color.multiply(new THREE.Color(...spec.tint));
@@ -170,7 +183,7 @@ function impostorAtlas(front, top, tint) {
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   return tex;
 }
-function impostorGeometry(fh, fw, top, kind) {
+function impostorGeometry(fh, fw, top, kind, withTop = true) {
   // 两张交叉的正视面片 + 一张俯视面片（树冠高度处）；UV 指向图集的左半/右上
   const pos = [], uv = [], nrm = [], idx = [];
   const quad = (pts, uvs, n) => { const b = pos.length / 3; for (const p of pts) pos.push(...p); for (const u of uvs) uv.push(...u); for (let i = 0; i < 4; i++) nrm.push(...n); idx.push(b, b + 1, b + 2, b, b + 2, b + 3); };
@@ -178,7 +191,7 @@ function impostorGeometry(fh, fw, top, kind) {
   quad([[-hw, 0, 0], [hw, 0, 0], [hw, fh, 0], [-hw, fh, 0]], [[0, 0], [0.5, 0], [0.5, 1], [0, 1]], [0, 0, 1]);
   quad([[0, 0, -hw], [0, 0, hw], [0, fh, hw], [0, fh, -hw]], [[0, 0], [0.5, 0], [0.5, 1], [0, 1]], [1, 0, 0]);
   const ht = top / 2, y = kind === 'bush' ? fh * 0.5 : fh * 0.62;
-  quad([[-ht, y, ht], [ht, y, ht], [ht, y, -ht], [-ht, y, -ht]], [[0.5, 0.5], [1, 0.5], [1, 1], [0.5, 1]], [0, 1, 0]);
+  if (withTop) quad([[-ht, y, ht], [ht, y, ht], [ht, y, -ht], [-ht, y, -ht]], [[0.5, 0.5], [1, 0.5], [1, 1], [0.5, 1]], [0, 1, 0]);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -209,7 +222,8 @@ async function buildPlants(scene, meta, onProgress) {
     const info = treesMeta[base]; if (!info) return;
     const [front, top] = await Promise.all([img(base + '_front'), img(base + '_top')]);
     const tex = impostorAtlas(front, top, tintKind ? tintMap[tintKind] : null);
-    const geo = impostorGeometry(info.front_h, info.front_w, info.top, info.kind);
+    // 建筑尺度的沙盘里大树的俯视面片会像一张悬空的圆盘，scene.json 可用 plant_top: false 关掉（灌木保留）
+    const geo = impostorGeometry(info.front_h, info.front_w, info.top, info.kind, meta.plant_top !== false || info.kind === 'bush');
     const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9, metalness: 0 });
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.45, side: THREE.DoubleSide });
@@ -237,6 +251,7 @@ export async function startDiorama(id, ui) {
 
   const meta = await (await fetch(BASE + `dioramas/${id}/scene.json`)).json();
   ui.setTitle(meta.title);
+  MAT_OVERRIDE = meta.mat || {};
   const scene = new THREE.Scene();
   const fogC = new THREE.Color(...(meta.fog || [0.9, 0.9, 0.9]));
   scene.fog = new THREE.Fog(fogC, meta.camera.dist * 1.3, meta.camera.dist * 3.2);
@@ -270,7 +285,7 @@ export async function startDiorama(id, ui) {
   sun.shadow.camera.left = -half; sun.shadow.camera.right = half; sun.shadow.camera.top = half; sun.shadow.camera.bottom = -half;
   sun.shadow.camera.near = 50; sun.shadow.camera.far = 1000;
   sun.shadow.mapSize.set(TIERS[tier].shadow, TIERS[tier].shadow);
-  sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.35; sun.shadow.radius = 2;
+  sun.shadow.bias = -0.0004; sun.shadow.normalBias = meta.shadow_bias ?? 0.35; sun.shadow.radius = 2;
   scene.add(sun, sun.target);
   scene.add(new THREE.HemisphereLight(0xbfd4ee, 0x6a7a55, 0.55));
   // 天空图、树木贴图与模型同时开始下载（国内访问 GitHub Pages 很慢，串行等待会把延迟叠加起来）
@@ -308,11 +323,35 @@ export async function startDiorama(id, ui) {
   scene.add(root);
   modelF = 1; report();
 
+  // 实例（山石、竹、芭蕉）：glb 里每种模型只有一份（名字以 Lib_ 开头），scene.json 的 instances 记录各处的位置、缩放、旋转
+  if (meta.instances) {
+    const C = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1), Ci = C.clone().invert();   // Blender Z-up → three Y-up
+    const mb = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pv = new THREE.Vector3(), sv = new THREE.Vector3();
+    const libs = [];
+    root.traverse((o) => { if (o.name && o.name.startsWith('Lib_') && meta.instances[o.name]) libs.push(o); });
+    for (const lib of libs) {
+      const recs = meta.instances[lib.name];
+      const parts = []; lib.traverse((o) => { if (o.isMesh) parts.push(o); });
+      for (const part of parts) {
+        const im = new THREE.InstancedMesh(part.geometry, part.material, recs.length);
+        recs.forEach(([x, y, z, sx, sy, sz, rx, ry, rz], i) => {
+          e.set(rx, ry, rz, 'XYZ'); q.setFromEuler(e);
+          mb.compose(pv.set(x, y, z), q, sv.set(sx, sy, sz));
+          im.setMatrixAt(i, new THREE.Matrix4().multiplyMatrices(C, mb).multiply(Ci));
+        });
+        im.instanceMatrix.needsUpdate = true;
+        im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; im.userData.solid = true;
+        scene.add(im);
+      }
+      lib.removeFromParent();
+    }
+  }
+
   // 水面：用 glb 里的水面几何做实时反射
   const waterNormals = makeWaterNormals();
   const waters = [];
   for (const wm of waterMeshes) {
-    if (wm.material.name === 'LakeWater') {
+    if (wm.material.name === 'LakeWater' || wm.material.name === 'PondWater') {
       // 西湖湖面：水体色 + 镜面倒影 + 条带风痕（见 LakeSurface.js）；顶点色 R = 近岸程度，G = 水深
       const geo = wm.geometry.clone(); wm.updateWorldMatrix(true, false); geo.applyMatrix4(wm.matrixWorld);
       const pos = geo.attributes.position, colAttr = geo.attributes.color;
@@ -322,7 +361,7 @@ export async function startDiorama(id, ui) {
       pos.needsUpdate = true;
       geo.setAttribute('shore', new THREE.BufferAttribute(shore, 2));
       geo.deleteAttribute('color'); geo.deleteAttribute('normal'); geo.computeVertexNormals();
-      const lake = new LakeSurface(geo, { level: ys, size: TIERS[tier].water, waterNormals, sunDirection: sunDir, sunColor: new THREE.Color(...meta.sun.color), sky: skyTex });
+      const lake = new LakeSurface(geo, { level: ys, size: TIERS[tier].water, waterNormals, sunDirection: sunDir, sunColor: new THREE.Color(...meta.sun.color), sky: skyTex, params: meta.lake });
       lake.receiveShadow = true; lake.renderOrder = 2;
       wm.removeFromParent();
       scene.add(lake); waters.push(lake);
@@ -348,7 +387,7 @@ export async function startDiorama(id, ui) {
 
   // 树木（西湖）
   if (meta.plants) { ui.status('种树…'); await plantsP; }
-  const trees = []; scene.traverse((o) => { if (o.isInstancedMesh) trees.push(o); });
+  const trees = []; scene.traverse((o) => { if (o.isInstancedMesh && !o.userData.solid) trees.push(o); });
   // 水面反射里按档位决定是否画树（反射要把整个场景再画一遍）
   for (const w of waters) {
     const orig = w.onBeforeRender;

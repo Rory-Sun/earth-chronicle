@@ -46,3 +46,11 @@ yellow-crane/output/yellow_crane/render_log.txt
 yellow-crane/output/yellow_crane/export_log.txt
 yellow-crane/output/yellow_crane/yellow_crane_v*.png
 forbidden-city/output/forbidden_city/*.blend1
+
+# 苏州园林沙盘渲染中间产物
+suzhou-garden/output/suzhou_garden/*.blend
+suzhou-garden/output/suzhou_garden/*.blend1
+suzhou-garden/output/suzhou_garden/preview.png
+suzhou-garden/output/suzhou_garden/crop_*.png
+suzhou-garden/output/suzhou_garden/*log*.txt
+suzhou-garden/output/suzhou_garden/suzhou_garden_v*.png

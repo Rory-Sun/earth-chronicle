@@ -56,6 +56,8 @@ const FRAG = /* glsl */`
   uniform float distortion;
   uniform float ripple;
   uniform float glitter;
+  uniform float pscale;
+  uniform float clear;
   varying vec4 mirrorCoord;
   varying vec4 worldPosition;
   varying vec2 vShore;
@@ -83,7 +85,7 @@ const FRAG = /* glsl */`
 
   void main() {
     #include <logdepthbuf_fragment>
-    vec2 P = vec2( worldPosition.x, - worldPosition.z );          // 沙盘平面坐标（与 Blender 的 XY 一致）
+    vec2 P = vec2( worldPosition.x, - worldPosition.z ) * pscale;   // 沙盘平面坐标（与 Blender 的 XY 一致）；小水面放大图案比例
     float sh = vShore.x, deep = vShore.y;
 
     // 风痕：沿风向拉长的条带，calm = 1 处平静如镜；随时间缓慢漂移
@@ -143,7 +145,7 @@ const FRAG = /* glsl */`
     col += vec3( 1.0, 0.96, 0.88 ) * gl * dirf * smoothstep( 0.2, 0.9, ruf ) * shadow * glitter;
 
     // 近岸水浅：略透出湖床
-    float alpha = 1.0 - clamp( ( sh - 0.45 ) / 0.55, 0.0, 1.0 ) * 0.55;
+    float alpha = 1.0 - max( clear, clamp( ( sh - 0.45 ) / 0.55, 0.0, 1.0 ) * 0.55 );
     gl_FragColor = vec4( col, alpha );
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -153,7 +155,7 @@ const FRAG = /* glsl */`
 export class LakeSurface extends Mesh {
   /**
    * @param geometry 世界坐标（Y 轴向上）下的水面网格；可带 shore 属性（x：0 开阔 → 1 岸线，y：0 岸边 → 1 湖心）
-   * @param options  { level, size, waterNormals, sunDirection, sunColor, sky, skySunU, fog }
+   * @param options  { level, size, waterNormals, sunDirection, sunColor, sky, skySunU, fog, params }
    */
   constructor(geometry, options = {}) {
     super(geometry);
@@ -179,6 +181,7 @@ export class LakeSurface extends Mesh {
         ambient: { value: new Color(0.66, 0.62, 0.56) },
         colDeep: { value: new Color(0.070, 0.130, 0.155) }, colNear: { value: new Color(0.135, 0.195, 0.190) }, colShore: { value: new Color(0.250, 0.290, 0.235) },
         reflRange: { value: [0.21, 0.75] }, distortion: { value: 0.022 }, ripple: { value: 0.30 }, glitter: { value: 0.9 },
+        pscale: { value: 1.0 }, clear: { value: 0.0 },
       }]),
       vertexShader: VERT, fragmentShader: FRAG, lights: true, fog: options.fog !== false, transparent: true,
     });
@@ -189,6 +192,12 @@ export class LakeSurface extends Mesh {
     u.sunDirection.value.copy(sunDirection);
     if (options.sunColor) u.sunColor.value.copy(options.sunColor);
     if (options.sky) { u.skySampler.value = options.sky; u.hasSky.value = 1; }
+    // 逐场景的参数覆盖（scene.json 的 lake 字段）：数值、[a, b] 或颜色 [r, g, b]
+    for (const [k, v] of Object.entries(options.params || {})) {
+      if (!u[k]) continue;
+      if (Array.isArray(v) && v.length === 3 && u[k].value && u[k].value.isColor) u[k].value.setRGB(v[0], v[1], v[2]);
+      else u[k].value = v;
+    }
     this.material = material;
     this.renderTarget = renderTarget;
 

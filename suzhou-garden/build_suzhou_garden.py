@@ -398,6 +398,8 @@ TUFT = leaf_material("YanJieCao", (0.07, 0.17, 0.06), (0.14, 0.27, 0.09), sss=0,
 LOTUS_LEAF = leaf_material("LotusLeaf", (0.14, 0.34, 0.16), (0.24, 0.46, 0.22), sss=0, bump=0.4)
 LOTUS_FLOWER = principled("LotusFlower", (0.96, 0.72, 0.80), rough=0.7, bevel=0)
 TRUNK = principled("Trunk", (0.16, 0.11, 0.07), rough=0.9, bevel=0)
+CANOPY = principled("WuPeng", (0.035, 0.033, 0.030), rough=0.6, bevel=0)              # 乌篷
+DECK = principled("ChuanBan", (0.30, 0.20, 0.12), rough=0.7, bevel=0)
 WATER_VAT = principled("GangShui", (0.05, 0.09, 0.06), rough=0.08, spec=0.8, bevel=0)
 KOI = [principled("KoiR", (0.80, 0.20, 0.04), rough=0.4, bevel=0), principled("KoiW", (0.85, 0.82, 0.74), rough=0.4, bevel=0),
        principled("KoiY", (0.86, 0.52, 0.08), rough=0.4, bevel=0)]
@@ -703,7 +705,13 @@ def ground(x, y):
         if d < 1:
             z += mh * (1 - d * d) ** 2
     return z
+CANAL = (-38.0, -32.9)    # 南面河道的 y 范围（东西向贯穿沙盘）
+def canal_d(x, y):
+    """到河道驳岸的距离（河道内为正）。"""
+    return min(y - CANAL[0], CANAL[1] - y)
 def terrain(x, y):
+    if canal_d(x, y) > 0.15:
+        return -0.9, 'water'
     sd = pond_sd(x, y)
     z = ground(x, y)
     if sd < 0.5:
@@ -711,7 +719,7 @@ def terrain(x, y):
         z = z + (-1.25 - z) * t
     return z, ('water' if sd < 0.0 else 'land')
 
-ISL = (-40.0, -34.0, 40.0, 33.0)
+ISL = (-40.0, -41.5, 40.0, 33.0)
 E_SUP = 0.35
 def isl_rho(x, y):
     x0, y0, x1, y1 = ISL
@@ -769,8 +777,8 @@ def island():
     for i in range(N):
         a = 2 * math.pi * i / N
         x, y = base_xy(a)
-        top.append((cx + x, cy + y, ground(cx + x, cy + y) + 0.02))
-    rings = [top, ring(1.0, -1.0, 0.03, 0.012, 0.17), ring(0.995, -2.5, 0.05, 0.02, 0.3), ring(0.985, -4.4, 0.065, 0.025, 0.34),
+        top.append((cx + x, cy + y, terrain(cx + x, cy + y)[0] + 0.02))      # 河道在沙盘边缘切出缺口
+    rings = [top, ring(1.0, -1.4, 0.03, 0.012, 0.17), ring(0.995, -2.5, 0.05, 0.02, 0.3), ring(0.985, -4.4, 0.065, 0.025, 0.34),
              ring(0.965, -6.3, 0.075, 0.03, 0.34), ring(0.93, -8.2, 0.085, 0.03, 0.34), ring(0.87, -9.9, 0.095, 0.03, 0.34),
              ring(0.76, -11.3, 0.1, 0.03, 0.25), ring(0.55, -12.6, 0.1, 0.03, 0.17), ring(0.3, -13.4, 0.1, 0.02, 0.12)]
     v, f = [], []
@@ -812,6 +820,23 @@ def pond_water():
             a = j * nx + i; q = (a, a + 1, a + nx + 1, a + nx)
             if min(sh[k][0] for k in q) < 0.35:
                 faces.append(q)
+    # 河道水面：逐行按沙盘轮廓求出东西两端，裁剪在轮廓之内
+    ix0, iy0, ix1, iy1 = ISL
+    icx, icy, ihw, ihd = (ix0 + ix1) / 2, (iy0 + iy1) / 2, (ix1 - ix0) / 2, (iy1 - iy0) / 2
+    en = 2.0 / E_SUP
+    base = len(verts)
+    for j in range(7):
+        y = CANAL[0] + 0.25 + (CANAL[1] - CANAL[0] - 0.5) * j / 6
+        xm = ihw * max(0.0, 0.994 ** en - abs((y - icy) / ihd) ** en) ** (1.0 / en)
+        for i in range(81):
+            x = icx - xm + 2 * xm * i / 80
+            d = canal_d(x, y)
+            verts.append((x, y, 0.0))
+            sh.append((-d, 1.0 - smooth01(d / 0.8), smooth01(d / 2.4)))
+    for j in range(6):
+        for i in range(80):
+            a = base + j * 81 + i
+            faces.append((a, a + 1, a + 82, a + 81))
     w.add(verts, faces, WATER)
     ob = w.build()
     attr = ob.data.attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
@@ -928,9 +953,9 @@ def lattice_w(b, p0, p1, z0, z1, nx=3, nz=6, t=0.035, mat=None, frame=0.06, glas
     if glass:
         rbox(b, ax + ux * L / 2 - uy * glass, ay + uy * L / 2 + ux * glass, z0, L, 0.02, z1 - z0, GLASS_DARK, ang)
 
-def tube(b, pts, side, r, mat, seg=4, cap=True):
+def tube(b, pts, side, r, mat, seg=4, cap=True, full=False):
     """沿折线的半圆筒（筒瓦垄）；side 为横向单位向量，pts[0] 是檐口端。"""
-    if WEB:
+    if WEB and not full:
         seg = 2
         pts = [pts[0], pts[len(pts) // 2], pts[-1]] if len(pts) > 3 else pts
     sx, sy = side
@@ -1659,10 +1684,13 @@ def pebble_path(b, pts, w=1.3):
         for k in range(m + 1):
             keep(*lerp2(pts[i], pts[i + 1], k / m), w * 0.62)
 
+N_PAVE = 0
 def pave(b, x0, y0, x1, y1, mat=None, z=None):
+    global N_PAVE
     mat = mat or PAVE
     z = GZ if z is None else z
-    box(b, (x0 + x1) / 2, (y0 + y1) / 2, z - 0.25, abs(x1 - x0), abs(y1 - y0), 0.29, mat)
+    N_PAVE += 1                       # 每块铺地比上一块高 2 毫米：相叠时不会共面（共面会互相遮光，渲染成黑块）
+    box(b, (x0 + x1) / 2, (y0 + y1) / 2, z - 0.25, abs(x1 - x0), abs(y1 - y0), 0.29 + 0.002 * N_PAVE, mat)
     keep_rect(x0, y0, x1, y1, pad=0.05)
 
 # ----------------------------------------------------------------------------- 山石（融球体：正球堆叠成形，负球挖出孔洞）
@@ -2089,6 +2117,62 @@ def potted(b, x, y, z=None, s=1.0):
     cone(b, x, y, z, 0.20 * s, 0.30 * s, 0.34 * s, POT, n=10, uv=False)
     plant("bush", x, y, ru(0.55, 0.8) * s, z=z + 0.30 * s)
 
+def wupeng(b, x, y, ang, L=6.0):
+    """乌篷船：两头尖的船身，中段一截黑篷，船尾一支橹。"""
+    F = Fr(x, y, ang)
+    prof = [(-0.50, 0.0), (-0.38, 0.30), (-0.12, 0.42), (0.18, 0.42), (0.40, 0.28), (0.50, 0.0)]
+    ring_ = [(px * L, pw * 0.80) for (px, pw) in prof] + [(px * L, -pw * 0.80) for (px, pw) in reversed(prof[1:-1])]
+    n = len(ring_)
+    v = [F.p(px, py, 0.42) for (px, py) in ring_] + [F.p(px * 0.86, py * 0.6, -0.14) for (px, py) in ring_]
+    b.add(v, [tuple(range(n))], DECK)
+    b.add(v, [(i, n + i, n + (i + 1) % n, (i + 1) % n) for i in range(n)], LATTICE)
+    sy = (-F.s, F.c)
+    tube(b, [F.p(xx, 0.0, 0.38) for xx in (-1.25, -0.4, 0.45, 1.3)], sy, 0.68, CANOPY, seg=7, full=True)
+    rod(b, F.p(-0.42 * L, 0.2, 0.5), F.p(-0.62 * L, 0.9, -0.1), 0.03, WOOD)
+
+def row_house(name, cx, cy, w, d, h):
+    """墙外的邻家民居：粉墙、硬山瓦顶，楼上开窗。只作背景。"""
+    b = B(name); F = Fr(cx, cy, 0.0)
+    t = 0.24
+    F.box(b, 0, 0, GZ - 0.3, w, d, h + 0.3, WHITE_WALL)
+    ov = 0.45; bb = d / 2 + ov; rh = 0.64 * bb; zr = GZ + h + 0.02
+    for sg in (-1, 1):
+        x = sg * (w / 2 - t / 2)
+        m = 8
+        for k in range(m):
+            ya, yb = -d / 2 + d * k / m, -d / 2 + d * (k + 1) / m
+            za, zb = zr + rh * rcurve((bb - abs(ya)) / bb) - 0.03, zr + rh * rcurve((bb - abs(yb)) / bb) - 0.03
+            for off in (-t / 2, t / 2):
+                b.add([F.p(x + off, ya, GZ + h - 0.05), F.p(x + off, yb, GZ + h - 0.05), F.p(x + off, yb, zb), F.p(x + off, ya, za)], [(0, 1, 2, 3)], WHITE_WALL)
+    suzhou_roof(b, F, zr, w, d, rh, kind='gable', ov=ov, ovx=0.15, lift=0)
+    nw = max(2, int(w / 2.7))
+    for k in range(nw):
+        xw = -w / 2 + w * (k + 0.5) / nw
+        lattice_w(b, F.p(xw - 0.55, -d / 2 - 0.05), F.p(xw + 0.55, -d / 2 - 0.05), GZ + h - 1.75, GZ + h - 0.55, nx=3, nz=3, frame=0.08, glass=0.03)
+    b.build()
+    keep_rect(cx - w / 2, cy - d / 2, cx + w / 2, cy + d / 2, pad=0.6)
+
+def canal_scene():
+    """南面临河：石驳岸、河埠头、石拱桥、乌篷船；对岸垂柳。"""
+    b = B("Canal")
+    top = GZ + 0.07
+    for k in range(-40, 40):
+        xs_ = k + 0.5
+        for (yq, sg) in ((CANAL[1], 1), (CANAL[0], -1)):
+            yc = yq + sg * 0.25
+            if isl_rho(xs_, yc + sg * 0.4)[0] < 0.992:
+                box(b, xs_, yc, -1.2, 1.0, 0.8, top + 1.2, GRANITE)                      # 驳岸条石
+    for x0 in (-8.0, 24.5):                                                              # 河埠头：石阶伸入水中
+        for k in range(5):
+            box(b, x0, CANAL[1] - 0.26 - 0.32 * k, -1.2, 2.6, 0.32, 1.2 + GZ - 0.03 - 0.115 * (k + 1), SLAB)
+    for (x, y, a) in ((-6.6, CANAL[1] - 2.3, 0.05), (18.0, -35.6, 3.2), (-27.0, CANAL[0] + 1.1, 3.12)):
+        wupeng(b, x, y, a)
+    for x in (-33.0, -21.5, -1.5, 5.0, 19.0, 31.5):                                      # 临河系船石、石凳
+        if isl_rho(x, -31.9)[0] < 0.97:
+            box(b, x, -31.95, GZ, 1.5, 0.42, 0.42, GRANITE)
+    b.build()
+    arch_bridge("CanalBridge", (12.0, CANAL[1] + 0.9), (12.0, CANAL[0] - 0.9), w=2.4, rise=1.35)
+
 # ----------------------------------------------------------------------------- 场景布置
 X0, X1, Y0, Y1 = -34.0, 34.0, -27.0, 27.0     # 园墙范围
 XP = 23.0                                     # 住宅与花园之间的界墙
@@ -2159,14 +2243,18 @@ def build_scene():
         box(b, (x0 + x1) / 2, (y0 + y1) / 2, GZ - 0.2, x1 - x0, y1 - y0, 0.26, GREYBRICK)
     for k in range(-40, 40):                                                  # 南面街巷（按沙盘轮廓裁剪）
         xs_ = k + 0.5
-        ya, yb = -27.62, -31.9
-        while yb < ya - 0.5 and isl_rho(xs_, yb)[0] > 0.978:
-            yb += 0.1
-        if isl_rho(xs_, ya)[0] < 0.975 and yb < ya - 0.5:
+        ya, yb = -27.62, CANAL[1] + 0.55
+        if isl_rho(xs_, ya)[0] < 0.985 and isl_rho(xs_, yb)[0] < 0.99:
             box(b, xs_, (ya + yb) / 2, GZ - 0.3, 1.0, ya - yb, 0.33, STREET)
-    keep_rect(-41, -32.8, 41, -27.6)
+    keep_rect(-41, -41.5, 41, -27.6)
+    # 厅堂四周的砖铺散水
+    for (cx_, cy_, w_, d_) in ((-4.0, 17.4, 13.6, 8.0), (-23.0, 19.0, 9.0, 6.6)):
+        pave(b, cx_ - w_ / 2 - 1.7, cy_ - d_ / 2 - 1.7, cx_ + w_ / 2 + 1.7, cy_ + d_ / 2 + 1.7)
     box(b, RX, -27.6, GZ - 0.3, 5.0, 1.4, 0.42, GRANITE)                      # 门前阶石
     b.build()
+    canal_scene()
+    for (hx, hw_, hh) in ((-22.0, 10.0, 5.6), (-10.2, 11.0, 4.3), (2.4, 11.4, 5.8), (14.6, 10.0, 4.4), (24.2, 7.4, 5.4)):   # 北面墙外的邻家
+        row_house("Neighbor", hx, 29.4, hw_, 3.3, hh)
     b = B("Paths")
     for pts in ([(XP - 1.9, 2.0), (18.5, 0.6), (17.0, -1.2)],
                 [(14.9, -5.4), (14.2, -8.6), (11.6, -12.6), (9.4, -12.6), (8.4, -11.7)],
@@ -2211,11 +2299,11 @@ def build_scene():
         if any((x - px) ** 2 + (y - py) ** 2 < 0.46 ** 2 for (px, py) in pts_b):
             continue
         pts_b.append((x, y))
-        big = fbm(x * 0.35 + 3, y * 0.35 + 9, 2) > 0.56
+        big = fbm(x * 0.35 + 3, y * 0.35 + 9, 2) > 0.535
         if random.random() < 0.55:
-            rock('block', x, y, s=ru(0.36, 0.70) * (1.6 if big else 1.0), z=0.05, sink=0.35, reg=False)
+            rock('block', x, y, s=ru(0.36, 0.70) * (2.2 if big else 1.0), z=0.05, sink=0.35, reg=False)
         else:
-            rock('taihu', x, y, s=ru(0.26, 0.42) * (1.7 if big else 1.0), z=0.0, sink=0.3, reg=False)
+            rock('taihu', x, y, s=ru(0.26, 0.42) * (2.0 if big else 1.0), z=0.0, sink=0.3, reg=False)
         n_bank += 1
     for (px, py) in pts_b:
         keep(px, py, 0.5)
@@ -2251,17 +2339,23 @@ def build_scene():
         else:
             plant(kind, x, y, s)
         keep(x, y, 1.0)
-    # 园外的大树（墙外借景）
+    # 园外的大树（墙外借景）、临河与对岸的垂柳
     for (x, y, kind, s) in ((-37.0, -19.0, "tree", 1.1), (-37.4, -6.0, "tree", 1.25), (-37.2, 9.0, "tree", 1.05), (-36.6, 22.0, "ginkgo", 0.9),
-                            (-27.0, 30.0, "tree", 1.2), (-15.0, 30.4, "tree", 1.05), (-2.0, 30.2, "tree", 1.25), (11.0, 30.4, "tree", 1.0),
-                            (24.0, 30.2, "tree", 1.15), (34.0, 29.4, "tree", 1.0), (37.2, 18.0, "tree", 1.0), (37.3, 4.0, "tree", 0.9),
-                            (37.2, -11.0, "tree", 0.95), (-21.0, 30.6, "pine", 1.3), (5.0, 30.6, "pine", 1.2), (-37.0, 1.5, "pine", 1.2),
-                            (-33.0, -32.3, "willow", 1.0), (-14.0, -32.6, "tree", 0.7), (10.0, -32.5, "maple", 1.0), (37.0, -24.0, "tree", 0.8)):
+                            (-28.6, 29.6, "tree", 1.1), (-15.9, 30.0, "tree", 1.0), (-3.9, 30.2, "tree", 1.15), (8.9, 30.0, "tree", 0.95),
+                            (20.0, 30.0, "tree", 1.05), (29.6, 29.2, "tree", 0.9), (37.2, 18.0, "tree", 1.0), (37.3, 4.0, "tree", 0.9),
+                            (37.2, -11.0, "tree", 0.95), (-37.0, 1.5, "pine", 1.2), (37.0, -24.0, "tree", 0.8),
+                            (-30.0, -31.4, "willow", 1.0), (-15.5, -31.5, "willow", 0.9), (1.5, -31.4, "willow", 1.0), (30.0, -31.4, "willow", 0.85),
+                            (-21.0, -39.6, "willow", 1.0), (-9.0, -39.8, "willow", 0.9), (2.5, -39.8, "tree", 0.75), (19.5, -39.6, "willow", 0.95),
+                            (-30.0, -39.2, "maple", 0.9), (27.5, -39.2, "tree", 0.7)):
         plant(kind, x, y, s)
         keep(x, y, 1.2)
+    for i in range(60):                                                                   # 对岸的灌木（成丛）
+        x, y = ru(-33.0, 33.0), ru(-40.4, -38.8)
+        if isl_rho(x, y)[0] < 0.97 and abs(x - 12.0) > 2.2 and fbm(x * 0.3 + 2, 4.0, 2) > 0.52:
+            inst("shrub", x, y, ru(0.7, 1.2))
     # 竹：沿墙成片
     for (x0, y0, x1, y1, n) in ((-32.8, -9.0, -32.8, 12.5, 9), (-15.0, 25.6, 5.5, 25.6, 9), (19.0, 25.4, 22.0, 20.0, 3), (-32.6, -25.6, -29.5, -25.8, 2),
-                                (8.6, 25.6, 8.6, 21.5, 2), (-36.2, -24.0, -35.6, 24.0, 8), (-30.0, 28.6, 31.0, 29.2, 10), (35.6, -4.0, 36.2, 24.0, 4),
+                                (8.6, 25.6, 8.6, 21.5, 2), (-36.2, -24.0, -35.6, 24.0, 8), (35.6, -4.0, 36.2, 24.0, 4),
                                 (21.8, -25.6, 21.8, -20.5, 3), (-12.0, -25.7, -5.0, -25.7, 4), (14.0, -25.7, 20.5, -25.7, 4), (24.2, 10.2, 24.4, 7.4, 2)):
         for k in range(n):
             t = (k + 0.5) / n
@@ -2331,7 +2425,7 @@ def build_scene():
     print(f"[sz] plants={N_PLANTS} (bushes {nb_}), tufts={nt_}, tile rows={N_ROWS}")
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 背景
-CAM = {"target": (0.0, -2.5, -2.0), "az": 34.0, "dist": 131.0, "pitch": 40.0, "lens": 45.0}
+CAM = {"target": (0.0, -5.5, -2.0), "az": 34.0, "dist": 140.0, "pitch": 40.0, "lens": 45.0}
 SUN = {"euler": (52.0, 0.0, -53.0), "color": (1.0, 0.93, 0.82), "energy": 3.8}
 def setup_camera_lights():
     cam_data = bpy.data.cameras.new("Cam")
@@ -2537,7 +2631,7 @@ if WEB:
         "camera": {"target": list(CAM["target"]), "az": CAM["az"], "dist": CAM["dist"] * 1.22, "pitch": CAM["pitch"], "lens": CAM["lens"], "min_dist": 30, "max_dist": 300},
         "sun": {"euler_deg": list(SUN["euler"]), "color": list(SUN["color"]), "strength": SUN["energy"]},
         "backdrop": [[0.86, 0.88, 0.86], [0.95, 0.955, 0.945]],
-        "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 58, "shadow_bias": 0.05, "fog": [0.90, 0.93, 0.93],
+        "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 64, "shadow_bias": 0.05, "fog": [0.90, 0.93, 0.93],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
         "lake": {"pscale": 4.0, "ripple": 0.10, "glitter": 0.0, "clear": 0.22, "reflRange": [0.26, 0.80], "distortion": 0.007,
                  "colDeep": [0.048, 0.110, 0.062], "colNear": [0.105, 0.185, 0.090], "colShore": [0.19, 0.23, 0.13]},

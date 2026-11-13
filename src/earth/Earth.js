@@ -127,6 +127,13 @@ export class Earth {
       transparent: true, depthWrite: false,
     }));
     this.clouds.name = 'clouds';
+    // The plates are stacked with growing polygon offsets (above). On a surface seen at a slant the
+    // slope term of those offsets exceeds the 0.0085 gap to the cloud shell, so a late plate such as
+    // Africa ended up in front of its own clouds in the depth buffer and cut them off along the plate
+    // grid. Offset the clouds further than any plate; the Moon is far enough away to be unaffected.
+    this.clouds.material.polygonOffset = true;
+    this.clouds.material.polygonOffsetFactor = -(i + 2);
+    this.clouds.material.polygonOffsetUnits = -2 * (i + 1);
     this.group.add(this.clouds);
 
     // atmosphere shell
@@ -140,7 +147,7 @@ export class Earth {
       transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.FrontSide,
     }));
     this.atmosphere.renderOrder = 20;
-    this.clouds.renderOrder = 10;
+    this.clouds.renderOrder = 3; // under the migration routes (4-6): those are a diagram and must read through the weather
     this.atmosphere.name = 'atmosphere';
     this.group.add(this.atmosphere);
     return this;

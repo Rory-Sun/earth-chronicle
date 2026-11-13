@@ -503,6 +503,11 @@ export class App {
     const moonEl = document.getElementById('slabel-moon');
     // only label the Moon while it is too small to recognise (apparent radius under ~22 px)
     const moonPx = 0.2727 / this.camera.position.distanceTo(this.moon.position) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * h / 2;
-    if (moonPx < 22) place(moonEl, this.moon.position, `月球 · ${(km / 10000).toFixed(1)} 万 km`); else moonEl.style.display = 'none';
+    // ...and only while it is actually in view: behind the Earth the marker would sit on the Earth's face
+    const o = this.camera.position, d = this.moon.position.clone().sub(o), len = d.length();
+    d.divideScalar(len);
+    const t = -o.dot(d); // closest approach of the sight line to the Earth's centre
+    const hidden = t > 0 && t < len && o.clone().addScaledVector(d, t).lengthSq() < 1;
+    if (moonPx < 22 && !hidden) place(moonEl, this.moon.position, `月球 · ${(km / 10000).toFixed(1)} 万 km`); else moonEl.style.display = 'none';
   }
 }

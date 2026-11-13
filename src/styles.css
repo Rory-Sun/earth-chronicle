@@ -172,7 +172,7 @@ kbd { background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; font
 .w-btn:hover { background: rgba(255,255,255,.14); transform: translateY(-1px); }
 .w-btn.primary { background: #fff; border-color: #fff; color: #02040a; }
 .w-btn.primary:hover { background: #dbe9ff; }
-body.welcome-open #info, body.welcome-open .timeline, body.welcome-open #minimap, body.welcome-open #legend, body.welcome-open #toast { opacity: 0; pointer-events: none; }
+body.welcome-open #info, body.welcome-open .timeline, body.welcome-open #minimap, body.welcome-open #legend, body.welcome-open #toast, body.welcome-open #scale-labels { opacity: 0; pointer-events: none; }
 #info, .timeline, #minimap, #legend { transition: opacity .5s; }
 
 /* ---------------- guided tour ---------------- */

@@ -2137,27 +2137,145 @@ def wupeng(b, x, y, ang, L=6.0):
         cone(b, X, Y, 0.43, 0.15, 0.20, 0.24, BASKET, n=10, uv=False)
     rod(b, F.p(-0.36 * L, -0.42, 0.50), F.p(0.44 * L, -0.36, 0.56), 0.022, BAMBOO_CULM)      # 竹篙
 
-def row_house(name, cx, cy, w, d, h):
-    """墙外的邻家民居：粉墙、硬山瓦顶，楼上开窗。只作背景。"""
-    b = B(name); F = Fr(cx, cy, 0.0)
-    t = 0.24
-    F.box(b, 0, 0, GZ - 0.3, w, d, h + 0.3, WHITE_WALL)
-    ov = 0.45; bb = d / 2 + ov; rh = 0.64 * bb; zr = GZ + h + 0.02
+CLOTH = [principled("LanBu", (0.09, 0.14, 0.27), rough=0.85, bevel=0), principled("BaiBu", (0.78, 0.77, 0.72), rough=0.85, bevel=0),
+         principled("HeBu", (0.40, 0.19, 0.13), rough=0.85, bevel=0)]             # 晾晒的蓝布、白布、褐布
+
+def slope_slab(b, F, xa, xb, ya, za, yb, zb, th, mat):
+    """局部坐标里的一块斜板：沿 x 从 xa 到 xb，截面从 (ya, za) 斜到 (yb, zb)，厚 th。"""
+    if (xb - xa) * (yb - ya) < 0:
+        xa, xb = xb, xa                                                            # 保证顶面法线朝上
+    v = [F.p(xa, ya, za), F.p(xb, ya, za), F.p(xb, yb, zb), F.p(xa, yb, zb),
+         F.p(xa, ya, za - th), F.p(xb, ya, za - th), F.p(xb, yb, zb - th), F.p(xa, yb, zb - th)]
+    b.add(v, [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)], mat)
+
+def step_gable(b, F, x, d, zb, zroof, t):
+    """马头墙：山墙高出屋面，从屋脊向前后檐分级跌落，每级压一道瓦脊、端头起翘。"""
+    hd = d / 2 + 0.02
+    cuts = (0.0, 0.34, 1.0) if d < 3.7 else (0.0, 0.24, 0.60, 1.0)
+    tiers = [(-cuts[1] * hd, cuts[1] * hd, zroof(0.0) + 0.46, 0)]
+    for k in range(1, len(cuts) - 1):
+        for sg in (-1, 1):
+            tiers.append((sg * cuts[k] * hd, sg * cuts[k + 1] * hd, zroof(cuts[k] * hd) + 0.36, sg))
+    for (ya, yb, top, sg) in tiers:
+        y0, y1 = min(ya, yb), max(ya, yb)
+        L = y1 - y0
+        F.box(b, x, (y0 + y1) / 2, zb, t, L, top - zb, WHITE_WALL)
+        F.box(b, x, (y0 + y1) / 2, top, t + 0.16, L + 0.12, 0.07, RIDGE)
+        F.box(b, x, (y0 + y1) / 2, top + 0.07, 0.09, L + 0.12, 0.08, RIDGE)
+        for e in ((-1, 1) if sg == 0 else (sg,)):
+            F.box(b, x, (y0 - 0.03) if e < 0 else (y1 + 0.03), top + 0.15, 0.09, 0.2, 0.13, RIDGE)
+
+def _hwin(b, F, xw, yf, z0, z1, shutters=False):
+    """民居的一樘窗：花格、石窗台，可带两扇外开的木窗板。"""
+    lattice_w(b, F.p(xw - 0.55, yf - 0.05), F.p(xw + 0.55, yf - 0.05), z0, z1, nx=3, nz=3, frame=0.08, glass=0.03)
+    F.box(b, xw, yf - 0.06, z0 - 0.08, 1.34, 0.12, 0.06, GRANITE)
+    if shutters:
+        for sg in (-1, 1):
+            F.box(b, xw + sg * 0.72, yf - 0.035, z0, 0.30, 0.03, z1 - z0, WOOD)
+
+def _hdoor(b, F, xd, yf, awning=True):
+    """民居的门：两扇板门、石门框、门前阶石；楼房在门上加一道瓦顶门罩。"""
+    F.box(b, xd, yf - 0.03, GZ + 0.1, 1.16, 0.06, 2.0, WOOD)
+    F.box(b, xd, yf - 0.065, GZ + 0.1, 0.03, 0.02, 2.0, LATTICE)
     for sg in (-1, 1):
-        x = sg * (w / 2 - t / 2)
-        m = 8
-        for k in range(m):
-            ya, yb = -d / 2 + d * k / m, -d / 2 + d * (k + 1) / m
-            za, zb = zr + rh * rcurve((bb - abs(ya)) / bb) - 0.03, zr + rh * rcurve((bb - abs(yb)) / bb) - 0.03
-            for off in (-t / 2, t / 2):
-                b.add([F.p(x + off, ya, GZ + h - 0.05), F.p(x + off, yb, GZ + h - 0.05), F.p(x + off, yb, zb), F.p(x + off, ya, za)], [(0, 1, 2, 3)], WHITE_WALL)
-    suzhou_roof(b, F, zr, w, d, rh, kind='gable', ov=ov, ovx=0.15, lift=0)
+        F.box(b, xd + sg * 0.66, yf - 0.05, GZ + 0.1, 0.16, 0.10, 2.0, GRANITE)
+    F.box(b, xd, yf - 0.05, GZ + 2.1, 1.6, 0.11, 0.18, GRANITE)
+    F.box(b, xd, yf - 0.42, GZ - 0.3, 1.9, 0.7, 0.4, GRANITE)
+    if awning:
+        slope_slab(b, F, xd - 1.0, xd + 1.0, yf - 0.02, GZ + 2.82, yf - 0.78, GZ + 2.50, 0.07, DARK_TILE)
+        F.box(b, xd, yf - 0.07, GZ + 2.80, 2.06, 0.12, 0.08, RIDGE)
+        for sg in (-1, 1):
+            rod(b, F.p(xd + sg * 0.86, yf - 0.02, GZ + 2.28), F.p(xd + sg * 0.86, yf - 0.66, GZ + 2.46), 0.03, WOOD)
+
+def house_props(name, F, yf, items, seed):
+    """屋前的生活陈设：水缸、柴垛、晾衣竿、石凳、盆栽、门前石板。items = [(类型, 局部 x), ...]。
+    用独立的随机序列，不扰动园内其他布置的随机数。"""
+    st = random.getstate(); random.seed(seed)
+    b = B(name)
+    for (kind, x) in items:
+        if kind == 'vat':
+            X, Y = F.p(x, yf - 0.55)
+            cone(b, X, Y, GZ, 0.26, 0.40, 0.62, GREYBRICK, n=12, uv=False)
+            disc(b, X, Y, GZ + 0.58, 0.35, WATER_VAT, n=12)
+        elif kind == 'wood':
+            for r in range(4):
+                for c in range(5 - r % 2):
+                    xx = x - 0.5 + 0.22 * c + 0.11 * (r % 2)
+                    z = GZ + 0.02 + 0.19 * r
+                    rod(b, F.p(xx, yf - 0.12, z), F.p(xx + ru(-0.02, 0.02), yf - 0.12 - ru(0.75, 0.9), z), 0.085, TRUNK)
+        elif kind == 'laundry':
+            L = 2.6; y = yf - 1.0
+            for sg in (-1, 1):
+                rod(b, F.p(x + sg * L / 2, y, GZ - 0.1), F.p(x + sg * L / 2, y + 0.001, GZ + 2.05), 0.028, BAMBOO_CULM)
+            rod(b, F.p(x - L / 2 - 0.2, y, GZ + 1.98), F.p(x + L / 2 + 0.2, y, GZ + 1.98), 0.022, BAMBOO_CULM)
+            xx = x - L / 2 + 0.22
+            while xx < x + L / 2 - 0.55:
+                wc, hc = ru(0.45, 0.8), ru(0.7, 1.15)
+                F.box(b, xx + wc / 2, y, GZ + 1.97 - hc, wc, 0.025, hc, random.choice(CLOTH))
+                xx += wc + ru(0.08, 0.25)
+        elif kind == 'bench':
+            F.box(b, x, yf - 0.4, GZ + 0.36, 1.3, 0.36, 0.09, GRANITE)
+            for sg in (-1, 1):
+                F.box(b, x + sg * 0.45, yf - 0.4, GZ - 0.05, 0.16, 0.30, 0.41, GRANITE)
+        elif kind == 'pots':
+            for k in range(3):
+                X, Y = F.p(x + 0.5 * k + ru(-0.05, 0.05), yf - 0.35 - ru(0, 0.15))
+                potted(b, X, Y, s=ru(0.8, 1.15))
+        elif kind == 'apron':
+            F.box(b, x, yf - 0.98, GZ - 0.25, 2.4, 1.1, 0.29, SLAB)
+    b.build()
+    random.setstate(st)
+
+def row_house(name, cx, cy, w, d, h, ang=0.0, gable='plain', door=None, timber=False, shutters=False, props=(), seed=0):
+    """墙外的邻家民居：粉墙、硬山瓦顶。gable='step' 用马头墙；door 是门所在的开间；timber 把楼层做成木板壁通排窗；
+    props 是屋前的生活陈设（见 house_props）。局部 −y 为正面。"""
+    b = B(name); F = Fr(cx, cy, ang)
+    t = 0.24
+    two = h >= 5.0
+    F.box(b, 0, 0, GZ - 0.3, w, d, h + 0.3, WHITE_WALL)
+    F.box(b, 0, 0, GZ - 0.3, w + 0.10, d + 0.10, 0.3 + 0.42, GRANITE)                 # 勒脚
+    ov = 0.45; bb = d / 2 + ov; rh = 0.64 * bb; zr = GZ + h + 0.02
+    zroof = lambda y: zr + rh * rcurve((bb - abs(y)) / bb) - 0.03
+    if gable == 'step':
+        for sg in (-1, 1):
+            step_gable(b, F, sg * (w / 2 - t / 2 + 0.03), d, GZ + 0.42, zroof, t)
+    else:
+        for sg in (-1, 1):
+            x = sg * (w / 2 - t / 2)
+            m = 8
+            for k in range(m):
+                ya, yb = -d / 2 + d * k / m, -d / 2 + d * (k + 1) / m
+                for off in (-t / 2, t / 2):
+                    b.add([F.p(x + off, ya, GZ + h - 0.05), F.p(x + off, yb, GZ + h - 0.05), F.p(x + off, yb, zroof(yb)), F.p(x + off, ya, zroof(ya))], [(0, 1, 2, 3)], WHITE_WALL)
+    suzhou_roof(b, F, zr, w, d, rh, kind='gable', ov=ov, ovx=(-0.05 if gable == 'step' else 0.15), lift=0)
     nw = max(2, int(w / 2.7))
+    yf = -d / 2
+    zw0, zw1 = GZ + h - 1.75, GZ + h - 0.55
+    if timber and two:                                                             # 楼层木板壁、通排花窗、腰枋
+        F.box(b, 0, yf - 0.03, GZ + h - 2.2, w - 0.56, 0.06, 2.0, WOOD)
+        F.box(b, 0, yf - 0.10, GZ + h - 2.27, w - 0.4, 0.16, 0.09, WOOD)
+        for k in range(nw):
+            xa, xb = -w / 2 + 0.4 + (w - 0.8) * k / nw, -w / 2 + 0.4 + (w - 0.8) * (k + 1) / nw
+            lattice_w(b, F.p(xa + 0.08, yf - 0.10), F.p(xb - 0.08, yf - 0.10), zw0, zw1, nx=4, nz=3, frame=0.07, glass=0.02)
     for k in range(nw):
         xw = -w / 2 + w * (k + 0.5) / nw
-        lattice_w(b, F.p(xw - 0.55, -d / 2 - 0.05), F.p(xw + 0.55, -d / 2 - 0.05), GZ + h - 1.75, GZ + h - 0.55, nx=3, nz=3, frame=0.08, glass=0.03)
+        if door == k:
+            _hdoor(b, F, xw, yf, awning=two)
+        elif two and door is not None:
+            _hwin(b, F, xw, yf, GZ + 1.05, GZ + 2.15)
+        if (two or door != k) and not (timber and two):
+            _hwin(b, F, xw, yf, zw0, zw1, shutters)
+    xo = w / 2 + (0.03 if gable == 'step' else 0.0) + 0.045                         # 两头山墙上的小窗
+    zg0, zg1 = GZ + h - 1.45, GZ + h - 0.5
+    lattice_w(b, F.p(xo, -0.42), F.p(xo, 0.42), zg0, zg1, nx=2, nz=3, frame=0.07, glass=0.02)
+    lattice_w(b, F.p(-xo, 0.42), F.p(-xo, -0.42), zg0, zg1, nx=2, nz=3, frame=0.07, glass=0.02)
     b.build()
-    keep_rect(cx - w / 2, cy - d / 2, cx + w / 2, cy + d / 2, pad=0.6)
+    cs = [F.p(sx * w / 2, sy * d / 2) for sx in (-1, 1) for sy in (-1, 1)]
+    keep_rect(min(c[0] for c in cs), min(c[1] for c in cs), max(c[0] for c in cs), max(c[1] for c in cs), pad=0.6)
+    if max(isl_rho(*c)[0] for c in cs) > 0.985:
+        print(f"[sz] WARNING {name} at ({cx}, {cy}) is close to the island edge")
+    if props:
+        house_props(name + "Props", F, yf, props, seed)
 
 def canal_scene():
     """南面临河：石驳岸、河埠头、石拱桥、乌篷船；对岸垂柳。"""
@@ -2183,8 +2301,13 @@ def canal_scene():
             box(b, xs_, (CANAL[0] - 0.55 - 40.0) / 2, GZ - 0.3, 1.0, 40.0 + CANAL[0] - 0.55, 0.33, STREET)
     b.build()
     # 对岸的临河民居：只在东西两头各放一组，中间留空，不挡住拱桥和河面
-    for (hx, hw_, hd_, hh) in ((-24.6, 7.0, 4.4, 3.1), (-17.4, 6.4, 4.2, 5.2), (24.0, 8.0, 4.4, 5.2), (17.4, 4.6, 3.8, 2.9)):
-        row_house("Riverside", hx, -40.15 - hd_ / 2, hw_, hd_, hh)
+    # 这几座是近景，朝镜头的是背河的一面：开门、加门罩，屋前放水缸、柴垛、晾衣竿
+    for i, (hx, hw_, hd_, hh, kw) in enumerate((
+            (-24.6, 7.0, 3.8, 3.1, dict(door=1, props=[('vat', -3.0), ('wood', -1.5), ('bench', 0.2)])),
+            (-17.4, 6.4, 3.6, 5.2, dict(door=0, timber=True, gable='step', props=[('apron', -1.6), ('laundry', 1.4), ('pots', -3.0)])),
+            (24.0, 8.0, 3.8, 5.2, dict(door=0, shutters=True, gable='step', props=[('apron', -2.0), ('laundry', 0.9), ('vat', 2.9)])),
+            (17.4, 4.6, 3.4, 2.9, dict(door=1, props=[('wood', -1.2), ('pots', -0.3)])))):
+        row_house("Riverside", hx, -40.15 - hd_ / 2, hw_, hd_, hh, seed=311 + i, **kw)
     arch_bridge("CanalBridge", (12.0, CANAL[1] + 0.9), (12.0, CANAL[0] - 0.9), w=2.4, rise=1.35)
 
 # ----------------------------------------------------------------------------- 场景布置
@@ -2267,8 +2390,15 @@ def build_scene():
     box(b, RX, -27.6, GZ - 0.3, 5.0, 1.4, 0.42, GRANITE)                      # 门前阶石
     b.build()
     canal_scene()
-    for (hx, hw_, hh) in ((-22.0, 10.0, 5.6), (-10.2, 11.0, 4.3), (2.4, 11.4, 5.8), (14.6, 10.0, 4.4), (24.2, 7.4, 5.4)):   # 北面墙外的邻家
-        row_house("Neighbor", hx, 29.4, hw_, 3.3, hh)
+    # 北面墙外的邻家：正屋顺着园墙，其间夹两座垂直的厢房（山墙朝南）；高低、进深、山墙做法各不相同
+    for (hx, hy, hw_, hd_, hh, kw) in ((-23.2, 29.5, 7.6, 3.5, 5.6, dict(gable='step', shutters=True)),
+                                       (-17.2, 30.05, 4.1, 3.2, 4.5, dict(ang=math.pi / 2, gable='step')),
+                                       (-10.0, 29.9, 9.6, 3.9, 4.2, dict()),
+                                       (2.0, 29.4, 10.4, 3.4, 5.8, dict(gable='step', timber=True)),
+                                       (9.4, 30.05, 4.1, 3.0, 3.5, dict(ang=math.pi / 2)),
+                                       (16.0, 29.8, 9.0, 3.8, 3.6, dict(shutters=True)),
+                                       (24.4, 29.5, 7.0, 3.4, 5.4, dict(gable='step'))):
+        row_house("Neighbor", hx, hy, hw_, hd_, hh, **kw)
     b = B("Paths")
     for pts in ([(XP - 1.9, 2.0), (18.5, 0.6), (17.0, -1.2)],
                 [(14.9, -5.4), (14.2, -8.6), (11.6, -12.6), (9.4, -12.6), (8.4, -11.7)],

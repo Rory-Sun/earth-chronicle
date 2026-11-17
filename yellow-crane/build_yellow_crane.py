@@ -290,6 +290,7 @@ tex_bump(nt, _bd, 0.5, 0.08)
 
 # 湖水：透射 + 多层波纹；阴影光线按透明处理（否则湖底一片死黑）
 WATER = principled("RiverWater", (0.56, 0.47, 0.32), rough=0.035, spec=0.6, bevel=0)
+POND = principled("PondGreen", (0.07, 0.16, 0.12), rough=0.04, spec=0.7, bevel=0)      # 园池的清水（江水是浑黄的）
 nt = WATER.node_tree
 _p = nt.nodes["Principled BSDF"]
 if "Transmission Weight" in _p.inputs:
@@ -931,9 +932,17 @@ def make_variants():
     print("[yc] tree library:", {k: [(round(h, 2)) for (_, h, _) in v] for k, v in VARIANTS.items()})
 
 N_PLANTS = 0
+GOOSE_POND = (35.0, -24.5, 3.6)      # 鹅池的位置和不种树的半径（原来贴着陡坡，池台像盘子一样架在坡上）
 def plant(kind, x, y, s=1.0, z=None):
     global N_PLANTS
     if isl_rho(x, y)[0] > 0.975:   # 岛缘之外不种树（避免悬空）
+        return None
+    if math.hypot(x - GOOSE_POND[0], y - GOOSE_POND[1]) < GOOSE_POND[2]:
+        # 池子里不种树；照常消耗随机数，别处的树才不会跟着变
+        if WEB:
+            random.uniform(0.9, 1.1); random.randrange(len(LIB_TREES[kind])); random.uniform(0, 6.28)
+        else:
+            random.choice(VARIANTS[kind]); random.uniform(0.9, 1.1); random.uniform(0.9, 1.1); random.uniform(0, 6.28)
         return None
     if z is None:
         z = ground(x, y) - 0.03
@@ -1101,6 +1110,41 @@ def zigzag(b, pts, w=0.45, z=0.28):
 def base_z(cx, cy, w, d):
     return max(ground(cx + sx * w / 2, cy + sy * d / 2) for sx in (-1, 1) for sy in (-1, 1)) - 0.06
 
+def goose_pond(b, cx, cy, R=3.0):
+    """鹅池：坐在坡脚的平地上，石砌池沿略高出地面，水面低于池沿；池边叠石，水里几片荷叶，池畔立一块"鹅"字碑。
+    用独立的随机序列，不扰动别处的种植。"""
+    st = random.getstate(); random.seed(905)
+    hs = [ground(cx + R * math.cos(k * math.pi / 4), cy + R * math.sin(k * math.pi / 4)) for k in range(8)]
+    z = max(hs)
+    print(f"[yc] goose pond at ({cx}, {cy}): ground {min(hs):.2f}..{max(hs):.2f}, blocked={blocked(cx, cy)}")
+    n = 28
+    ring = lambda r, zz: [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n), zz) for i in range(n)]
+    ri, top = R - 0.42, z + 0.24
+    v = ring(R, z - 0.5) + ring(R, top) + ring(ri, top) + ring(ri, z - 0.1)
+    f = []
+    for i in range(n):
+        j = (i + 1) % n
+        f += [(i, j, n + j, n + i), (n + i, n + j, 2 * n + j, 2 * n + i), (2 * n + i, 2 * n + j, 3 * n + j, 3 * n + i)]
+    b.add(v, f, GRANITE)
+    b.add(ring(ri, z + 0.10), [tuple(range(n))], POND)
+    for k in range(15):                                                    # 池沿上的叠石，朝亭子的一侧留口
+        a = 2 * math.pi * (k + random.uniform(-0.3, 0.3)) / 15
+        if math.cos(a - 2.2) > 0.8:                                        # 西北朝山径的一侧
+            continue
+        r = random.uniform(0.26, 0.6)
+        rr = R - 0.18 + random.uniform(-0.08, 0.22)
+        v, f = icosphere(cx + rr * math.cos(a), cy + rr * math.sin(a), top + r * 0.2, r, sub=2, squash=random.uniform(0.6, 1.0), jit=0.2)
+        b.add(v, f, GRANITE)
+    for k in range(7):                                                     # 荷叶
+        a, rr = random.uniform(0, 6.28), (ri - 0.55) * math.sqrt(random.random())
+        disc(b, cx + rr * math.cos(a), cy + rr * math.sin(a), z + 0.115 + 0.004 * k, random.uniform(0.22, 0.36), LOTUS_LEAF, n=9)
+    sx, sy = cx + 2.6, cy + 3.0                                            # "鹅"字碑
+    sz = ground(sx, sy)
+    box(b, sx, sy, sz - 0.2, 0.95, 0.5, 0.42, GRANITE)
+    box(b, sx, sy, sz + 0.22, 0.64, 0.16, 1.2, STONE)
+    box(b, sx, sy, sz + 1.42, 0.76, 0.24, 0.1, GRANITE)
+    random.setstate(st)
+
 BS = 1.4   # 建筑整体放大系数（沙盘比例下让楼阁读得清）
 
 def hall_jn(b, cx, cy, w, d, h, roof=DARK_TILE, wall=WHITE_WALL, double=False, z0=None, plat=0.14,
@@ -1210,10 +1254,12 @@ def compound(b, cx, cy, w, d, wall_mat, nh=3, roof=DARK_TILE, z0=None, gate=True
     keep(cx, cy, max(w, d) * 0.72)
     for (x0, y0, x1, y1) in ((cx - w / 2, cy - d / 2, cx + w / 2, cy - d / 2), (cx - w / 2, cy + d / 2, cx + w / 2, cy + d / 2),
                              (cx - w / 2, cy - d / 2, cx - w / 2, cy + d / 2), (cx + w / 2, cy - d / 2, cx + w / 2, cy + d / 2)):
-        ww = abs(x1 - x0) + 0.3 if x0 != x1 else 0.3
-        dd = abs(y1 - y0) + 0.3 if y0 != y1 else 0.3
+        # 东西向的两道墙通长，南北向的两道夹在中间：四角不再有两道墙重叠、面共面（渲染出来是黑块）
+        horiz = x0 != x1
+        ww = abs(x1 - x0) + 0.3 if horiz else 0.3
+        dd = 0.3 if horiz else abs(y1 - y0) - 0.3
         box(b, (x0 + x1) / 2, (y0 + y1) / 2, z0 - 0.3, ww, dd, 0.3 + 0.7, wall_mat)
-        box(b, (x0 + x1) / 2, (y0 + y1) / 2, z0 + 0.7, ww + 0.14, dd + 0.14, 0.1, DARK_TILE)
+        box(b, (x0 + x1) / 2, (y0 + y1) / 2, z0 + 0.7, ww + 0.14, dd + (0.14 if horiz else -0.14), 0.1, DARK_TILE)
     if gate:
         hall_jn(b, cx, cy - d / 2, min(2.4, w * 0.4), 1.2, 0.9, roof=roof, wall=wall_mat, z0=z0, plat=0.1)
     for i in range(nh):
@@ -1534,9 +1580,7 @@ def build_scene():
     # 辛亥革命武昌起义纪念馆（红楼）：山脚的红砖院落
     compound(b, 30.0, -34.0, 11.0, 7.0, RED_BRICK, nh=1, roof=DARK_TILE)
     # 鹅池
-    pz = base_z(30.0, -18.0, 7, 7)
-    prism(b, 30.0, -18.0, pz - 0.4, 3.0, 0.5, GRANITE, n=24)
-    prism(b, 30.0, -18.0, pz + 0.11, 2.7, 0.04, WATER, n=24)
+    goose_pond(b, *GOOSE_POND[:2])
     keep(30.0, -18.0, 3.6)
     for k in range(8):
         a = 2 * math.pi * k / 8

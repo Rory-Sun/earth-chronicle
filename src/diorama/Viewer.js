@@ -70,6 +70,7 @@ const MATERIALS = {
   HuiWa: TILE([0.85, 0.87, 0.9]), Kerb: { set: 'PavingStones128', normalOnly: true, repeat: 2.0, roughness: 0.9 }, FlatRoof: { roughness: 0.95 },
   Hedge: { roughness: 0.95 }, Facade3: { roughness: 0.7 },
   HillRock: { set: 'Rock051', repeat: 0.8, tint: [1.0, 0.97, 0.9], roughness: 0.9 },
+  PondGreen: { roughness: 0.06, envMapIntensity: 1.4 },   // 黄鹤楼鹅池的清水：不做镜面反射，靠环境贴图映出天光
   Glass: { metalness: 0.7, roughness: 0.18, envMapIntensity: 1.2 }, RedBrick: { set: 'PavingStones128', normalOnly: true, repeat: 1.5, roughness: 0.85 },
 };
 // 苏州园林（1 单位 = 1 米）的材质

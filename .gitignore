@@ -45,6 +45,8 @@ yellow-crane/output/yellow_crane/preview*.png
 yellow-crane/output/yellow_crane/render_log.txt
 yellow-crane/output/yellow_crane/export_log.txt
 yellow-crane/output/yellow_crane/yellow_crane_v*.png
+yellow-crane/output/yellow_crane/crop_*.png
+yellow-crane/output/yellow_crane/log_*.txt
 forbidden-city/output/forbidden_city/*.blend1
 
 # 苏州园林沙盘渲染中间产物

@@ -1404,10 +1404,12 @@ def compound(b, cx, cy, w, d, wall_mat, nh=3, roof=DARK_TILE, z0=None, gate=True
     keep(cx, cy, max(w, d) * 0.72)
     for (x0, y0, x1, y1) in ((cx - w / 2, cy - d / 2, cx + w / 2, cy - d / 2), (cx - w / 2, cy + d / 2, cx + w / 2, cy + d / 2),
                              (cx - w / 2, cy - d / 2, cx - w / 2, cy + d / 2), (cx + w / 2, cy - d / 2, cx + w / 2, cy + d / 2)):
-        ww = abs(x1 - x0) + 0.3 if x0 != x1 else 0.3
-        dd = abs(y1 - y0) + 0.3 if y0 != y1 else 0.3
+        # 东西向的两道墙通长，南北向的两道夹在中间：四角不再有两道墙重叠、面共面（渲染出来是黑块）
+        horiz = x0 != x1
+        ww = abs(x1 - x0) + 0.3 if horiz else 0.3
+        dd = 0.3 if horiz else abs(y1 - y0) - 0.3
         box(b, (x0 + x1) / 2, (y0 + y1) / 2, z0 - 0.3, ww, dd, 0.3 + 0.7, wall_mat)
-        box(b, (x0 + x1) / 2, (y0 + y1) / 2, z0 + 0.7, ww + 0.14, dd + 0.14, 0.1, DARK_TILE)
+        box(b, (x0 + x1) / 2, (y0 + y1) / 2, z0 + 0.7, ww + 0.14, dd + (0.14 if horiz else -0.14), 0.1, DARK_TILE)
     if gate:
         hall_jn(b, cx, cy - d / 2, min(2.4, w * 0.4), 1.2, 0.9, roof=roof, wall=wall_mat, z0=z0, plat=0.1)
     for i in range(nh):
@@ -1470,7 +1472,8 @@ def city(x0s, y0s, x1s, y1s, floors=(4, 11), glassy=0.35, bw=12.0, bd=10.0, stre
                     w, d = random.uniform(2.4, min(4.4, bw - 1.6)), random.uniform(2.2, 3.4)
                     bx = cx + random.uniform(-bw / 2 + w / 2 + 0.6, bw / 2 - w / 2 - 0.6)
                     by = cy + random.uniform(-bd / 2 + d / 2 + 0.6, bd / 2 - d / 2 - 0.6)
-                    tower_block(b, bx, by, w, d, random.randint(*floors), 0.0, glassy=random.random() < glassy, z0=gz + 0.11)
+                    # 同一街区的几栋楼位置可能重叠：各错开 3 厘米高差，层数相同时屋顶和底座才不会共面（渲染出来是黑块）
+                    tower_block(b, bx, by, w, d, random.randint(*floors), 0.0, glassy=random.random() < glassy, z0=gz + 0.11 + 0.03 * i)
                 for i in range(2):
                     plant("ginkgo" if random.random() < 0.5 else "tree", cx + random.uniform(-bw / 2, bw / 2), cy + random.uniform(-bd / 2, bd / 2), random.uniform(1.0, 1.4), z=gz + 0.1)
             y += bd + street

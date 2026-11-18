@@ -271,6 +271,11 @@ _rock_col = mul_color(nt, rgb(nt, (0.40, 0.40, 0.37)), map_range(nt, _mn.outputs
 _mcol = mix_rgb(nt, _mount_col, _rock_col, _slope, 'MIX')
 _zf = map_range(nt, _sep.outputs["Z"], 0.0, 1.0, 0.9, 3.4)
 _fac = mix_rgb(nt, _grass_col, _mcol, _zf, 'MIX')
+# 江岸：水线以上一道湿泥/块石护坡。按高度渐变，不跟着网格的格子走，岸线才不是锯齿
+_bkn = noise(nt, 1.6, 4.0)
+_bank_col = mul_color(nt, rgb(nt, (0.37, 0.335, 0.27)), map_range(nt, _bkn.outputs["Fac"], 0.75, 1.2))
+_bank_col = mul_color(nt, _bank_col, map_range(nt, _sep.outputs["Z"], 0.5, 1.0, -0.02, 0.12))     # 贴水处更暗（湿）
+_fac = mix_rgb(nt, _fac, _bank_col, map_range(nt, _sep.outputs["Z"], 1.0, 0.0, 0.15, 0.29), 'MIX')
 nt.links.new(_fac, _p.inputs["Base Color"])
 _mbump = noise(nt, 1.2, 6.0)
 _bn2 = bump_node(nt, _mbump.outputs["Fac"], 0.45, 0.6)
@@ -289,13 +294,33 @@ _bd = tex_node(nt, "Grass004", "Displacement", 0.6, 'Object')
 tex_bump(nt, _bd, 0.5, 0.08)
 
 # 湖水：透射 + 多层波纹；阴影光线按透明处理（否则湖底一片死黑）
-WATER = principled("RiverWater", (0.56, 0.47, 0.32), rough=0.035, spec=0.6, bevel=0)
+WATER = principled("RiverWater", (0.31, 0.33, 0.19), rough=0.035, spec=0.6, bevel=0)
 POND = principled("PondGreen", (0.07, 0.16, 0.12), rough=0.04, spec=0.7, bevel=0)      # 园池的清水（江水是浑黄的）
 nt = WATER.node_tree
 _p = nt.nodes["Principled BSDF"]
 if "Transmission Weight" in _p.inputs:
-    _p.inputs["Transmission Weight"].default_value = 0.55
+    _p.inputs["Transmission Weight"].default_value = 0.06    # 泥沙多的江水几乎不透；原来 0.55，船影会穿到江底，像玻璃盖着沙滩
 _p.inputs["IOR"].default_value = 1.33
+# 水色：顺流方向深浅不一的泥沙条带（细的叠在宽的上面），近岸水浅处偏黄；"depth" 是江面网格上的逐顶点属性（离岸多远）
+def _streak(sx, sy):
+    rot = nt.nodes.new("ShaderNodeVectorRotate"); rot.rotation_type = 'Z_AXIS'
+    rot.inputs["Angle"].default_value = -math.radians(72.0)          # 把流向（约北偏东 18°）转到 X 轴上
+    nt.links.new(texcoord(nt).outputs["Object"], rot.inputs["Vector"])
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (sx, sy, 1.0)
+    nt.links.new(rot.outputs["Vector"], mp.inputs["Vector"])
+    n = nt.nodes.new("ShaderNodeTexNoise")
+    n.inputs["Scale"].default_value = 1.0; n.inputs["Detail"].default_value = 5.0
+    if "Distortion" in n.inputs:
+        n.inputs["Distortion"].default_value = 0.5
+    nt.links.new(mp.outputs["Vector"], n.inputs["Vector"])
+    return n.outputs["Fac"]
+_sfac = mix_rgb(nt, _streak(0.05, 0.42), _streak(0.016, 0.10), 0.5, 'MIX')
+_sr = ramp(nt, [(0.36, (0.245, 0.285, 0.170)), (0.50, (0.310, 0.330, 0.190)), (0.64, (0.395, 0.375, 0.215))])
+nt.links.new(_sfac, _sr.inputs["Fac"])
+_at = nt.nodes.new("ShaderNodeAttribute"); _at.attribute_name = "depth"
+_shore = map_range(nt, _at.outputs["Fac"], 0.55, 0.0, 0.0, 8.0)
+nt.links.new(mix_rgb(nt, _sr.outputs["Color"], rgb(nt, (0.46, 0.41, 0.24)), _shore, 'MIX'), _p.inputs["Base Color"])
 _w1 = noise(nt, 0.9, 5.0, distortion=0.4)
 _b1 = bump_node(nt, _w1.outputs["Fac"], 0.16, 0.25)
 _w2 = noise(nt, 7.0, 3.0)
@@ -637,7 +662,8 @@ def terrain(x, y):
     if d < -1.0:
         return land, 'land'
     t = smooth01((d + 1.0) / 2.0)   # 岸线过渡
-    return land * (1 - t) + (-0.2) * t, ('water' if d > 0.3 else 'land')
+    # 江底和岸坡两种材质的分界放在水面以下（d > 0.9）：分界线是沿网格的锯齿，露在水面上很难看
+    return land * (1 - t) + (-0.2) * t, ('water' if d > 0.9 else 'land')
 
 def ground(x, y):
     return terrain(x, y)[0]
@@ -731,7 +757,10 @@ def island():
     w = B("Water")
     wv, _, wf = _clipped_grid(-82.0, -100.0, 46.0, 100.0, 2.0, lambda x, y: (0.0, 'w'), rho_max=0.995)
     w.add(wv, wf, WATER)
-    w.build()
+    wob = w.build()
+    _dat = wob.data.attributes.new("depth", 'FLOAT', 'POINT')       # 离岸多远（江水材质用它把近岸的水调黄）
+    for i, vtx in enumerate(wob.data.vertices):
+        _dat.data[i].value = lake_depth(vtx.co.x, vtx.co.y)
     print(f"[yc] island grid faces={len(faces)} in {time.time() - t0:.1f}s")
 
 
@@ -933,12 +962,58 @@ def make_variants():
 
 N_PLANTS = 0
 GOOSE_POND = (35.0, -24.5, 3.6)      # 鹅池的位置和不种树的半径（原来贴着陡坡，池台像盘子一样架在坡上）
+
+# 长江大桥的轴线（东岸端 → 西岸端）。种树、建房都要避让，所以放在全局
+BRIDGE_P0, BRIDGE_P1 = (-2.0, -31.0), (-66.0, -6.0)
+BRIDGE_LAND = 30.0                    # 引桥落地点离轴线两端的距离
+def bridge_so(x, y):
+    """点 (x, y) 沿大桥轴线的位置 s（从东岸端起算）和横向偏移 off。"""
+    (x0, y0), (x1, y1) = BRIDGE_P0, BRIDGE_P1
+    L = math.hypot(x1 - x0, y1 - y0)
+    dx, dy = (x1 - x0) / L, (y1 - y0) / L
+    return (x - x0) * dx + (y - y0) * dy, -(x - x0) * dy + (y - y0) * dx
+_BL = None
+def bridge_layout():
+    """沿轴线找两岸的水边，定出桥头堡的位置（cE、cW）和滨江路从引桥下穿过的位置（rE、rW）。"""
+    global _BL
+    if _BL is None:
+        (x0, y0), (x1, y1) = BRIDGE_P0, BRIDGE_P1
+        L = math.hypot(x1 - x0, y1 - y0)
+        dx, dy = (x1 - x0) / L, (y1 - y0) / L
+        ss = [i * 0.05 for i in range(int(L / 0.05) + 1)]
+        dd = [lake_depth(x0 + dx * s, y0 + dy * s) for s in ss]
+        wet = [s for s, d in zip(ss, dd) if d > 0.0]
+        sE, sW = wet[0], wet[-1]
+        rE = max(s for s, d in zip(ss, dd) if s < sE and d < -4.5)
+        rW = min(s for s, d in zip(ss, dd) if s > sW and d < -4.5)
+        _BL = {"L": L, "sE": sE, "sW": sW, "rE": rE, "rW": rW, "cE": rE + 2.8, "cW": rW - 2.8}
+    return _BL
+def no_plant(x, y):
+    """不种树的地方：鹅池、桥头堡、引桥和引桥落地后的大道。"""
+    if math.hypot(x - GOOSE_POND[0], y - GOOSE_POND[1]) < GOOSE_POND[2] or math.hypot(x - 12.0, y + 30.5) < 3.0:   # 鹅池、第二道牌坊
+        return True
+    s, off = bridge_so(x, y)
+    g = bridge_layout()
+    if abs(off) < 3.7 and (abs(s - g["cE"]) < 1.6 or abs(s - g["cW"]) < 1.6):
+        return True
+    return abs(off) < 2.1 and (-51.5 < s < g["cE"] or g["cW"] < s < g["L"] + 48.0)
+def near_bridge(x, y):
+    """街区中心离引桥太近（房子会压在桥下）。"""
+    s, off = bridge_so(x, y)
+    return abs(off) < 6.5 and -53.0 < s < bridge_layout()["L"] + 42.0
+def under_bridge(x, y):
+    """滨江路从引桥第一孔下面穿过的那一小段。"""
+    s, off = bridge_so(x, y)
+    g = bridge_layout()
+    return abs(off) < 4.4 and (abs(s - g["rE"]) < 1.4 or abs(s - g["rW"]) < 1.4)
+MUTE = [False]                        # True 时 plant() / house() 只消耗随机数、登记避让范围，不出几何
+
 def plant(kind, x, y, s=1.0, z=None):
     global N_PLANTS
     if isl_rho(x, y)[0] > 0.975:   # 岛缘之外不种树（避免悬空）
         return None
-    if math.hypot(x - GOOSE_POND[0], y - GOOSE_POND[1]) < GOOSE_POND[2]:
-        # 池子里不种树；照常消耗随机数，别处的树才不会跟着变
+    if MUTE[0] or no_plant(x, y):
+        # 这些地方不种树；照常消耗随机数，别处的树才不会跟着变
         if WEB:
             random.uniform(0.9, 1.1); random.randrange(len(LIB_TREES[kind])); random.uniform(0, 6.28)
         else:
@@ -1239,6 +1314,9 @@ def pagoda(b, cx, cy, z0, stories, r0, sh, shrink=0.9, body=BRICK, roof=BRONZE_T
 def house(x, y, w, d, h, ang, wall=WHITE_WALL):
     if isl_rho(x, y)[0] > 0.93:   # 岛缘之外不建房
         return
+    if MUTE[0]:
+        keep(x, y, max(w, d) * 0.7)
+        return
     b = B("House")
     z0 = ground(x, y) - 0.05
     box(b, 0, 0, z0 - 0.3, w + 0.2, d + 0.2, 0.3 + 0.08, GRANITE)
@@ -1317,8 +1395,42 @@ RED_BRICK = noise_mix(principled("RedBrick", (0.52, 0.20, 0.14), rough=0.85), (0
 GLASS = principled("Glass", (0.30, 0.40, 0.50), rough=0.15, metal=0.6, spec=0.8)
 FACADE = noise_mix(principled("Facade", (0.78, 0.76, 0.72), rough=0.7), (0.70, 0.68, 0.64), (0.86, 0.84, 0.80), 6.0)
 FACADE2 = principled("Facade2", (0.86, 0.80, 0.68), rough=0.7)
-for _m in (GOLD, STEEL, EAVE, TRIM, CONCRETE, WHITE_HULL, ASPHALT, RED_BRICK, GLASS, FACADE, FACADE2):
+# 长江大桥
+BR_PAINT = principled("BridgePaint", (0.21, 0.25, 0.25), rough=0.5, bevel=0)          # 钢桁梁的铁灰漆（浅了会和江水混成一片）
+BR_STONE = noise_mix(principled("BridgeStone", (0.74, 0.72, 0.66), rough=0.85), (0.68, 0.66, 0.60), (0.79, 0.77, 0.71), 5.0)
+BR_RAIL = principled("BridgeRail", (0.70, 0.72, 0.69), rough=0.7, bevel=0)             # 栏杆
+PIER_WET = principled("PierWet", (0.30, 0.29, 0.24), rough=0.5, bevel=0)               # 桥墩水线处的水渍
+ROAD_WHITE = principled("RoadWhite", (0.86, 0.86, 0.82), rough=0.8, bevel=0)
+ROAD_YELLOW = principled("RoadYellow", (0.86, 0.66, 0.10), rough=0.8, bevel=0)
+RAIL_BED = principled("RailBed", (0.24, 0.23, 0.21), rough=0.9, bevel=0)
+PORTAL = principled("Portal", (0.03, 0.03, 0.035), rough=0.9, bevel=0)
+TRAIN_GREEN = principled("TrainGreen", (0.09, 0.24, 0.15), rough=0.45, bevel=0)
+CAR_BLUE = principled("CarBlue", (0.12, 0.24, 0.50), rough=0.35, bevel=0)
+CAR_GREY = principled("CarGrey", (0.42, 0.43, 0.45), rough=0.35, bevel=0)
+CAR_BLACK = principled("CarBlack", (0.06, 0.06, 0.07), rough=0.3, bevel=0)
+BUS_GREEN = principled("BusGreen", (0.16, 0.46, 0.30), rough=0.4, bevel=0)
+for _m in (GOLD, STEEL, EAVE, TRIM, CONCRETE, WHITE_HULL, ASPHALT, RED_BRICK, GLASS, FACADE, FACADE2,
+           BR_PAINT, BR_STONE, BR_RAIL, PIER_WET, ROAD_WHITE, ROAD_YELLOW, RAIL_BED, PORTAL, TRAIN_GREEN, CAR_BLUE, CAR_GREY, CAR_BLACK, BUS_GREEN):
     add_fog(_m)
+# 船尾迹、桥墩后的水纹：贴着水面的泡沫带。UV 的 u = 离源头多远（0 最浓，1 消失），v = 横向位置（两边淡）
+FOAM = principled("Foam", (0.86, 0.84, 0.76), rough=0.7, bevel=0)
+nt = FOAM.node_tree
+def _fm(op, a, b):
+    n = nt.nodes.new("ShaderNodeMath"); n.operation = op
+    for k, v in enumerate((a, b)):
+        if isinstance(v, (int, float)):
+            n.inputs[k].default_value = v
+        else:
+            nt.links.new(v, n.inputs[k])
+    return n.outputs[0]
+_uv = nt.nodes.new("ShaderNodeUVMap")
+_us = nt.nodes.new("ShaderNodeSeparateXYZ")
+nt.links.new(_uv.outputs["UV"], _us.inputs["Vector"])
+_fade = _fm('POWER', _fm('MAXIMUM', _fm('SUBTRACT', 1.0, _us.outputs["X"]), 0.0), 1.3)
+_bell = _fm('MULTIPLY', _fm('MULTIPLY', _us.outputs["Y"], _fm('SUBTRACT', 1.0, _us.outputs["Y"])), 4.0)
+_fn = noise(nt, 2.4, 5.0)
+_fa = _fm('MULTIPLY', _fm('MULTIPLY', _fade, _bell), map_range(nt, _fn.outputs["Fac"], 0.0, 1.0, 0.36, 0.66))
+nt.links.new(_fm('MULTIPLY', _fa, float(arg("--foam", 0.8))), nt.nodes["Principled BSDF"].inputs["Alpha"])
 
 def gable(b, cx, cy, z, w, d, h, ang, mat=GOLD, curl=0.3, t=0.12):
     """歇山式小顶（抱厦 / 翘角）：脊沿本地 x 轴，前坡朝本地 +y（外侧），绕 (cx, cy) 转 ang。"""
@@ -1382,26 +1494,11 @@ def crane_tower(b, cx, cy, z0, stories=5, w=13.0, story_h=1.9, roof=GOLD, platfo
             prism(b, cx, cy, zt + 0.4, 0.08, 2.0, FINIAL, n=6)
     return z
 
-def bridge_ramp(b, P, s0, s1, z0, z1, W):
-    """引桥：沿 P(s) 的坡道，顶面渐变高度，两侧挡墙埋入地面。"""
-    n = max(2, int(abs(s1 - s0) / 2.0))
-    rows = []
-    for k in range(n + 1):
-        t = k / n
-        s = s0 + (s1 - s0) * t
-        z = z0 + (z1 - z0) * t
-        x, y, _ = P(s, 0.0, 0.0)
-        xl, yl, _ = P(s, W / 2, 0.0); xr, yr, _ = P(s, -W / 2, 0.0)
-        rows.append([(xl, yl, z), (xr, yr, z), (xr, yr, -1.0), (xl, yl, -1.0)])
-    verts = [p for r in rows for p in r]
-    for i in range(len(rows) - 1):
-        o, q = i * 4, (i + 1) * 4
-        b.add(verts, [(o + 0, o + 1, q + 1, q + 0)], ASPHALT)
-        b.add(verts, [(o + 1, o + 2, q + 2, q + 1)], GRANITE)
-        b.add(verts, [(o + 3, o + 0, q + 0, q + 3)], GRANITE)
-
-def yangtze_bridge(b, p0, p1, deck_z=3.4, piers=7, ramp_len=26.0):
-    """武汉长江大桥：双层钢桁架（上公路、下铁路）、石墩、两端桥头堡与引桥。p0 东岸端，p1 西岸端。"""
+def yangtze_bridge(b, p0, p1):
+    """武汉长江大桥（1957 年）。照真桥的做法：
+    正桥是 9 孔钢桁梁，公路在桁架顶上、铁路在桁架里面（原来把桁架立在公路上面，像一道栏杆），腹杆是带竖杆的菱形；
+    8 个江中桥墩，下段带分水尖；两岸各一对桥头堡，顶上是重檐攒尖的亭子；引桥是连拱高架，缓缓落到地面。
+    p0 东岸端，p1 西岸端。返回江中桥墩的位置。"""
     (x0, y0), (x1, y1) = p0, p1
     L = math.hypot(x1 - x0, y1 - y0)
     dx, dy = (x1 - x0) / L, (y1 - y0) / L
@@ -1409,43 +1506,305 @@ def yangtze_bridge(b, p0, p1, deck_z=3.4, piers=7, ramp_len=26.0):
     ang = math.atan2(dy, dx)
     def P(s, off=0.0, z=0.0):
         return (x0 + dx * s + nx * off, y0 + dy * s + ny * off, z)
-    W = 3.4
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    rbox(b, cx, cy, deck_z, L, W, 0.28, ASPHALT, ang)                  # 上层公路桥面
-    rbox(b, cx, cy, deck_z - 1.7, L, W - 0.6, 0.22, STEEL, ang)        # 下层铁路桥面
-    top = deck_z + 0.28 + 1.5
-    step = 2.6
-    n = int(L / step)
-    for side in (-1, 1):
-        off = side * (W / 2 - 0.1)
-        rod(b, P(0, off, top), P(L, off, top), 0.06, STEEL)
-        rod(b, P(0, side * W / 2, deck_z + 0.28 + 0.35), P(L, side * W / 2, deck_z + 0.28 + 0.35), 0.03, STEEL)
-        for k in range(n + 1):
-            s = min(L, k * step)
-            rod(b, P(s, off, deck_z - 1.7), P(s, off, top), 0.05, STEEL)
-            if k < n:
-                s2 = min(L, (k + 1) * step)
-                rod(b, P(s, off, deck_z - 1.7), P(s2, off, top), 0.04, STEEL)
-    for k in range(n + 1):
-        s = min(L, k * step)
-        rod(b, P(s, -W / 2 + 0.1, top), P(s, W / 2 - 0.1, top), 0.04, STEEL)
-    for k in range(1, piers + 1):
-        s = L * k / (piers + 1)
-        x, y, _ = P(s)
-        rbox(b, x, y, -2.4, 2.2, W + 1.4, deck_z - 1.7 + 2.4, GRANITE, ang)
-        rbox(b, x, y, -2.6, 3.2, W + 2.8, 1.6, GRANITE, ang)
-        keep(x, y, 3.5)
+    def G(s, off=0.0):
+        x, y, _ = P(s, off)
+        return ground(x, y)
+    def bx(s, off, z0, ls, lo, h, mat):
+        """沿桥轴摆放的长方体：ls 顺桥向的长，lo 横桥向的宽。"""
+        x, y, _ = P(s, off)
+        rbox(b, x, y, z0, ls, lo, h, mat, ang)
+    def sbox(s0, s1, o0, o1, za0, za1, zb0, zb1, mat):
+        """两端高度不同的条块（引桥是斜的）：s0 端底 za0、顶 za1；s1 端底 zb0、顶 zb1。"""
+        if s0 > s1:
+            s0, s1, za0, za1, zb0, zb1 = s1, s0, zb0, zb1, za0, za1
+        v = [P(s0, o0, za0), P(s0, o1, za0), P(s0, o1, za1), P(s0, o0, za1),
+             P(s1, o0, zb0), P(s1, o1, zb0), P(s1, o1, zb1), P(s1, o0, zb1)]
+        b.add(v, [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (3, 7, 6, 2), (1, 2, 6, 5), (0, 4, 7, 3)], mat)
+
+    # 不种树的范围沿用旧桥的，一处不改：这些范围一变，后面所有随机摆放的树和房子都会跟着变
+    for k in range(1, 8):
+        x, y, _ = P(L * k / 8); keep(x, y, 3.5)
     for (s, sgn) in ((0.0, -1), (L, 1)):
-        for side in (-1, 1):
-            xx, yy, _ = P(s + sgn * 1.4, side * (W / 2 + 1.1))
-            zz = ground(xx, yy) - 0.4
-            rbox(b, xx, yy, zz, 2.2, 2.2, deck_z + 0.28 + 2.4 - zz, GRANITE, ang)
-            hip_roof(b, xx, yy, deck_z + 0.28 + 2.4, 2.8, 2.8, 0.9, DARK_TILE, ridge=0.0, curl=0.15)
-        bridge_ramp(b, P, s, s + sgn * ramp_len, deck_z + 0.28, ground(*P(s + sgn * ramp_len)[:2]) + 0.1, W)
-        for q in range(0, int(ramp_len) + 1, 3):
+        for q in range(0, 27, 3):
             xq, yq, _ = P(s + sgn * q); keep(xq, yq, 3.0)
     for q in range(0, int(L), 4):
         xq, yq, _ = P(q); keep(xq, yq, 2.8)
+
+    g = bridge_layout()
+    cE, cW = g["cE"], g["cW"]            # 两岸桥头堡的位置
+    # 桁高和主桁间距比真桥的比例大：照真比例做，从沙盘的俯视角度看桁架几乎全被挑出的桥面挡住，只剩一条线
+    W, WV, TW = 3.0, 2.5, 2.0            # 公路桥面宽、引桥拱墙宽、两片主桁的间距
+    ZB, HT = 2.1, 2.2                    # 下弦离水面的高度（船要从下面过）、桁高
+    ZT = ZB + HT
+    ZR = ZT + 0.25                       # 公路路面
+    sLE, sLW = -BRIDGE_LAND - 6.0, L + BRIDGE_LAND          # 东岸是平地，引桥多走一段，坡才不陡；西岸落在龟山坡上
+    zLE, zLW = G(sLE) + 0.08, G(sLW) + 0.08
+    def ease(t):
+        a = 0.25                         # 前四分之一是竖曲线，后面匀坡
+        t = max(0.0, min(1.0, t))
+        return (t * t / (2 * a) if t < a else t - a / 2) / (1 - a / 2)
+    def zf(s):
+        """公路路面高度：正桥水平，引桥缓缓落到地面。"""
+        if s < cE - 1.2:
+            return ZR - (ZR - zLE) * ease((cE - 1.2 - s) / (cE - 1.2 - sLE))
+        if s > cW + 1.2:
+            return ZR - (ZR - zLW) * ease((s - cW - 1.2) / (sLW - cW - 1.2))
+        return ZR
+
+    # ---- 正桥钢桁梁：9 孔，每孔 4 个节间；上下弦、竖杆、交叉斜杆（菱形）、托人行道的悬臂托架
+    LT = cW - cE
+    n = 9 * 4
+    hp = LT / n
+    for side in (-1, 1):
+        off = side * TW / 2
+        rod(b, P(cE, off, ZB), P(cW, off, ZB), 0.10, BR_PAINT)
+        rod(b, P(cE, off, ZT - 0.16), P(cW, off, ZT - 0.16), 0.10, BR_PAINT)
+        for j in range(n + 1):
+            s = cE + j * hp
+            rod(b, P(s, off, ZB), P(s, off, ZT), 0.06, BR_PAINT)
+            if j < n:
+                rod(b, P(s, off, ZB + 0.06), P(s + hp, off, ZT - 0.06), 0.066, BR_PAINT)     # 两根斜杆粗细不同：一样粗的话交叉处的面重合，会渲染成黑块
+                rod(b, P(s, off, ZT - 0.06), P(s + hp, off, ZB + 0.06), 0.058, BR_PAINT)
+                rod(b, P(s + hp / 2, off, ZB), P(s + hp / 2, off, ZT), 0.04, BR_PAINT)
+            rod(b, P(s, off, ZT - 0.55), P(s, side * (W / 2 - 0.1), ZT + 0.04), 0.03, BR_PAINT)
+    for j in range(n + 1):
+        s = cE + j * hp
+        rod(b, P(s, -TW / 2, ZB), P(s, TW / 2, ZB), 0.05, BR_PAINT)
+        rod(b, P(s, -TW / 2, ZT - 0.14), P(s, TW / 2, ZT - 0.14), 0.04, BR_PAINT)
+    # 下层铁路：桥面板、两股道的钢轨、一列绿皮车
+    bx((cE + cW) / 2, 0.0, ZB + 0.08, LT, TW - 0.2, 0.07, RAIL_BED)
+    for o in (-0.51, -0.39, 0.39, 0.51):
+        rod(b, P(cE, o, ZB + 0.15), P(cW, o, ZB + 0.15), 0.012, STEEL)
+    zc = ZB + 0.18
+    for k in range(11):
+        sc = cE + 8.0 + k * 2.12
+        if sc + 1.1 > cW - 2.0:
+            break
+        body = BOAT_RED if k == 0 else TRAIN_GREEN                 # 车头
+        bx(sc, 0.45, zc, 2.0, 0.25, 0.27, body)
+        bx(sc, 0.45, zc + 0.27, 1.94, 0.20, 0.04, RAIL_BED)
+        bx(sc, 0.45, zc + 0.09, 2.004, 0.254, 0.03, ROAD_YELLOW)
+        if k:
+            bx(sc, 0.45, zc + 0.15, 1.8, 0.256, 0.06, GLASS)
+
+    # ---- 公路桥面：板、沥青、人行道、边梁连栏杆、标线
+    def deck(s0, s1):
+        z0, z1 = zf(s0), zf(s1)
+        sbox(s0, s1, -W / 2, W / 2, z0 - 0.18, z0 - 0.03, z1 - 0.18, z1 - 0.03, CONCRETE)
+        sbox(s0, s1, -W / 2 + 0.43, W / 2 - 0.43, z0 - 0.03, z0, z1 - 0.03, z1, ASPHALT)
+        sbox(s0, s1, -0.02, 0.02, z0 - 0.02, z0 + 0.004, z1 - 0.02, z1 + 0.004, ROAD_YELLOW)
+        sa, sb = s0 + (s1 - s0) * 0.25, s0 + (s1 - s0) * 0.75
+        for o in (-0.52, 0.52):
+            sbox(sa, sb, o - 0.015, o + 0.015, zf(sa) - 0.02, zf(sa) + 0.004, zf(sb) - 0.02, zf(sb) + 0.004, ROAD_WHITE)
+        for sd in (-1, 1):
+            a, c = sorted((sd * (W / 2 - 0.43), sd * W / 2))
+            sbox(s0, s1, a, c, z0 - 0.03, z0 + 0.035, z1 - 0.03, z1 + 0.035, STONE)
+            a, c = sorted((sd * (W / 2 - 0.06), sd * (W / 2 + 0.012)))
+            sbox(s0, s1, a, c, z0 - 0.20, z0 + 0.045, z1 - 0.20, z1 + 0.045, CONCRETE)       # 边梁
+            a, c = sorted((sd * (W / 2 - 0.045), sd * (W / 2 - 0.005)))
+            sbox(s0, s1, a, c, z0 + 0.02, z0 + 0.16, z1 + 0.02, z1 + 0.16, BR_RAIL)          # 栏杆
+    def lamp(s):
+        z = zf(s)
+        for sd in (-1, 1):
+            x, y, _ = P(s, sd * (W / 2 - 0.2))
+            prism(b, x, y, z + 0.03, 0.022, 0.62, BR_PAINT, n=5)
+            rbox(b, x, y, z + 0.62, 0.09, 0.09, 0.07, WHITE_HULL, ang)
+    cuts = [cE - 1.2 + (cW - cE + 2.4) * k / 18 for k in range(19)]
+    ne = max(2, int(round((cE - 1.2 - sLE) / 2.0)))
+    nw = max(2, int(round((sLW - cW - 1.2) / 2.0)))
+    cuts = [sLE + (cE - 1.2 - sLE) * k / ne for k in range(ne)] + cuts + [cW + 1.2 + (sLW - cW - 1.2) * (k + 1) / nw for k in range(nw)]
+    for k in range(len(cuts) - 1):
+        deck(cuts[k], cuts[k + 1])
+        if k:
+            lamp(cuts[k])
+    # 桥上的车：四条车道，间距随机（自己的随机数状态，不影响别处）
+    st = random.getstate(); random.seed(1957)
+    for sd in (-1, 1):
+        for ln in (0.27, 0.77):
+            s = sLE + random.uniform(1.0, 5.0)
+            while s < sLW - 2.0:
+                bus = random.random() < 0.13
+                ln_len = 0.95 if bus else random.uniform(0.34, 0.42)
+                wd = 0.21 if bus else 0.16
+                o = sd * ln
+                z0, z1 = zf(s) + 0.012, zf(s + ln_len) + 0.012
+                if bus:
+                    sbox(s, s + ln_len, o - wd / 2, o + wd / 2, z0, z0 + 0.27, z1, z1 + 0.27, random.choice((BUS_GREEN, WHITE_HULL, BUS_GREEN)))
+                    sbox(s + 0.03, s + ln_len - 0.03, o - wd / 2 - 0.004, o + wd / 2 + 0.004, z0 + 0.13, z0 + 0.21, z1 + 0.13, z1 + 0.21, GLASS)
+                else:
+                    body = random.choice((WHITE_HULL, WHITE_HULL, CAR_GREY, CAR_GREY, CAR_BLACK, CAR_BLUE, BOAT_RED, ROAD_YELLOW))
+                    sbox(s, s + ln_len, o - wd / 2, o + wd / 2, z0, z0 + 0.075, z1, z1 + 0.075, body)
+                    sbox(s + 0.09, s + ln_len - 0.07, o - wd / 2 + 0.012, o + wd / 2 - 0.012, z0 + 0.075, z0 + 0.13, z1 + 0.075, z1 + 0.13, PORTAL)
+                s += ln_len + random.uniform(1.2, 6.0)
+    random.setstate(st)
+
+    # ---- 江中桥墩：下段带分水尖、略有收分，上段墩身，墩帽，支座；水线处一圈水渍
+    piers = []
+    hc, ha, nose = TW / 2 + 0.45, 0.34, 0.5
+    def pier_ring(s, k, z):
+        pts = [(-ha, -hc), (0.0, -hc - nose), (ha, -hc), (ha, hc), (0.0, hc + nose), (-ha, hc)]
+        return [P(s + a * k, o * k, z) for (a, o) in pts]
+    def pier_part(s, k0, k1, z0, z1, mat):
+        v = pier_ring(s, k0, z0) + pier_ring(s, k1, z1)
+        f = [(i, (i + 1) % 6, 6 + (i + 1) % 6, 6 + i) for i in range(6)] + [tuple(range(6, 12)), tuple(reversed(range(6)))]
+        b.add(v, f, mat)
+    for k in range(1, 9):
+        s = cE + LT * k / 9
+        pier_part(s, 1.12, 1.0, -2.6, 1.2, CONCRETE)
+        pier_part(s, 1.065, 1.055, -0.06, 0.24, PIER_WET)
+        bx(s, 0.0, 1.2, 0.56, TW + 0.5, 0.6, CONCRETE)
+        bx(s, 0.0, 1.8, 0.8, TW + 0.8, 0.2, CONCRETE)
+        for sd in (-1, 1):
+            bx(s, sd * TW / 2, 2.0, 0.3, 0.26, 0.13, RAIL_BED)
+        piers.append(P(s)[:2])
+
+    # ---- 桥头堡：一对方塔夹着桥面，塔顶是重檐四角攒尖的亭子；两塔之间是桥台，临江一面是铁路的门洞
+    def bridgehead(c, sgn):
+        gz = min(G(c + a, o) for a in (-1.3, 0.0, 1.3) for o in (-1.5, 0.0, 1.5)) - 0.5
+        bx(c + sgn * 0.175, 0.0, gz, 2.05, W - 0.02, ZR - 0.05 - gz, BR_STONE)
+        bx(c - sgn * 0.86, 0.0, ZB + 0.1, 0.03, 1.2, 0.9, PORTAL)
+        bx(c - sgn * 0.87, 0.0, ZB + 1.0, 0.05, 1.4, 0.1, GRANITE)
+        for sd in (-1, 1):
+            o = sd * (W / 2 + 0.85)
+            x, y, _ = P(c, o)
+            gs = [G(c + a, o + e) for a in (-1, 1) for e in (-1, 1)]
+            tz, gm = min(gs) - 0.5, max(gs)
+            bx(c, o, tz, 2.0, 2.0, gm + 0.35 - tz, GRANITE)
+            bx(c, o, tz, 1.7, 1.7, ZR + 0.62 - tz, BR_STONE)
+            bx(c, o, ZR - 0.3, 1.78, 1.78, 0.08, GRANITE)
+            bx(c, o, ZR + 0.62, 1.94, 1.94, 0.09, GRANITE)
+            z = gm + 0.9
+            while z < ZR + 0.3:                                  # 竖条窗
+                for lat in (-0.45, 0.0, 0.45):
+                    for e in (-1, 1):
+                        bx(c + e * 0.85, o + lat, z, 0.02, 0.12, 0.27, PORTAL)
+                    bx(c + lat, o + sd * 0.85, z, 0.12, 0.02, 0.27, PORTAL)
+                z += 0.5
+            zp = ZR + 0.71
+            for e in (-1, 1):
+                bx(c + e * 0.9, o, zp, 0.06, 1.86, 0.14, BR_STONE)
+                bx(c, o + e * 0.9, zp, 1.74, 0.06, 0.14, BR_STONE)
+            bx(c, o, zp, 0.95, 0.95, 0.62, BR_STONE)
+            for e in (-1, 1):
+                bx(c + e * 0.48, o, zp + 0.06, 0.02, 0.36, 0.44, PORTAL)
+                bx(c, o + e * 0.48, zp + 0.06, 0.36, 0.02, 0.44, PORTAL)
+            for ea in (-1, 1):
+                for eo in (-1, 1):
+                    xc, yc, _ = P(c + ea * 0.68, o + eo * 0.68)
+                    prism(b, xc, yc, zp, 0.055, 0.62, BR_STONE, n=6)
+            poly_roof(b, x, y, zp + 0.60, 1.5, 0.5, 4, mat=DARK_TILE, curl=0.12, finial=False, phase=ang + math.pi / 4)
+            bx(c, o, zp + 0.78, 0.62, 0.62, 0.42, BR_STONE)
+            poly_roof(b, x, y, zp + 1.18, 0.95, 0.5, 4, mat=DARK_TILE, curl=0.10, finial=True, phase=ang + math.pi / 4)
+
+    # ---- 引桥：连拱高架；离地不够起拱的一段改成实心挡墙
+    def approach(c, sgn, sL):
+        S = lambda q: c + sgn * q
+        Q = abs(sL - c)
+        top = lambda q: zf(S(q)) - 0.05                           # 拱墙顶埋在桥面板里
+        hw, q0, bay, N = WV / 2, 1.2, 3.2, 12
+        k = 0
+        while True:
+            qa, qb = q0 + k * bay, q0 + (k + 1) * bay
+            if qb > Q - 1.0:
+                break
+            oa, ob = qa + (0.2 if k else 0.0), qb - 0.2
+            gmx = max(G(S(q), o) for q in (oa, (oa + ob) / 2, ob) for o in (-hw, 0.0, hw))
+            crown = min(zf(S(oa)), zf(S(ob))) - 0.42
+            R = (ob - oa) / 2
+            spring = max(crown - R, gmx + 0.22)
+            if crown - spring < 0.3:
+                break
+            rows = []
+            for i in range(N + 1):
+                u = -1.0 + 2.0 * i / N
+                q = (oa + ob) / 2 + u * R
+                rows.append((S(q), spring + (crown - spring) * math.sqrt(max(0.0, 1.0 - u * u)), top(q)))
+            rows.sort()
+            v = []
+            for (s, za, zt) in rows:
+                v += [P(s, -hw, za), P(s, hw, za), P(s, hw, zt), P(s, -hw, zt)]
+            f = [(0, 3, 2, 1)]
+            for i in range(N):
+                o_, q_ = i * 4, (i + 1) * 4
+                f += [(o_, o_ + 1, q_ + 1, q_), (o_ + 3, q_ + 3, q_ + 2, o_ + 2), (o_ + 1, o_ + 2, q_ + 2, q_ + 1), (o_, q_, q_ + 3, o_ + 3)]
+            f.append((N * 4, N * 4 + 1, N * 4 + 2, N * 4 + 3))
+            b.add(v, f, BR_STONE)
+            gmn = min(G(S(q), o) for q in (qb - 0.2, qb + 0.2) for o in (-hw, hw)) - 0.5
+            sbox(S(qb - 0.2), S(qb + 0.2), -hw - 0.04, hw + 0.04, gmn, top(qb - 0.2), gmn, top(qb + 0.2), BR_STONE)
+            k += 1
+        qs = q0 + k * bay
+        m = max(1, int(round((Q - qs) / 2.0)))
+        for i in range(m):
+            qa, qb = qs + (Q - qs) * i / m, qs + (Q - qs) * (i + 1) / m
+            gmn = min(G(S(q), o) for q in (qa, qb) for o in (-hw, hw)) - 0.5
+            sbox(S(qa), S(qb), -hw, hw, gmn, top(qa), gmn, top(qb), BR_STONE)
+        return k
+
+    # ---- 落地以后的大道：沥青路面跟着地面走，两侧人行道
+    def avenue(sa, sb):
+        m = max(1, int(round(abs(sb - sa) / 2.0)))
+        for i in range(m):
+            s0, s1 = sa + (sb - sa) * i / m, sa + (sb - sa) * (i + 1) / m
+            z0, z1 = G(s0) + 0.07, G(s1) + 0.07
+            sbox(s0, s1, -1.07, 1.07, z0 - 0.6, z0, z1 - 0.6, z1, ASPHALT)
+            sbox(s0, s1, -0.02, 0.02, z0 - 0.02, z0 + 0.004, z1 - 0.02, z1 + 0.004, ROAD_YELLOW)
+            for sd in (-1, 1):
+                a, c = sorted((sd * 1.07, sd * 1.5))
+                sbox(s0, s1, a, c, z0 - 0.6, z0 + 0.035, z1 - 0.6, z1 + 0.035, STONE)
+
+    bridgehead(cE, -1)
+    bridgehead(cW, 1)
+    ke = approach(cE, -1, sLE)
+    kw = approach(cW, 1, sLW)
+    sE_end = (x0 - 44.7) / -dx                                   # 东岸：接到高楼街区的路口
+    avenue(sLE, sE_end)
+    sW_end = sLW
+    while isl_rho(*P(sW_end + 1.0)[:2])[0] < 0.955 and sW_end < sLW + 16.0:
+        sW_end += 1.0
+    avenue(sLW, sW_end)
+    # 大道两侧的行道树
+    st = random.getstate(); random.seed(1958)
+    for (sa, sb) in ((sLE - 1.5, sE_end + 1.0), (sLW + 1.5, sW_end - 1.0)):
+        m = int(abs(sb - sa) / 3.0)
+        for i in range(m + 1):
+            s = sa + (sb - sa) * i / max(1, m)
+            for sd in (-1, 1):
+                x, y, _ = P(s, sd * 2.45)
+                if ground(x, y) < 2.2:
+                    plant("ginkgo" if (i + sd) % 3 else "tree", x, y, random.uniform(1.1, 1.45))
+    random.setstate(st)
+    print(f"[yc] bridge: cE={cE:.2f} cW={cW:.2f} truss={LT:.1f} zLE={zLE:.2f} zLW={zLW:.2f} arches E/W={ke}/{kw} avenue E to s={sE_end:.1f}, W to s={sW_end:.1f}")
+    return piers
+
+def wakes(boats, piers, flow):
+    """船尾迹和桥墩后的水纹：贴着水面的半透明泡沫带（材质 Foam 按 UV 淡出）。只用于成图，网页版不导出。
+    boats: [(x, y, 航向, 船长, 船宽)]；piers: [(x, y)]；flow: 水流方向（单位向量）。"""
+    b = B("Wakes")
+    def strip(pts, z=0.02):
+        """pts: [(x, y, 半宽, u)]。"""
+        for i in range(len(pts) - 1):
+            (xa, ya, wa, ua), (xb, yb, wb, ub) = pts[i], pts[i + 1]
+            ll = math.hypot(xb - xa, yb - ya)
+            if ll < 1e-6:
+                continue
+            ex, ey = (xb - xa) / ll, (yb - ya) / ll
+            px, py = -ey, ex
+            v = [(xa - px * wa, ya - py * wa, z), (xb - px * wb, yb - py * wb, z), (xb + px * wb, yb + py * wb, z), (xa + px * wa, ya + py * wa, z)]
+            b.add(v, [(0, 1, 2, 3)], FOAM, uvs=[[(ua, 0.0), (ub, 0.0), (ub, 1.0), (ua, 1.0)]])
+    M = 10
+    for (x, y, ang, L, W) in boats:
+        hx, hy = math.cos(ang), math.sin(ang)
+        strip([(x - hx * (L * 0.40 + t * 2.6 * L), y - hy * (L * 0.40 + t * 2.6 * L), W * (0.26 + 0.55 * t), 0.12 + 0.88 * t)
+               for t in (i / M for i in range(M + 1))])
+        for sd in (-1, 1):                                       # 船头两侧的八字波
+            a = ang + math.pi + sd * math.radians(19.0)
+            ax, ay = math.cos(a), math.sin(a)
+            bxs, bys = x + hx * L * 0.36, y + hy * L * 0.36
+            strip([(bxs + ax * t * 2.8 * L, bys + ay * t * 2.8 * L, 0.07 + 0.30 * t, 0.05 + 0.95 * t) for t in (i / M for i in range(M + 1))], z=0.024)
+    fx, fy = flow
+    for (x, y) in piers:
+        strip([(x + fx * (1.3 + t * 6.5), y + fy * (1.3 + t * 6.5), 0.42 + 0.55 * t, 0.5 + 0.5 * t) for t in (i / 6 for i in range(7))], z=0.016)
+    b.build()
 
 def tv_tower(b, cx, cy, z0):
     """龟山电视塔。"""
@@ -1565,7 +1924,10 @@ def build_scene():
     box(b, TX, TY, TZ - 0.15, 31.0, 31.0, 0.17, STONE)                                 # 台地石板广场
     rbox(b, TX, TY - 19.0, TZ - 0.12, 14.0, 6.0, 0.18, STONE, 0)                    # 南广场
     hall_jn(b, TX, TY - 21.5, 3.6, 0.8, 1.1, roof=GOLD, wall=COLUMN, z0=TZ, plat=0.1, ridge=0.85)   # 牌坊
-    hall_jn(b, TX, TY - 27.5, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, plat=0.1, ridge=0.85)        # 第二道牌坊
+    # 第二道牌坊：原来在 TY - 27.5，紧贴着大桥引桥，往山脚挪 3 个单位。旧位置的避让范围照旧登记、新位置的不登记（靠 no_plant），别处的树才不会跟着变
+    hall_jn(B("Muted"), TX, TY - 27.5, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, plat=0.1, ridge=0.85)
+    hall_jn(b, TX, TY - 24.5, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, plat=0.1, ridge=0.85)
+    KEEP.pop()
     for sx in (-1, 1):
         hall_jn(b, TX + sx * 9.5, TY - 16.0, 1.6, 5.5, 0.8, roof=DARK_TILE, wall=RED_WALL, z0=TZ, plat=0.08, ridge=0.9)   # 碑廊（朱红）
     pavilion_jn(b, TX + 9.0, TY + 8.5, 1.2, 0.95, n=6, z0=TZ, roof=GOLD)                   # 千禧钟亭
@@ -1605,7 +1967,7 @@ def build_scene():
 
     # ---- 武汉长江大桥 + 对岸龟山、电视塔、晴川阁
     b = B("Bridge")
-    yangtze_bridge(b, (-2.0, -31.0), (-66.0, -6.0))
+    bridge_piers = yangtze_bridge(b, BRIDGE_P0, BRIDGE_P1)
     b.build()
     b = B("WestBank")
     tv_tower(b, -78.0, 12.0, ground(-78.0, 12.0))
@@ -1623,15 +1985,34 @@ def build_scene():
             nx, ny = -dy, dx
             off = side * (RIVER_HW * (1 + 0.08 * math.sin(y * 0.05 + 1.0)) + 4.5)
             rx, ry = x + nx * off, y + ny * off
-            if isl_rho(rx, ry)[0] < 0.97 and ground(rx, ry) < 2.0 and not blocked(rx, ry):
+            if isl_rho(rx, ry)[0] < 0.97 and ground(rx, ry) < 2.0 and (not blocked(rx, ry) or under_bridge(rx, ry)):   # 滨江路从引桥第一孔下面穿过
                 rbox(b, rx, ry, ground(rx, ry) - 0.02, 2.4, 1.8, 0.05, ASPHALT, math.atan2(dy, dx))
             s += 2.0
     # 老城街道（近岸南北两片）
     for (x0s, y0s, x1s, y1s) in ((-6, -70, 62, -30), (-2, 18, 62, 78)):
+        def street(ax, ay, bx_, by_, z):
+            """一条街只铺岸上的部分。原来整条铺过去，北片的街伸到了江面上；横街竖街同高，交叉处顶面重合还渲染成黑方块。"""
+            m = max(1, int(math.hypot(bx_ - ax, by_ - ay)))
+            run = None
+            for i in range(m + 2):
+                tt = min(1.0, i / m)
+                dry = i <= m and lake_depth(ax + (bx_ - ax) * tt, ay + (by_ - ay) * tt) < -3.0
+                if dry and run is None:
+                    run = tt
+                elif not dry and run is not None:
+                    t1 = min(1.0, (i - 1) / m)
+                    if t1 > run:
+                        cx, cy = ax + (bx_ - ax) * (run + t1) / 2, ay + (by_ - ay) * (run + t1) / 2
+                        ln = math.hypot(bx_ - ax, by_ - ay) * (t1 - run)
+                        if abs(bx_ - ax) > abs(by_ - ay):
+                            rbox(b, cx, cy, z, ln, 1.6, 0.05, STONE, 0)
+                        else:
+                            rbox(b, cx, cy, z, 1.6, ln, 0.05, STONE, 0)
+                    run = None
         for yy in range(int(y0s) + 6, int(y1s) - 4, 12):
-            rbox(b, (x0s + x1s) / 2, yy, 0.27, x1s - x0s, 1.6, 0.05, STONE, 0)
+            street(x0s, yy, x1s, yy, 0.27)
         for xx in range(int(x0s) + 8, int(x1s) - 4, 16):
-            rbox(b, xx, (y0s + y1s) / 2, 0.27, 1.6, y1s - y0s, 0.05, STONE, 0)
+            street(xx, y0s, xx, y1s, 0.274)
     b.build()
     for s in [i * 2.2 for i in range(int(L_r / 2.2))]:
         x, y, dx, dy = P_r(s)
@@ -1654,11 +2035,14 @@ def build_scene():
                 ok = (lake_depth(cx, cy) < -4 and ground(cx, cy) < 1.6 and isl_rho(cx, cy)[0] < 0.94
                       and not blocked(cx, cy) and random.random() < density)
                 if ok:
+                    # 压在大桥引桥下面的街区不建：照常走一遍（随机数和避让范围都不变，别处才不会跟着变），只是不出几何
+                    MUTE[0] = near_bridge(cx, cy)
+                    tb = B("Muted") if MUTE[0] else bb
                     gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
-                    box(bb, cx, cy, gz - 0.35, bw + street * 0.8, bd + street * 0.8, 0.42, STONE)   # 街区铺地（含街道）
+                    box(tb, cx, cy, gz - 0.35, bw + street * 0.8, bd + street * 0.8, 0.42, STONE)   # 街区铺地（含街道）
                     keep(cx, cy, max(bw, bd) * 0.75)
                     if random.random() < 0.12:
-                        hall_jn(bb, cx, cy, random.uniform(3.2, 4.2), random.uniform(2.0, 2.6), 1.15, z0=gz + 0.07, double=random.random() < 0.5, stair=True)
+                        hall_jn(tb, cx, cy, random.uniform(3.2, 4.2), random.uniform(2.0, 2.6), 1.15, z0=gz + 0.07, double=random.random() < 0.5, stair=True)
                     else:
                         # 沿街两排房屋 + 中间院落树
                         for row, sy in ((0, -1), (1, 1)):
@@ -1671,6 +2055,7 @@ def build_scene():
                                 house(hx, hy, w, random.uniform(1.8, 2.3), hh, 0.0 if random.random() < 0.85 else math.pi / 2)
                         if random.random() < 0.7:
                             plant(random.choice(["tree", "tree", "willow"]), cx + random.uniform(-2, 2), cy + random.uniform(-0.8, 0.8), random.uniform(1.1, 1.6), z=gz + 0.07)
+                    MUTE[0] = False
                     if random.random() < 0.5:
                         plant("tree", x + bw + street / 2, y + random.uniform(1, bd - 1), random.uniform(1.0, 1.4))
                 y += bd + street
@@ -1691,6 +2076,7 @@ def build_scene():
             plant(random.choice(["tree", "tree", "willow", "bush", "ginkgo", "maple"]), x, y, random.uniform(1.2, 1.8))
 
     # ---- 江上船只：沿河道中心线
+    wake_boats = []
     for (s, off, kind, flip) in ((22, -4, 'barge', 0), (36, 6, 'barge', 1), (58, -7, 'cruise', 0), (74, 3, 'barge', 1),
                                  (96, -5, 'barge', 0), (118, 7, 'cruise', 1), (134, -3, 'barge', 0), (150, 5, 'barge', 1),
                                  (44, 11, 'small', 0), (86, -12, 'small', 1), (110, 12, 'small', 0), (164, -9, 'small', 1), (30, 13, 'small', 0)):
@@ -1699,11 +2085,13 @@ def build_scene():
         px, py = x + nx * off, y + ny * off
         ang = math.atan2(dy, dx) + (math.pi if flip else 0) + random.uniform(-0.08, 0.08)
         if kind == 'barge':
-            barge(px, py, ang)
+            barge(px, py, ang); wake_boats.append((px, py, ang, 6.5, 1.8))
         elif kind == 'cruise':
-            cruise(px, py, ang)
+            cruise(px, py, ang); wake_boats.append((px, py, ang, 8.5, 2.3))
         else:
             boat(px, py, ang, 1.8, 0.7, canopy=False)
+    if not WEB:
+        wakes(wake_boats, bridge_piers, (0.362, 0.932))
 
     # ---- 山林（蛇山、龟山、远山）
     x0, y0, x1, y1 = ISL
@@ -1969,7 +2357,10 @@ if WEB:
         f = de.smooth01((co.z - 0.9) / 2.5)
         hi = (0.42, 0.50, 0.40) if nrm.z < 0.45 else (0.45, 0.62, 0.42)
         lo = (1.0, 1.0, 0.85)
-        return tuple(lo[i] + (hi[i] - lo[i]) * f for i in range(3))
+        c = tuple(lo[i] + (hi[i] - lo[i]) * f for i in range(3))
+        kb = de.smooth01((0.29 - co.z) / 0.14)        # 江岸：水线以上一道湿泥护坡（成图里是材质按高度渐变，这里写进顶点色）
+        bank = (1.0, 0.70, 0.60)
+        return tuple(c[i] + (bank[i] - c[i]) * kb for i in range(3))
     de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "RiverMist"}, _vcol, uv_scale=1.0, extra={
         "title": "武汉黄鹤楼", "unit_m": 12,
         "camera": {"target": [-4, -9, 0], "az": 36, "dist": 232, "pitch": 36, "lens": 45, "min_dist": 50, "max_dist": 520},

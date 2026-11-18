@@ -85,7 +85,7 @@ Object.assign(MATERIALS, {
   FenQiang: { roughness: 0.92 }, LiKeMu: { roughness: 0.55 }, ChuangGe: { roughness: 0.6 }, ChuangAn: { roughness: 0.2, envMapIntensity: 1.2 },
   WaLong: { roughness: 0.6 }, WuJi: { roughness: 0.65 }, QingZhuan: { roughness: 0.85 }, HuaJie: { set: 'PavingStones128', normalOnly: true, repeat: 2.5, roughness: 0.85 },
 });
-const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x4f6b78, distortion: 0.9, size: 2.6 }, RiverWater: { color: 0x7a6442, distortion: 0.6, size: 3.0 } };
+const WATER = { Water: { color: 0x1d5a5c, distortion: 0.35, size: 2.5 }, LakeWater: { color: 0x4f6b78, distortion: 0.9, size: 2.6 }, RiverWater: { color: 0x6a6945, distortion: 0.6, size: 3.0 } };   // 长江：浑浊的黄绿色（原来 0x7a6442 偏土黄）
 
 const texCache = new Map();
 function loadTexture(name, { gray = false, srgb = true } = {}) {

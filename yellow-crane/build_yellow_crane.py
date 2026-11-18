@@ -392,6 +392,30 @@ def add_fog(mat, near=240.0, far=460.0, maxf=0.12, color=(0.92, 0.88, 0.78)):
     nt.links.new(em.outputs["Emission"], mx.inputs[2])
     nt.links.new(mx.outputs["Shader"], out.inputs["Surface"])
 
+# 石矶的岩壁：Rock051 岩石贴图，朝上的面生苔，贴水处发暗
+CLIFF = principled("HillRock", (0.42, 0.40, 0.36), rough=0.92, bevel=0)
+nt = CLIFF.node_tree
+_p = nt.nodes["Principled BSDF"]
+_c = tex_node(nt, "Rock051", "Color", 0.20, 'Object', noncolor=False)
+_d = tex_node(nt, "Rock051", "Displacement", 0.20, 'Object')
+_cn = noise(nt, 0.45, 4.0)
+_col = mul_color(nt, _c.outputs["Color"], rgb(nt, (2.5, 2.3, 2.0)))
+_col = mul_color(nt, _col, map_range(nt, _cn.outputs["Fac"], 0.72, 1.18))
+_geo = nt.nodes.new("ShaderNodeNewGeometry")
+_gs = nt.nodes.new("ShaderNodeSeparateXYZ")
+nt.links.new(_geo.outputs["Normal"], _gs.inputs["Vector"])
+_mn = noise(nt, 1.3, 4.0)
+_moss = mul_color(nt, rgb(nt, (0.17, 0.24, 0.11)), map_range(nt, _mn.outputs["Fac"], 0.7, 1.3))
+_mf = nt.nodes.new("ShaderNodeMath"); _mf.operation = 'MULTIPLY'
+nt.links.new(map_range(nt, _gs.outputs["Z"], 0.0, 1.0, 0.42, 0.72), _mf.inputs[0])
+nt.links.new(map_range(nt, _mn.outputs["Fac"], 0.35, 1.0, 0.35, 0.6), _mf.inputs[1])
+_col = mix_rgb(nt, _col, _moss, _mf.outputs[0], 'MIX')
+_ps = nt.nodes.new("ShaderNodeSeparateXYZ")
+nt.links.new(texcoord(nt).outputs["Object"], _ps.inputs["Vector"])
+_col = mul_color(nt, _col, map_range(nt, _ps.outputs["Z"], 0.55, 1.0, 0.0, 0.5))
+nt.links.new(_col, _p.inputs["Base Color"])
+tex_bump(nt, _d, 1.0, 0.35)
+
 for _m in list(bpy.data.materials):
     add_fog(_m)
 
@@ -424,9 +448,11 @@ class MeshB:
             data = uvl.data
             for poly, fuv in zip(me.polygons, self.uv):
                 if fuv is None:
+                    # 没给 UV 的面按朝向做盒式投影。原来一律取 (x, y)，竖直的面上贴图被拉成竖条（成图的材质用物体坐标，不受影响；网页版用 UV）
+                    ax, ay, az = (abs(c) for c in poly.normal)
                     for li in poly.loop_indices:
                         co = me.vertices[me.loops[li].vertex_index].co
-                        data[li].uv = (co.x, co.y)
+                        data[li].uv = (co.x, co.y) if (az >= ax and az >= ay) else ((co.y, co.z) if ax >= ay else (co.x, co.z))
                 else:
                     for k, li in enumerate(poly.loop_indices):
                         data[li].uv = fuv[k]
@@ -668,6 +694,56 @@ def terrain(x, y):
 def ground(x, y):
     return terrain(x, y)[0]
 
+# ----------------------------------------------------------------------------- 黄鹤楼脚下的石矶（黄鹄矶）
+# 原来楼的基座立在 ground(楼心) = 12.7 的高度，而周围的台地只有 9.6，西北角下面干脆是江面：石台整个悬空。
+# 这里把山补实成一座临江的石矶：山顶是放石台的平地，四周是岩壁，东面接蛇山的地方削成缓坡，南面留给三层石砌台地。
+# 只改地形网格的高度（terrain_geo），terrain() / ground() 一个字不动：种树、建房的判断都用它们，
+# 判断不变，随机数的消耗就不变，别处的树和房子才不会跟着变。摆放高度一律用 surface()。
+TOWER = (12.0, -6.0)
+TOWER_Z = ground(*TOWER)
+TIER_A = TOWER_Z + 0.02                 # 山顶广场的地面
+TIER_B, TIER_C = TIER_A - 4.0, TIER_A - 8.0   # 南面两层台地
+HILL_BOX = (-3.9, 27.9, -21.9, 9.9)     # 山顶挡墙的外皮（广场石板 31 × 31，四周各出 0.4）
+TIER_X = (1.6, 22.4)                    # 南面台地的东西范围（西端再往西就是大桥引桥）
+TIER_Y = (-25.9, -29.9)                 # 台地 B、C 的南沿
+def tower_sd(x, y):
+    """到山顶挡墙外皮的距离：墙内为负。"""
+    X0, X1, Y0, Y1 = HILL_BOX
+    ax, ay = max(X0 - x, x - X1), max(Y0 - y, y - Y1)
+    if ax <= 0 and ay <= 0:
+        return max(ax, ay)
+    return math.hypot(max(ax, 0.0), max(ay, 0.0))
+def terrain_geo(x, y):
+    """地形网格实际用的高度：terrain() 加上石矶的塑形。"""
+    z, k = terrain(x, y)
+    d = tower_sd(x, y)
+    if d > 9.0:
+        return z, k
+    if d <= -0.6:
+        return TIER_A - 0.3, 'land'                              # 广场石板下面
+    X0, X1, Y0, Y1 = HILL_BOX
+    n = fbm(x * 0.35 + 11.0, y * 0.35 + 3.0, 3) - 0.5
+    g = d - 0.9 + (0.9 * n + 0.22 * math.sin(2.6 * d + 9.0 * n)) * smooth01((d - 0.3) / 1.0)
+    fill = (TIER_A - 2.6) - 4.0 * max(0.0, g)                    # 岩壁：墙脚以下很陡地落下去，带一点错落
+    if fill < 0.4:                                               # 崖脚的一圈乱石滩，伸进水里
+        fill = 0.4 - 0.5 * (0.4 - fill) / 4.0
+        if fill < -0.4:
+            fill = -99.0
+    cut = TIER_A - 0.3 + 1.1 * max(0.0, d)                       # 东面蛇山比广场高：削成坡
+    z2 = min(max(z, fill), cut)
+    if TIER_X[0] < x < TIER_X[1] and y < Y0 + 0.6:               # 南面的石砌台地：地形压在砌体里面
+        if y > TIER_Y[0]:
+            z2 = min(z2, TIER_B - 0.3)
+        elif y > TIER_Y[1]:
+            z2 = min(z2, TIER_C - 0.3)
+        else:
+            z2 = z
+    if abs(z2 - z) < 1e-9:
+        return z, k
+    return z2, ('land' if z2 >= -0.25 else k)
+def surface(x, y):
+    return terrain_geo(x, y)[0]
+
 # ----------------------------------------------------------------------------- 岛屿地形 + 切面 + 江面
 ISL = (-104.0, -84.0, 86.0, 80.0)
 E_SUP = 0.6
@@ -702,11 +778,16 @@ def island():
     t0 = time.time()
     b = B("Island")
     x0, y0, x1, y1 = ISL
-    verts, kinds, faces = _clipped_grid(x0, y0, x1, y1, 0.75 if WEB else 0.5, terrain)   # 网页版地形放粗一档
+    gstep = 0.75 if WEB else 0.5                                 # 网页版地形放粗一档
+    verts, kinds, faces = _clipped_grid(x0, y0, x1, y1, gstep, terrain_geo)
     off = len(b.v)
     b.v.extend(verts)
     for f in faces:
         m = LAKEBED if any(kinds[q] == 'water' for q in f) else TERRAIN
+        if m is TERRAIN:
+            zs = [verts[q][2] for q in f]
+            if max(zs) - min(zs) > 0.9 * gstep and all(-0.7 < tower_sd(verts[q][0], verts[q][1]) < 7.5 for q in f):
+                m = CLIFF                                        # 石矶的陡面用岩石材质
         b.f.append(tuple(i + off for i in f)); b.m.append(b.mi(m)); b.uv.append(None)
     # 切面环
     cx, cy, hw, hd = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2
@@ -990,13 +1071,16 @@ def bridge_layout():
     return _BL
 def no_plant(x, y):
     """不种树的地方：鹅池、桥头堡、引桥和引桥落地后的大道。"""
-    if math.hypot(x - GOOSE_POND[0], y - GOOSE_POND[1]) < GOOSE_POND[2] or math.hypot(x - 12.0, y + 30.5) < 3.0:   # 鹅池、第二道牌坊
+    if math.hypot(x - GOOSE_POND[0], y - GOOSE_POND[1]) < GOOSE_POND[2]:   # 鹅池
         return True
     s, off = bridge_so(x, y)
     g = bridge_layout()
     if abs(off) < 3.7 and (abs(s - g["cE"]) < 1.6 or abs(s - g["cW"]) < 1.6):
         return True
-    return abs(off) < 2.1 and (-51.5 < s < g["cE"] or g["cW"] < s < g["L"] + 48.0)
+    if abs(off) < 2.1 and (-51.5 < s < g["cE"] or g["cW"] < s < g["L"] + 48.0):
+        return True
+    # 石矶的岩壁和南面的台地、前场：这里的树由 tower_hill() 自己摆
+    return tower_sd(x, y) < 4.6 or (TIER_X[0] - 1.0 < x < TIER_X[1] + 1.0 and -34.6 < y < HILL_BOX[2])
 def near_bridge(x, y):
     """街区中心离引桥太近（房子会压在桥下）。"""
     s, off = bridge_so(x, y)
@@ -1008,11 +1092,11 @@ def under_bridge(x, y):
     return abs(off) < 4.4 and (abs(s - g["rE"]) < 1.4 or abs(s - g["rW"]) < 1.4)
 MUTE = [False]                        # True 时 plant() / house() 只消耗随机数、登记避让范围，不出几何
 
-def plant(kind, x, y, s=1.0, z=None):
+def plant(kind, x, y, s=1.0, z=None, force=False):
     global N_PLANTS
     if isl_rho(x, y)[0] > 0.975:   # 岛缘之外不种树（避免悬空）
         return None
-    if MUTE[0] or no_plant(x, y):
+    if not force and (MUTE[0] or no_plant(x, y)):
         # 这些地方不种树；照常消耗随机数，别处的树才不会跟着变
         if WEB:
             random.uniform(0.9, 1.1); random.randrange(len(LIB_TREES[kind])); random.uniform(0, 6.28)
@@ -1020,7 +1104,7 @@ def plant(kind, x, y, s=1.0, z=None):
             random.choice(VARIANTS[kind]); random.uniform(0.9, 1.1); random.uniform(0.9, 1.1); random.uniform(0, 6.28)
         return None
     if z is None:
-        z = ground(x, y) - 0.03
+        z = surface(x, y) - 0.03
     if WEB:
         hh = s * TREE_H[kind] * random.uniform(0.9, 1.1)
         PLANTS.append([kind, random.randrange(len(LIB_TREES[kind])), round(x, 2), round(y, 2), round(z + 0.03, 2), round(hh, 2), round(random.uniform(0, 6.28), 2)])
@@ -1903,10 +1987,112 @@ def path(b, pts, w=0.9, mat=STONE, lift=0.03):
     s = 0.0
     while s < L:
         x, y, dx, dy = P(s)
-        rbox(b, x, y, ground(x, y) + lift - 0.05, 1.6, w, 0.06, mat, math.atan2(dy, dx))
+        rbox(b, x, y, surface(x, y) + lift - 0.05, 1.6, w, 0.06, mat, math.atan2(dy, dx))
         s += 1.4
 
 # ----------------------------------------------------------------------------- 场景布置
+def tower_hill(b):
+    """黄鹤楼脚下的砌体：山顶广场四周的挡墙和栏杆，南面三层石砌台地和之字形台阶，牌坊、碑廊、四角的亭子，前场铺地，再补树。
+    山体本身（岩壁、削坡）在 terrain_geo() 里。"""
+    X0, X1, Y0, Y1 = HILL_BOX
+    cx = TOWER[0]
+    XA, XB = TIER_X
+    YB, YC = TIER_Y
+    # ---- 山顶广场的挡墙：墙脚埋在岩石里，露出约 2.6 高；四面对接，不在拐角重叠
+    wt, zb = 0.8, TIER_A - 4.6
+    hh = TIER_A - 0.03 - zb
+    box(b, (X0 + X1) / 2, Y0 + wt / 2, zb, X1 - X0, wt, hh, STONE)
+    box(b, (X0 + X1) / 2, Y1 - wt / 2, zb, X1 - X0, wt, hh, STONE)
+    box(b, X0 + wt / 2, (Y0 + Y1) / 2, zb, wt, Y1 - Y0 - 2 * wt, hh, STONE)
+    box(b, X1 - wt / 2, (Y0 + Y1) / 2, zb, wt, Y1 - Y0 - 2 * wt, hh, STONE)
+    zr = TIER_A - 0.03
+    rail(b, [(X0 + 0.2, Y0 + 0.2), (2.0, Y0 + 0.2)], zr, step=0.7, closed=False, mat=WHITE_WALL, post=0.4)
+    rail(b, [(3.5, Y0 + 0.2), (20.5, Y0 + 0.2)], zr, step=0.7, closed=False, mat=WHITE_WALL, post=0.4)
+    rail(b, [(22.0, Y0 + 0.2), (X1 - 0.2, Y0 + 0.2), (X1 - 0.2, Y1 - 0.2), (X0 + 0.2, Y1 - 0.2), (X0 + 0.2, Y0 + 0.2)], zr,
+         step=0.7, closed=False, mat=WHITE_WALL, post=0.4)
+    # ---- 南面两层台地（实心砌体）
+    box(b, (XA + XB) / 2, (Y0 + YB) / 2, -0.2, XB - XA, Y0 - YB, TIER_B + 0.2, STONE)
+    box(b, (XA + XB) / 2, (YB + YC) / 2, -0.2, XB - XA, YB - YC, TIER_C + 0.2, STONE)
+    for (ye, zt, yn) in ((YB, TIER_B, Y0), (YC, TIER_C, YB)):
+        rail(b, [(XA + 0.15, yn - 0.1), (XA + 0.15, ye + 0.15), (cx - 1.6, ye + 0.15)], zt, step=0.7, closed=False, mat=WHITE_WALL, post=0.4)
+        rail(b, [(cx + 1.6, ye + 0.15), (XB - 0.15, ye + 0.15), (XB - 0.15, yn - 0.1)], zt, step=0.7, closed=False, mat=WHITE_WALL, post=0.4)
+    # ---- 之字形台阶：每层贴着挡墙走，实心踏步，外侧带栏杆
+    def flight(xh, xf, yc, z_top, z_bot, base, n=14, w=1.5):
+        run, rise = (xf - xh) / n, (z_top - z_bot) / n
+        for i in range(n - 1):
+            h = z_top - (i + 1) * rise
+            xs = xh + run * (i + 0.5)
+            box(b, xs, yc, base, abs(run), w, h - base, STONE)
+            box(b, xs, yc, h, abs(run), w - 0.03, 0.035, GRANITE)
+            if i % 2 == 0:
+                box(b, xs, yc - w / 2 + 0.08, h, 0.09, 0.09, 0.42, WHITE_WALL)
+        rod(b, (xh, yc - w / 2 + 0.08, z_top + 0.34), (xf - run, yc - w / 2 + 0.08, z_bot + rise + 0.34), 0.035, WHITE_WALL)
+    y1, y2, y3 = Y0 - 0.75, YB - 0.75, YC - 0.75
+    # 第一层：从广场两翼下到台地 B 的正中
+    for sd in (-1, 1):
+        box(b, cx + sd * 9.25, y1, TIER_B - 0.05, 1.5, 1.5, TIER_A - 0.05 - TIER_B + 0.05, STONE)
+        box(b, cx + sd * 9.25, y1, TIER_A - 0.05, 1.47, 1.47, 0.04, GRANITE)
+        flight(cx + sd * 8.5, cx + sd * 1.6, y1, TIER_A - 0.01, TIER_B, TIER_B - 0.05)
+    # 第二层：从台地 B 正中分下两翼到台地 C
+    box(b, cx, y2, TIER_C - 0.05, 3.2, 1.5, TIER_B - 0.04 - TIER_C + 0.05, STONE)
+    box(b, cx, y2, TIER_B - 0.04, 3.17, 1.47, 0.04, GRANITE)
+    for sd in (-1, 1):
+        flight(cx + sd * 1.6, cx + sd * 8.5, y2, TIER_B, TIER_C, TIER_C - 0.05)
+    # 第三层：从台地 C 正中分下两翼到前场（西边紧挨大桥引桥，这一跑短一些）
+    gs = [surface(cx + ox, y3 + oy) for ox in (-7.0, -3.5, 0.0, 3.5, 7.0) for oy in (-0.7, 0.0, 0.7)]
+    zg, gb = max(gs) + 0.06, min(gs) - 0.5
+    box(b, cx, y3, gb, 3.2, 1.5, TIER_C - 0.04 - gb, STONE)
+    box(b, cx, y3, TIER_C - 0.04, 3.17, 1.47, 0.04, GRANITE)
+    for sd in (-1, 1):
+        flight(cx + sd * 1.6, cx + sd * 7.2, y3, TIER_C, zg, gb)
+    # ---- 前场铺地
+    box(b, cx, YC - 2.1, gb, 14.6, 1.2, zg - gb, STONE)
+    box(b, cx + 0.75, YC - 3.35, gb, 5.5, 1.3, zg - gb, STONE)
+    # ---- 牌坊、碑廊、四角的亭子（hall_jn / pavilion_jn 自己会登记避让范围，这里不要：旧位置的已经登记过了）
+    n0 = len(KEEP)
+    hall_jn(b, cx, YB + 1.15, 3.2, 0.8, 1.1, roof=GOLD, wall=COLUMN, z0=TIER_B, plat=0.1, ridge=0.85)            # 台地 B 正中的牌坊
+    hall_jn(b, cx + 0.6, YC - 3.1, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, z0=zg - 0.02, plat=0.1, ridge=0.85)   # 前场的牌坊
+    for sd in (-1, 1):
+        hall_jn(b, cx + sd * 6.6, YB + 1.2, 3.4, 1.2, 0.8, roof=DARK_TILE, wall=RED_WALL, z0=TIER_B, plat=0.08, ridge=0.9)   # 碑廊
+    pavilion_jn(b, X1 - 1.4, Y1 - 1.4, 0.66, 0.9, n=6, z0=TIER_A, roof=GOLD)       # 千禧钟亭
+    pavilion_jn(b, X0 + 1.4, Y1 - 1.4, 0.66, 0.9, n=4, z0=TIER_A, roof=GOLD)       # 词亭
+    pavilion_jn(b, X1 - 1.4, Y0 + 1.4, 0.66, 0.9, n=6, z0=TIER_A, roof=GOLD)
+    pavilion_jn(b, X0 + 1.4, Y0 + 1.4, 0.66, 0.9, n=4, z0=TIER_A, roof=GOLD)
+    del KEEP[n0:]
+    # ---- 补树：崖脚一圈的树、岩壁上的灌木和小松、东面削坡上的松林、台地和前场的点景树（自己的随机数状态）
+    st = random.getstate(); random.seed(1223)
+    def clear(x, y):
+        s, off = bridge_so(x, y)
+        if abs(off) < 2.6 and -52.0 < s < 12.0:
+            return False
+        return not any(math.hypot(x - kx, y - ky) < kr for (kx, ky, kr) in KEEP if not (kx == TOWER[0] and ky == TOWER[1]))
+    for i in range(1500):
+        x, y = random.uniform(X0 - 7.5, X1 + 7.5), random.uniform(Y0 - 9.0, Y1 + 7.5)
+        d = tower_sd(x, y)
+        r1, r2, r3 = random.random(), random.random(), random.uniform(0.0, 1.0)
+        if d < 0.9 or d > 7.2 or (XA - 0.8 < x < XB + 0.8 and y < Y0):
+            continue
+        z = surface(x, y)
+        if z < 0.42 or not clear(x, y):
+            continue
+        slope = math.hypot(surface(x + 0.5, y) - surface(x - 0.5, y), surface(x, y + 0.5) - surface(x, y - 0.5))
+        if slope > 1.6:                                          # 岩壁上：贴着岩缝的灌木，偶尔一棵小松
+            if r1 < 0.30:
+                plant("bush", x, y, 1.0 + 0.8 * r3, z=z - 0.08, force=True)
+            elif r1 < 0.36:
+                plant("pine", x, y, 0.6 + 0.3 * r3, z=z - 0.12, force=True)
+        elif r1 < 0.55:                                          # 崖脚和坡上
+            kind = "pine" if r2 < 0.5 else ("tree" if r2 < 0.75 else ("maple" if r2 < 0.88 else "ginkgo"))
+            plant(kind, x, y, 1.2 + 0.7 * r3, z=z - 0.05, force=True)
+        elif r1 < 0.8:
+            plant("bush", x, y, 1.0 + 0.6 * r3, z=z - 0.03, force=True)
+    for (kind, x, y, s, z) in (("pine", XA + 0.8, YC + 0.9, 1.3, TIER_C), ("pine", XB - 0.8, YC + 0.9, 1.3, TIER_C),
+                               ("maple", XA + 0.9, YB + 0.9, 1.1, TIER_B), ("maple", XB - 0.9, YB + 0.9, 1.1, TIER_B),
+                               ("ginkgo", cx + 6.9, YC - 2.9, 1.4, None), ("ginkgo", cx + 9.6, YC - 2.2, 1.3, None)):
+        plant(kind, x, y, s, z=(surface(x, y) if z is None else z) - 0.03, force=True)
+    random.setstate(st)
+    print(f"[yc] tower hill: top {TIER_A:.2f}, tiers {TIER_B:.2f} / {TIER_C:.2f}, forecourt {zg:.2f}")
+
 def build_scene():
     make_variants()
     island()
@@ -1921,22 +2107,22 @@ def build_scene():
 
     # ---- 公园：广场、牌坊、碑廊、亭台、白云阁、鹅池、千禧钟、山径
     b = B("Park")
-    box(b, TX, TY, TZ - 0.15, 31.0, 31.0, 0.17, STONE)                                 # 台地石板广场
-    rbox(b, TX, TY - 19.0, TZ - 0.12, 14.0, 6.0, 0.18, STONE, 0)                    # 南广场
-    hall_jn(b, TX, TY - 21.5, 3.6, 0.8, 1.1, roof=GOLD, wall=COLUMN, z0=TZ, plat=0.1, ridge=0.85)   # 牌坊
-    # 第二道牌坊：原来在 TY - 27.5，紧贴着大桥引桥，往山脚挪 3 个单位。旧位置的避让范围照旧登记、新位置的不登记（靠 no_plant），别处的树才不会跟着变
-    hall_jn(B("Muted"), TX, TY - 27.5, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, plat=0.1, ridge=0.85)
-    hall_jn(b, TX, TY - 24.5, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, plat=0.1, ridge=0.85)
-    KEEP.pop()
+    box(b, TX, TY, TZ - 0.15, 31.0, 31.0, 0.17, STONE)                                 # 山顶广场的石板
+    # 原来摆在这一带的牌坊、碑廊、亭子、后殿，不是悬空就是埋在石台里（词亭干脆立在江里）。
+    # 旧位置照原样走一遍，只为登记避让范围（别处的树才不会跟着变），几何丢掉；新的由 tower_hill() 摆在台地上
+    old = B("Muted")
+    hall_jn(old, TX, TY - 21.5, 3.6, 0.8, 1.1, roof=GOLD, wall=COLUMN, z0=TZ, plat=0.1, ridge=0.85)
+    hall_jn(old, TX, TY - 27.5, 3.0, 0.7, 1.0, roof=GOLD, wall=COLUMN, plat=0.1, ridge=0.85)
     for sx in (-1, 1):
-        hall_jn(b, TX + sx * 9.5, TY - 16.0, 1.6, 5.5, 0.8, roof=DARK_TILE, wall=RED_WALL, z0=TZ, plat=0.08, ridge=0.9)   # 碑廊（朱红）
-    pavilion_jn(b, TX + 9.0, TY + 8.5, 1.2, 0.95, n=6, z0=TZ, roof=GOLD)                   # 千禧钟亭
-    pavilion_jn(b, TX - 9.0, TY + 8.0, 1.0, 0.9, n=4, roof=GOLD)                           # 词亭
-    hall_jn(b, TX, TY + 11.5, 4.2, 2.0, 1.0, roof=GOLD, double=True, stair=True)           # 后殿
+        hall_jn(old, TX + sx * 9.5, TY - 16.0, 1.6, 5.5, 0.8, roof=DARK_TILE, wall=RED_WALL, z0=TZ, plat=0.08, ridge=0.9)
+    pavilion_jn(old, TX + 9.0, TY + 8.5, 1.2, 0.95, n=6, z0=TZ, roof=GOLD)
+    pavilion_jn(old, TX - 9.0, TY + 8.0, 1.0, 0.9, n=4, roof=GOLD)
+    hall_jn(old, TX, TY + 11.5, 4.2, 2.0, 1.0, roof=GOLD, double=True, stair=True)
+    tower_hill(b)
     bz = crane_tower(b, 44.0, -2.0, ground(44.0, -2.0), stories=3, w=6.5, story_h=1.3, platform=False)   # 白云阁
-    pavilion_jn(b, 30.0, -12.0, 1.1, 0.9, n=6, roof=GOLD)
+    pavilion_jn(old, 30.0, -12.0, 1.1, 0.9, n=6, roof=GOLD)                               # 山体补实以后正好挂在崖边，不要了
     pavilion_jn(b, 56.0, 3.0, 1.0, 0.85, n=6)
-    pavilion_jn(b, 22.0, 6.0, 1.0, 0.85, n=8, roof=GOLD)
+    pavilion_jn(old, 22.0, 6.0, 1.0, 0.85, n=8, roof=GOLD)                               # 原来埋在石台里，不要了
     hall_jn(b, 34.0, 6.5, 3.2, 1.8, 0.9, wall=RED_WALL)
     hall_jn(b, 50.0, -8.0, 3.0, 1.6, 0.9, double=True, wall=RED_WALL)
     # 辛亥革命武昌起义纪念馆（红楼）：山脚的红砖院落
@@ -1949,11 +2135,21 @@ def build_scene():
         plant("bush", 30.0 + 3.6 * math.cos(a), -18.0 + 3.6 * math.sin(a), random.uniform(1.0, 1.5))
     pavilion_jn(b, 33.8, -18.0, 0.9, 0.8, n=6, roof=GOLD)
     # 山径与台阶
-    path(b, [(TX, TY - 24.0), (TX - 3.0, TY - 30.0), (TX - 9.0, TY - 34.0), (TX - 14.0, TY - 40.0)])
-    path(b, [(TX + 7.0, TY - 19.0), (TX + 16.0, TY - 16.0), (TX + 24.0, TY - 10.0), (TX + 32.0, TY - 4.0), (TX + 32.0, 0.0)])
-    path(b, [(TX - 7.0, TY - 19.0), (TX - 14.0, TY - 14.0), (TX - 18.0, TY - 6.0), (TX - 14.0, TY + 4.0), (TX - 6.0, TY + 10.0)])
-    path(b, [(TX, TY + 14.0), (TX + 2.0, TY + 20.0), (TX + 8.0, TY + 26.0)])
+    path(b, [(12.6, -33.9), (9.0, -36.5), (3.0, -40.0), (-2.0, -46.0)])                 # 前场 → 引桥拱下 → 老城
+    path(b, [(19.6, -32.0), (26.0, -28.0), (31.5, -21.5), (38.0, -15.0), (44.0, -10.0), (44.0, -6.0)])   # 前场 → 白云阁
+    path(b, [(14.0, 14.8), (15.0, 17.5), (20.0, 20.0)])                                    # 山北
     b.build()
+    # 白云阁周围：原来留了一大圈不种树的范围，山脊上秃了一块浅绿的坡。阁脚 4 个单位以外补上松林和秋色树（自己的随机数状态）
+    st = random.getstate(); random.seed(1224)
+    for i in range(420):
+        ang, rr = random.uniform(0, 2 * math.pi), random.uniform(4.2, 10.0)
+        x, y = 44.0 + rr * math.cos(ang), -2.0 + rr * math.sin(ang)
+        r1, r2 = random.random(), random.uniform(0.0, 1.0)
+        if any(math.hypot(x - kx, y - ky) < kr for (kx, ky, kr) in KEEP if not (kx == 44.0 and ky == -2.0)) or no_plant(x, y):
+            continue
+        kind = "pine" if r1 < 0.55 else ("tree" if r1 < 0.75 else ("maple" if r1 < 0.88 else "ginkgo"))
+        plant(kind, x, y, 1.1 + 0.7 * r2, force=True)
+    random.setstate(st)
     for k in range(28):
         a = 2 * math.pi * k / 28
         rr = 16.2 + random.uniform(-0.6, 0.6)
@@ -1985,7 +2181,7 @@ def build_scene():
             nx, ny = -dy, dx
             off = side * (RIVER_HW * (1 + 0.08 * math.sin(y * 0.05 + 1.0)) + 4.5)
             rx, ry = x + nx * off, y + ny * off
-            if isl_rho(rx, ry)[0] < 0.97 and ground(rx, ry) < 2.0 and (not blocked(rx, ry) or under_bridge(rx, ry)):   # 滨江路从引桥第一孔下面穿过
+            if isl_rho(rx, ry)[0] < 0.97 and ground(rx, ry) < 2.0 and (not blocked(rx, ry) or under_bridge(rx, ry)) and tower_sd(rx, ry) > 4.6:   # 滨江路从引桥第一孔下面穿过，到石矶脚下为止
                 rbox(b, rx, ry, ground(rx, ry) - 0.02, 2.4, 1.8, 0.05, ASPHALT, math.atan2(dy, dx))
             s += 2.0
     # 老城街道（近岸南北两片）

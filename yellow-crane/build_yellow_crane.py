@@ -1496,6 +1496,13 @@ BUS_GREEN = principled("BusGreen", (0.16, 0.46, 0.30), rough=0.4, bevel=0)
 for _m in (GOLD, STEEL, EAVE, TRIM, CONCRETE, WHITE_HULL, ASPHALT, RED_BRICK, GLASS, FACADE, FACADE2,
            BR_PAINT, BR_STONE, BR_RAIL, PIER_WET, ROAD_WHITE, ROAD_YELLOW, RAIL_BED, PORTAL, TRAIN_GREEN, CAR_BLUE, CAR_GREY, CAR_BLACK, BUS_GREEN):
     add_fog(_m)
+# 现代城区
+FACADE3 = noise_mix(principled("Facade3", (0.62, 0.49, 0.38), rough=0.75), (0.56, 0.44, 0.34), (0.68, 0.55, 0.43), 6.0)   # 暖褐色面砖
+FACADE4 = principled("Facade4", (0.54, 0.58, 0.62), rough=0.6)                             # 灰蓝色铝板
+GLASS2 = principled("GlassBlue", (0.12, 0.29, 0.35), rough=0.15, metal=0.6, spec=0.8)     # 蓝绿色玻璃幕墙
+FLATROOF = principled("FlatRoof", (0.42, 0.42, 0.41), rough=0.95, bevel=0)
+for _m in (FACADE3, FACADE4, GLASS2, FLATROOF):
+    add_fog(_m)
 # 船尾迹、桥墩后的水纹：贴着水面的泡沫带。UV 的 u = 离源头多远（0 最浓，1 消失），v = 横向位置（两边淡）
 FOAM = principled("Foam", (0.86, 0.84, 0.76), rough=0.7, bevel=0)
 nt = FOAM.node_tree
@@ -1901,28 +1908,117 @@ def tv_tower(b, cx, cy, z0):
     prism(b, cx, cy, z0 + 13.7, 1.3, 0.4, CONCRETE, n=12)
     prism(b, cx, cy, z0 + 14.1, 0.14, 5.0, STEEL, n=6)
 
-def tower_block(b, cx, cy, w, d, floors, ang=0.0, glassy=False, z0=None):
-    """现代楼房：逐层窗带（玻璃 + 外墙），顶部女儿墙与设备间。"""
-    if z0 is None:
-        z0 = max(ground(cx + sx * w / 2, cy + sy * d / 2) for sx in (-1, 1) for sy in (-1, 1)) - 0.1
-    fh = 0.62
-    rbox(b, cx, cy, z0 - 0.3, w + 0.8, d + 0.8, 0.35, CONCRETE, ang)
-    wall = FACADE2 if random.random() < 0.3 else FACADE
+def _face_cols(b, cx, cy, w, d, mat, step, width, out, zb, zt, edge):
+    """沿四个立面排一列列竖条（窗间墙、竖向窗带、幕墙竖梃）：width 宽、凸出 out。
+    edge=True 时两端各贴一根（略微收进墙角，免得和侧面共面）；否则居中等分。"""
+    for (ln, along_x) in ((w, True), (d, False)):
+        n = max(2, int(round(ln / step)) + (1 if edge else 0))
+        for k in range(n):
+            if edge:
+                u = -ln / 2 + 0.02 + width / 2 + (ln - 0.04 - width) * k / (n - 1)
+            else:
+                u = -ln / 2 + ln * (k + 0.5) / n
+            for s in (-1, 1):
+                if along_x:
+                    box(b, cx + u, cy + s * d / 2, zb, width, 2 * out, zt - zb, mat)
+                else:
+                    box(b, cx + s * w / 2, cy + u, zb, 2 * out, width, zt - zb, mat)
+
+def _roof(b, cx, cy, zt, w, d, rim, rs, n_box):
+    """平屋顶：屋面、四周女儿墙（四段对接）、几个高矮不一的设备间。"""
+    box(b, cx, cy, zt, w + 0.04, d + 0.04, 0.05, FLATROOF)
+    t_, h_ = 0.08, 0.17
+    for s in (-1, 1):
+        box(b, cx, cy + s * (d / 2 + 0.04 - t_ / 2), zt, w + 0.08, t_, h_, rim)
+        box(b, cx + s * (w / 2 + 0.04 - t_ / 2), cy, zt, t_, d + 0.08 - 2 * t_, h_, rim)
+    for j in range(n_box):
+        mw, md = rs.uniform(0.45, min(1.2, w * 0.35)), rs.uniform(0.4, min(0.9, d * 0.35))
+        mx = cx + rs.uniform(-1, 1) * (w / 2 - mw / 2 - 0.25)
+        my = cy + rs.uniform(-1, 1) * (d / 2 - md / 2 - 0.25)
+        box(b, mx, my, zt + 0.05, mw, md, 0.24 + 0.13 * j, CONCRETE if j % 2 == 0 else FACADE4)
+
+def tower_block(b, cx, cy, w, d, floors, glassy, wr, z0, rs, lot):
+    """现代高楼。三种做法：玻璃幕墙写字楼、带阳台的住宅板楼、竖向窗带的塔楼；多数带裙楼，屋顶有女儿墙、设备间、水箱或天线。
+    floors / glassy / wr 是 city() 按原来的顺序抽的随机数；其余变化都用 rs（按街区定种子的独立随机数，不动全局的）。
+    lot 是地块范围，裙楼不出地块。"""
+    H = floors * 0.62
+    nf = max(4, int(round(H / 0.41)))
+    fh = H / nf
+    zt = z0 + H
+    box(b, cx, cy, z0 - 0.5, w + 0.4, d + 0.4, 0.5 + 0.03, CONCRETE)
+    wall = FACADE2 if wr < 0.3 else FACADE
+    if not glassy and rs.random() < 0.35:
+        wall = FACADE3
+    if rs.random() < (0.8 if glassy else 0.45) and floors >= 7:          # 裙楼
+        ex, ey = rs.uniform(0.5, 1.0), rs.uniform(0.4, 0.8)
+        px0, px1 = max(lot[0] + 0.1, cx - w / 2 - ex), min(lot[2] - 0.1, cx + w / 2 + ex)
+        py0, py1 = max(lot[1] + 0.1, cy - d / 2 - ey), min(lot[3] - 0.1, cy + d / 2 + ey)
+        pcx, pcy, pw, pd, ph = (px0 + px1) / 2, (py0 + py1) / 2, px1 - px0, py1 - py0, 0.84
+        box(b, pcx, pcy, z0, pw, pd, ph, FACADE4 if glassy else CONCRETE)
+        box(b, pcx, pcy, z0 + 0.08, pw + 0.04, pd + 0.04, 0.28, GLASS)
+        box(b, pcx, pcy, z0 + 0.50, pw + 0.04, pd + 0.04, 0.20, GLASS)
+        box(b, pcx, pcy, z0 + ph, pw + 0.07, pd + 0.07, 0.05, FLATROOF)
     if glassy:
-        rbox(b, cx, cy, z0, w, d, floors * fh, GLASS, ang)
-        for k in range(floors):
-            rbox(b, cx, cy, z0 + k * fh + fh - 0.08, w + 0.06, d + 0.06, 0.08, CONCRETE, ang)
+        # 写字楼：玻璃幕墙，每层一道楼板线，竖梃
+        gm = GLASS2 if rs.random() < 0.55 else GLASS
+        frame = FACADE4 if rs.random() < 0.6 else CONCRETE
+        box(b, cx, cy, z0, w, d, H, gm)
+        for k in range(1, nf + 1):
+            box(b, cx, cy, z0 + k * fh - 0.07, w + 0.03, d + 0.03, 0.07, frame)
+        _face_cols(b, cx, cy, w, d, frame, 0.78, 0.07, 0.035, z0, zt, True)
+        _roof(b, cx, cy, zt, w, d, frame, rs, 1)
+        if floors >= 9:                                                # 顶上收进的机房层和天线
+            box(b, cx, cy, zt + 0.05, w * 0.58, d * 0.58, 0.62, gm)
+            box(b, cx, cy, zt + 0.67, w * 0.58 + 0.06, d * 0.58 + 0.06, 0.06, frame)
+            prism(b, cx + w * 0.12, cy, zt + 0.73, 0.035, rs.uniform(0.9, 1.9), STEEL, n=6)
+    elif rs.random() < 0.55:
+        # 住宅板楼：横向窗带被窗间墙分成一格格的窗，朝南一面挂阳台
+        box(b, cx, cy, z0, w, d, H, wall)
+        for k in range(nf):
+            box(b, cx, cy, z0 + k * fh + 0.11, w + 0.03, d + 0.03, fh * 0.44, GLASS)
+        _face_cols(b, cx, cy, w, d, wall, 0.64, 0.22, 0.035, z0, zt, True)
+        nb = max(2, int(w / 1.25))
+        for j in range(nb):
+            x = cx - w / 2 + (j + 0.5) * w / nb
+            for k in range(1, nf):
+                box(b, x, cy - d / 2 - 0.09, z0 + k * fh - 0.05, w / nb * 0.56, 0.18, 0.16, WHITE_WALL)
+        _roof(b, cx, cy, zt, w, d, wall, rs, 2)
+        prism(b, cx + rs.uniform(-0.3, 0.3) * w, cy + d * 0.22, zt + 0.05, 0.2, 0.3, CONCRETE, n=10)   # 水箱
     else:
-        rbox(b, cx, cy, z0, w, d, floors * fh, wall, ang)
-        for k in range(floors):
-            rbox(b, cx, cy, z0 + k * fh + 0.18, w + 0.05, d + 0.05, 0.26, GLASS, ang)
-    zt = z0 + floors * fh
-    rbox(b, cx, cy, zt, w + 0.1, d + 0.1, 0.12, CONCRETE, ang)
-    rbox(b, cx + w * 0.2, cy, zt + 0.12, w * 0.3, d * 0.4, 0.5, CONCRETE, ang)
-    keep(cx, cy, max(w, d) * 0.8)
+        # 塔楼：竖向窗带，楼板线横着压过去；顶上两层收进
+        box(b, cx, cy, z0, w, d, H, wall)
+        _face_cols(b, cx, cy, w, d, GLASS, 0.72, 0.36, 0.022, z0 + 0.4, zt - 0.2, False)
+        for k in range(1, nf):
+            box(b, cx, cy, z0 + k * fh - 0.05, w + 0.07, d + 0.07, 0.05, wall)
+        _roof(b, cx, cy, zt, w, d, wall, rs, 1)
+        cw, cd, chh = w - 0.9, d - 0.9, 2 * fh
+        box(b, cx, cy, zt + 0.05, cw, cd, chh, wall)
+        box(b, cx, cy, zt + 0.05 + 0.12, cw + 0.03, cd + 0.03, fh * 0.44, GLASS)
+        box(b, cx, cy, zt + 0.05 + fh + 0.12, cw + 0.03, cd + 0.03, fh * 0.44, GLASS)
+        box(b, cx, cy, zt + 0.05 + chh, cw + 0.08, cd + 0.08, 0.07, FLATROOF)
+
+def lowrise(b, cx, cy, w, d, nf, z0, rs):
+    """沿街的多层楼：三到七层，窗带加窗间墙，平屋顶。"""
+    wall = rs.choice((FACADE, FACADE2, FACADE3, FACADE3, RED_BRICK, FACADE4))
+    fh = 0.36
+    H = nf * fh
+    box(b, cx, cy, z0 - 0.4, w + 0.16, d + 0.16, 0.42, CONCRETE)
+    box(b, cx, cy, z0, w, d, H, wall)
+    for k in range(nf):
+        box(b, cx, cy, z0 + k * fh + 0.1, w + 0.03, d + 0.03, fh * 0.42, GLASS)
+    _face_cols(b, cx, cy, w, d, wall, 0.6, 0.2, 0.03, z0, z0 + H, True)
+    box(b, cx, cy, z0 + H, w + 0.08, d + 0.08, 0.07, FLATROOF)
+    box(b, cx + rs.uniform(-0.25, 0.25) * w, cy + rs.uniform(-0.2, 0.2) * d, z0 + H + 0.07, 0.5, 0.42, 0.24, CONCRETE)
+
+def car(b, x, y, z, ang, rs):
+    body = rs.choice((WHITE_HULL, WHITE_HULL, CAR_GREY, CAR_GREY, CAR_BLACK, CAR_BLUE, BOAT_RED, ROAD_YELLOW))
+    ln = rs.uniform(0.34, 0.42)
+    rbox(b, x, y, z, ln, 0.16, 0.075, body, ang)
+    rbox(b, x, y, z + 0.075, ln * 0.52, 0.136, 0.055, PORTAL, ang)
 
 def city(x0s, y0s, x1s, y1s, floors=(5, 14), glassy=0.35, bw=14.0, bd=12.0, street=2.6, density=0.9):
-    """现代城区：沥青街道网格 + 每个街区一块铺装地块 + 1~3 栋楼 + 行道树。"""
+    """现代城区：沥青街道网格；每个街区一块铺装地块，上面 1~3 栋高楼、几栋沿街的多层楼、一两块绿地、一圈行道树，街上有车和黄线。
+    高楼的位置、大小、层数照原来的顺序抽全局随机数（别处的树和房子才不会跟着变），其余的都用按街区定种子的随机数。"""
     b = B("City")
     x = x0s
     while x + bw < x1s:
@@ -1931,17 +2027,92 @@ def city(x0s, y0s, x1s, y1s, floors=(5, 14), glassy=0.35, bw=14.0, bd=12.0, stre
             cx, cy = x + bw / 2, y + bd / 2
             if (lake_depth(cx, cy) < -6 and ground(cx, cy) < 2.0 and not blocked(cx, cy)
                     and isl_rho(cx, cy)[0] < 0.93 and random.random() < density):
-                gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
+                gs = [ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1)]
+                gz, gb = max(gs), min(gs) - 0.45
                 box(b, cx, cy, gz - 0.35, bw + street, bd + street, 0.4, ASPHALT)       # 街区（含道路）
+                if gz - gb > 0.9:                                                       # 坡地上的街区：下面垫石砌护坡，原来是一块悬空的板
+                    box(b, cx, cy, gb, bw + street - 0.1, bd + street - 0.1, gz - 0.35 - gb, STONE)
                 box(b, cx, cy, gz + 0.05, bw - 0.8, bd - 0.8, 0.06, STONE)              # 地块铺装
                 keep(cx, cy, max(bw, bd) * 0.75)
+                seed = int(round(cx * 131 + cy * 977))
+                rs = random.Random(seed + 7)
+                lot = (cx - bw / 2 + 0.4, cy - bd / 2 + 0.4, cx + bw / 2 - 0.4, cy + bd / 2 - 0.4)
+                occ, solid = [], []
+                def hit(r):
+                    return any(r[0] < o[2] and o[0] < r[2] and r[1] < o[3] and o[1] < r[3] for o in occ)
+                def free(r):
+                    return r[0] >= lot[0] and r[1] >= lot[1] and r[2] <= lot[2] and r[3] <= lot[3] and not hit(r)
                 for i in range(random.randint(1, 3)):
                     w, d = random.uniform(2.8, 4.8), random.uniform(2.4, 3.8)
                     bx = cx + random.uniform(-bw / 2 + w / 2 + 0.6, bw / 2 - w / 2 - 0.6)
                     by = cy + random.uniform(-bd / 2 + d / 2 + 0.6, bd / 2 - d / 2 - 0.6)
-                    tower_block(b, bx, by, w, d, random.randint(*floors), 0.0, glassy=random.random() < glassy, z0=gz + 0.11)
+                    fl, gl, wr = random.randint(*floors), random.random() < glassy, random.random()
+                    keep(bx, by, max(w, d) * 0.8)
+                    # 同一街区里的楼原来会互相穿插：重叠的挪到旁边的空处，挪不开就不建
+                    for (ox, oy) in ((0, 0), (1.5, 0), (-1.5, 0), (0, 1.5), (0, -1.5), (3, 0), (-3, 0), (0, 3), (0, -3),
+                                     (3, 3), (-3, 3), (3, -3), (-3, -3), (4.5, 0), (-4.5, 0), (4.5, 3), (-4.5, 3), (4.5, -3), (-4.5, -3)):
+                        tx, ty = bx + ox, by + oy
+                        r = (tx - w / 2 - 0.5, ty - d / 2 - 0.45, tx + w / 2 + 0.5, ty + d / 2 + 0.45)
+                        if abs(tx - cx) <= bw / 2 - w / 2 - 0.6 and abs(ty - cy) <= bd / 2 - d / 2 - 0.6 and not hit(r):
+                            tower_block(b, tx, ty, w, d, fl, gl, wr, gz + 0.11, rs, lot)
+                            occ.append((r[0] - 0.55, r[1] - 0.4, r[2] + 0.55, r[3] + 0.4))            # 留出裙楼的位置
+                            solid.append((tx - w / 2, ty - d / 2, tx + w / 2, ty + d / 2))
+                            break
                 for i in range(2):
-                    plant("ginkgo" if random.random() < 0.5 else "tree", cx + random.uniform(-bw / 2, bw / 2), cy + random.uniform(-bd / 2, bd / 2), random.uniform(1.0, 1.4), z=gz + 0.1)
+                    kind = "ginkgo" if random.random() < 0.5 else "tree"
+                    tx, ty, ts = cx + random.uniform(-bw / 2, bw / 2), cy + random.uniform(-bd / 2, bd / 2), random.uniform(1.0, 1.4)
+                    MUTE[0] = any(o[0] < tx < o[2] and o[1] < ty < o[3] for o in occ)     # 落在楼里的不种（照常消耗随机数）
+                    plant(kind, tx, ty, ts, z=gz + 0.1)
+                    MUTE[0] = False
+                # ---- 以下用这个街区自己的随机数状态
+                st = random.getstate(); random.seed(seed + 11)
+                n_low = 0
+                for i in range(22):                                                    # 沿街的多层楼
+                    w2, d2 = random.uniform(2.4, 4.6), random.uniform(1.5, 2.1)
+                    side, u, nfl = random.randrange(4), random.uniform(-1.0, 1.0), random.randint(3, 7)
+                    if side < 2:
+                        px = cx + u * (bw / 2 - 0.4 - 0.5 - w2 / 2)
+                        py = cy + (-1 if side == 0 else 1) * (bd / 2 - 0.4 - 0.55 - d2 / 2)
+                    else:
+                        w2, d2 = d2, w2
+                        px = cx + (-1 if side == 2 else 1) * (bw / 2 - 0.4 - 0.55 - w2 / 2)
+                        py = cy + u * (bd / 2 - 0.4 - 0.5 - d2 / 2)
+                    r = (px - w2 / 2 - 0.3, py - d2 / 2 - 0.3, px + w2 / 2 + 0.3, py + d2 / 2 + 0.3)
+                    if n_low < 4 and free(r):
+                        lowrise(b, px, py, w2, d2, nfl, gz + 0.11, random)
+                        occ.append(r); solid.append((px - w2 / 2, py - d2 / 2, px + w2 / 2, py + d2 / 2))
+                        n_low += 1
+                n_lawn = 0
+                for i in range(10):                                                    # 楼间绿地
+                    w3, d3 = random.uniform(1.8, 3.6), random.uniform(1.3, 2.4)
+                    px, py = cx + random.uniform(-1, 1) * (bw / 2 - 1.2 - w3 / 2), cy + random.uniform(-1, 1) * (bd / 2 - 1.2 - d3 / 2)
+                    k1, k2, s1, s2 = random.random(), random.random(), random.uniform(0.9, 1.25), random.uniform(0.9, 1.25)
+                    r = (px - w3 / 2 - 0.15, py - d3 / 2 - 0.15, px + w3 / 2 + 0.15, py + d3 / 2 + 0.15)
+                    if n_lawn < 2 and free(r):
+                        box(b, px, py, gz + 0.11, w3, d3, 0.04, LAWN)
+                        plant("tree" if k1 < 0.6 else "maple", px - w3 * 0.22, py, s1, z=gz + 0.13, force=True)
+                        if w3 > 2.6:
+                            plant("ginkgo" if k2 < 0.5 else "tree", px + w3 * 0.25, py + d3 * 0.1, s2, z=gz + 0.13, force=True)
+                        occ.append(r); n_lawn += 1
+                hx, hy = bw / 2 - 0.4, bd / 2 - 0.4                                   # 行道树：沿地块四边
+                for (ln, fixed, along_x) in ((2 * hx, -hy + 0.3, True), (2 * hx, hy - 0.3, True), (2 * hy, -hx + 0.3, False), (2 * hy, hx - 0.3, False)):
+                    m = int(ln / 2.3)
+                    for k in range(m):
+                        u = -ln / 2 + ln * (k + 0.5) / m + random.uniform(-0.25, 0.25)
+                        px, py = (cx + u, cy + fixed) if along_x else (cx + fixed, cy + u)
+                        kd, ss = random.random(), random.uniform(0.72, 0.98)
+                        if not any(o[0] - 0.12 < px < o[2] + 0.12 and o[1] - 0.12 < py < o[3] + 0.12 for o in solid):
+                            plant("ginkgo" if kd < 0.4 else "tree", px, py, ss, z=gz + 0.09, force=True)
+                for i in range(random.randint(7, 12)):                                 # 街上的车
+                    side, u, lane = random.randrange(4), random.uniform(-1.0, 1.0), random.uniform(0.3, 1.25)
+                    if side < 2:
+                        car(b, cx + u * (bw / 2 - 0.5), cy + (-1 if side == 0 else 1) * (hy + lane), gz + 0.062, 0.0, random)
+                    else:
+                        car(b, cx + (-1 if side == 2 else 1) * (hx + lane), cy + u * (bd / 2 - 0.5), gz + 0.062, math.pi / 2, random)
+                for s in (-1, 1):                                                      # 街道中线（和邻街区的并成双黄线）
+                    box(b, cx, cy + s * ((bd + street) / 2 - 0.035), gz + 0.04, bw + street - 0.6, 0.03, 0.014, ROAD_YELLOW)
+                    box(b, cx + s * ((bw + street) / 2 - 0.035), cy, gz + 0.04, 0.03, bd + street - 0.6, 0.0145, ROAD_YELLOW)
+                random.setstate(st)
             y += bd + street
         x += bw + street
     b.build()
@@ -2564,6 +2735,8 @@ if WEB:
         "backdrop": [[0.90, 0.85, 0.72], [0.94, 0.90, 0.79]],
         "water": ["RiverWater"], "bounds": list(ISL), "shadow_half": 115, "fog": [0.92, 0.88, 0.78],
         "hdri": "belfast_sunset_puresky_1k.hdr",
+        # 网页版的窗玻璃压暗：玻璃本身是很浅的蓝灰，成图里靠反射天空显深，网页里贴在白墙上看不出窗格
+        "mat": {"Glass": {"metalness": 0.3, "roughness": 0.25, "envMapIntensity": 0.6, "tint": [0.3, 0.34, 0.4]}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,

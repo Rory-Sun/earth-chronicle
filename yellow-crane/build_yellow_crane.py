@@ -847,6 +847,10 @@ def island():
 
 # ----------------------------------------------------------------------------- 植被（实例化）
 KEEP = []   # (x, y, r) 禁止种树的区域
+BLOCKS = []      # 已建的街区（老城、现代城区）：grow_quarters() 从它们往外补新街区
+NEW_ZONES = []   # 新补街区的范围 (x0, y0, x1, y1)：这里不再种树（no_plant），不登记 keep()，免得改动后面的随机数
+PLANT_REG = []   # 已种的树 (x, y, 物体或 PLANTS 下标)：新街区落下来时把压在下面的树拿掉
+PATHS = []       # 山径的折线：新街区不压山径
 def keep(x, y, r):
     KEEP.append((x, y, r))
 def blocked(x, y):
@@ -1079,6 +1083,8 @@ def no_plant(x, y):
         return True
     if abs(off) < 2.1 and (-51.5 < s < g["cE"] or g["cW"] < s < g["L"] + 48.0):
         return True
+    if any(z[0] < x < z[2] and z[1] < y < z[3] for z in NEW_ZONES):
+        return True
     # 石矶的岩壁和南面的台地、前场：这里的树由 tower_hill() 自己摆
     return tower_sd(x, y) < 4.6 or (TIER_X[0] - 1.0 < x < TIER_X[1] + 1.0 and -34.6 < y < HILL_BOX[2])
 def near_bridge(x, y):
@@ -1108,6 +1114,7 @@ def plant(kind, x, y, s=1.0, z=None, force=False):
     if WEB:
         hh = s * TREE_H[kind] * random.uniform(0.9, 1.1)
         PLANTS.append([kind, random.randrange(len(LIB_TREES[kind])), round(x, 2), round(y, 2), round(z + 0.03, 2), round(hh, 2), round(random.uniform(0, 6.28), 2)])
+        PLANT_REG.append((x, y, len(PLANTS) - 1))
         N_PLANTS += 1
         return None
     me, h, z0 = random.choice(VARIANTS[kind])
@@ -1117,6 +1124,7 @@ def plant(kind, x, y, s=1.0, z=None, force=False):
     ob.location = (x, y, z - z0 * k)
     ob.rotation_euler = (0, 0, random.uniform(0, 6.28))
     COL.objects.link(ob)
+    PLANT_REG.append((x, y, ob))
     N_PLANTS += 1
     return ob
 
@@ -1395,19 +1403,57 @@ def pagoda(b, cx, cy, z0, stories, r0, sh, shrink=0.9, body=BRICK, roof=BRONZE_T
     for k in range(4):
         prism(b, cx, cy, zt + 0.15 + k * 0.25, 0.22 - 0.03 * k, 0.06, FINIAL, n=8)
 
-def house(x, y, w, d, h, ang, wall=WHITE_WALL):
-    if isl_rho(x, y)[0] > 0.93:   # 岛缘之外不建房
-        return
-    if MUTE[0]:
-        keep(x, y, max(w, d) * 0.7)
-        return
+HOUSES = []      # 网页导出时合并所有民居用的网格构建器
+def _house(x, y, w, d, h, ang, rs):
+    """一排联排的老房子：硬山瓦顶，两端和几户之间立马头墙（三级叠落，压黑瓦顶），正面一条木门板，背面和楼上开窗。
+    原来每栋都是一样的白盒子加四坡顶。墙面有粉墙、青砖、红砖三种（rs 是按位置定种子的独立随机数）。"""
     b = B("House")
     z0 = ground(x, y) - 0.05
-    box(b, 0, 0, z0 - 0.3, w + 0.2, d + 0.2, 0.3 + 0.08, GRANITE)
-    box(b, 0, 0, z0 + 0.08, w, d, h, wall)
-    box(b, 0, -d / 2 + 0.005, z0 + 0.2, w * 0.7, 0.03, h * 0.6, LATTICE)
-    hip_roof(b, 0, 0, z0 + 0.08 + h, w + 0.5, d + 0.5, 0.36 * d + 0.15, DARK_TILE, ridge=0.7, curl=0.1)
-    b.build(loc=(x, y, 0), rot=ang)
+    r = rs.random()
+    wall = WHITE_WALL if r < 0.62 else (GREYBRICK if r < 0.86 else RED_BRICK)
+    two = h > 0.92
+    zb = z0 + 0.08
+    zr = zb + h
+    rh = 0.36 * d + 0.15
+    box(b, 0, 0, z0 - 0.3, w + 0.2, d + 0.2, 0.38, GRANITE)
+    box(b, 0, 0, zb, w, d, h, wall)
+    box(b, 0, -d / 2, zb + 0.06, w * 0.86, 0.03, min(0.34, h * 0.42), LATTICE)
+    if two:
+        box(b, 0, -d / 2, zr - 0.36, w * 0.86, 0.026, 0.2, LATTICE)
+    box(b, 0, d / 2, (zr - 0.36) if two else (zb + 0.2), w * 0.8, 0.026, 0.2, LATTICE)
+    hip_roof(b, 0, 0, zr, w + 0.06, d + 0.5, rh, DARK_TILE, ridge=1.0, curl=0.06)
+    units = max(2, int(round(w / 0.95)))
+    xs = [-w / 2, w / 2] + [-w / 2 + w * k / units for k in range(1, units) if rs.random() < 0.5]
+    wm = WHITE_WALL if wall is WHITE_WALL else GREYBRICK
+    dd = d + 0.36
+    for xw in xs:
+        # 三段叠着放，不套在一起：套着的话侧面重合，会渲染成黑块
+        box(b, xw, 0, zb, 0.1, dd, h + 0.14, wm)
+        box(b, xw, 0, zr + 0.14, 0.1, dd * 0.64, rh * 0.52, wm)
+        box(b, xw, 0, zr + 0.14 + rh * 0.52, 0.1, dd * 0.3, rh * 0.5 + 0.02, wm)
+        box(b, xw, 0, zr + 0.14, 0.17, dd + 0.08, 0.045, RIDGE)
+        box(b, xw, 0, zr + 0.14 + rh * 0.52, 0.17, dd * 0.64 + 0.08, 0.045, RIDGE)
+        box(b, xw, 0, zr + 0.16 + rh * 1.02, 0.17, dd * 0.3 + 0.08, 0.045, RIDGE)
+    if not WEB:
+        b.build(loc=(x, y, 0), rot=ang)
+        return
+    # 网页版：所有民居并进一个网格（每栋一个物体的话，一百多栋就是几百个小图元，文件大、绘制调用也多）
+    if not HOUSES:
+        HOUSES.append(B("Houses"))
+    dst = HOUSES[0]
+    c, s = math.cos(ang), math.sin(ang)
+    off = len(dst.v)
+    dst.v.extend((x + vx * c - vy * s, y + vx * s + vy * c, vz) for (vx, vy, vz) in b.v)
+    dst.f.extend(tuple(i + off for i in f) for f in b.f)
+    dst.m.extend(dst.mi(b.mats[mi]) for mi in b.m)
+    dst.uv.extend(b.uv)
+
+def house(x, y, w, d, h, ang):
+    if isl_rho(x, y)[0] > 0.93:   # 岛缘之外不建房
+        return
+    if not MUTE[0]:
+        # 横过来的那几栋截短：原来和竖排的一样长，会插进左右邻居
+        _house(x, y, min(w, 2.3) if ang != 0.0 else w, d, h, ang, random.Random(int(round(x * 517 + y * 293)) + 3))
     keep(x, y, max(w, d) * 0.7)
 
 def compound(b, cx, cy, w, d, wall_mat, nh=3, roof=DARK_TILE, z0=None, gate=True):
@@ -1997,7 +2043,7 @@ def tower_block(b, cx, cy, w, d, floors, glassy, wr, z0, rs, lot):
         box(b, cx, cy, zt + 0.05 + fh + 0.12, cw + 0.03, cd + 0.03, fh * 0.44, GLASS)
         box(b, cx, cy, zt + 0.05 + chh, cw + 0.08, cd + 0.08, 0.07, FLATROOF)
 
-def lowrise(b, cx, cy, w, d, nf, z0, rs):
+def lowrise(b, cx, cy, w, d, nf, z0, rs, pitched=False):
     """沿街的多层楼：三到七层，窗带加窗间墙，平屋顶。"""
     wall = rs.choice((FACADE, FACADE2, FACADE3, FACADE3, RED_BRICK, FACADE4))
     fh = 0.36
@@ -2007,6 +2053,9 @@ def lowrise(b, cx, cy, w, d, nf, z0, rs):
     for k in range(nf):
         box(b, cx, cy, z0 + k * fh + 0.1, w + 0.03, d + 0.03, fh * 0.42, GLASS)
     _face_cols(b, cx, cy, w, d, wall, 0.6, 0.2, 0.03, z0, z0 + H, True)
+    if pitched:
+        hip_roof(b, cx, cy, z0 + H, w + 0.3, d + 0.3, 0.3, BRONZE_TILE if rs.random() < 0.5 else DARK_TILE, ridge=0.78, curl=0.02, ridge_beam=False)
+        return
     box(b, cx, cy, z0 + H, w + 0.08, d + 0.08, 0.07, FLATROOF)
     box(b, cx + rs.uniform(-0.25, 0.25) * w, cy + rs.uniform(-0.2, 0.2) * d, z0 + H + 0.07, 0.5, 0.42, 0.24, CONCRETE)
 
@@ -2034,6 +2083,8 @@ def city(x0s, y0s, x1s, y1s, floors=(5, 14), glassy=0.35, bw=14.0, bd=12.0, stre
                     box(b, cx, cy, gb, bw + street - 0.1, bd + street - 0.1, gz - 0.35 - gb, STONE)
                 box(b, cx, cy, gz + 0.05, bw - 0.8, bd - 0.8, 0.06, STONE)              # 地块铺装
                 keep(cx, cy, max(bw, bd) * 0.75)
+                BLOCKS.append({"kind": "city", "cx": cx, "cy": cy, "hx": (bw + street) / 2, "hy": (bd + street) / 2,
+                               "px": bw + street, "py": bd + street, "bw": bw, "bd": bd, "street": street})
                 seed = int(round(cx * 131 + cy * 977))
                 rs = random.Random(seed + 7)
                 lot = (cx - bw / 2 + 0.4, cy - bd / 2 + 0.4, cx + bw / 2 - 0.4, cy + bd / 2 - 0.4)
@@ -2154,6 +2205,7 @@ def cruise(x, y, ang, L=8.5, W=2.3):
     b.build(loc=(x, y, 0), rot=ang)
 
 def path(b, pts, w=0.9, mat=STONE, lift=0.03):
+    PATHS.append(list(pts))
     P, L = polyline(pts)
     s = 0.0
     while s < L:
@@ -2162,6 +2214,233 @@ def path(b, pts, w=0.9, mat=STONE, lift=0.03):
         s += 1.4
 
 # ----------------------------------------------------------------------------- 场景布置
+def town_block(bb, x, y, bw, bd, street):
+    """一个老城街区：铺地，沿街两排联排民居（偶尔换成一座厅堂），院里一棵树；然后是院里的厢房、树和两头的院墙。
+    前半段全局随机数的抽取顺序和原来写在 town() 里时一模一样。返回是否真的建了（压在大桥引桥下面的不建）。"""
+    cx, cy = x + bw / 2, y + bd / 2
+    # 压在大桥引桥下面的街区不建：照常走一遍（随机数和避让范围都不变，别处才不会跟着变），只是不出几何
+    MUTE[0] = near_bridge(cx, cy)
+    tb = B("Muted") if MUTE[0] else bb
+    gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
+    box(tb, cx, cy, gz - 0.35, bw + street * 0.8, bd + street * 0.8, 0.42, STONE)   # 街区铺地（含街道）
+    keep(cx, cy, max(bw, bd) * 0.75)
+    hall = random.random() < 0.12
+    if hall:
+        hall_jn(tb, cx, cy, random.uniform(3.2, 4.2), random.uniform(2.0, 2.6), 1.15, z0=gz + 0.07, double=random.random() < 0.5, stair=True)
+    else:
+        for row, sy in ((0, -1), (1, 1)):
+            n = random.randint(3, 4)
+            for k in range(n):
+                w = bw / n - 0.5
+                hx = x + w / 2 + 0.25 + k * (bw / n)
+                hy = cy + sy * (bd / 2 - 1.3)
+                hh = random.uniform(0.7, 1.15)
+                house(hx, hy, w, random.uniform(1.8, 2.3), hh, 0.0 if random.random() < 0.85 else math.pi / 2)
+        if random.random() < 0.7:
+            plant(random.choice(["tree", "tree", "willow"]), cx + random.uniform(-2, 2), cy + random.uniform(-0.8, 0.8), random.uniform(1.1, 1.6), z=gz + 0.07)
+    muted = MUTE[0]
+    MUTE[0] = False
+    if random.random() < 0.5:
+        plant("tree", x + bw + street / 2, y + random.uniform(1, bd - 1), random.uniform(1.0, 1.4))
+    if muted:
+        return False
+    # ---- 以下用这个街区自己的随机数状态
+    st = random.getstate(); random.seed(int(round(cx * 211 + cy * 613)) + 5)
+    z = gz + 0.07
+    if not hall:
+        used = []
+        for i in range(random.randint(1, 3)):                    # 院里的厢房：把前后两排连成几进院子
+            wx = cx + random.uniform(-1, 1) * (bw / 2 - 1.8)
+            ww, wd, wh, sd = random.uniform(1.3, 1.7), random.uniform(2.4, 3.2), random.uniform(0.6, 0.85), random.randrange(1 << 30)
+            if all(abs(wx - u) > 2.6 for u in used):
+                _house(wx, cy, wd, ww, wh, math.pi / 2, random.Random(sd))
+                used.append(wx)
+        for i in range(random.randint(2, 4)):                    # 院里的树
+            tx, ty = cx + random.uniform(-1, 1) * (bw / 2 - 1.0), cy + random.uniform(-1, 1) * 0.9
+            kd, ss = random.random(), random.uniform(0.8, 1.2)
+            if all(abs(tx - u) > 1.4 for u in used):
+                plant("tree" if kd < 0.55 else ("ginkgo" if kd < 0.8 else "peach"), tx, ty, ss, z=z, force=True)
+        for sx in (-1, 1):                                       # 街区两头的院墙和门楼
+            xw = cx + sx * (bw / 2 + 0.06)
+            box(bb, xw, cy, z - 0.05, 0.14, 4.3, 0.64, WHITE_WALL)
+            box(bb, xw, cy, z + 0.59, 0.24, 4.4, 0.06, RIDGE)
+            box(bb, xw + sx * 0.07, cy, z, 0.03, 0.5, 0.42, LATTICE)
+            box(bb, xw, cy, z + 0.65, 0.44, 0.9, 0.07, RIDGE)
+    random.setstate(st)
+    return True
+
+def xiaoqu_block(b, cx, cy, bw, bd, street):
+    """多层住宅小区：三排朝南的板楼，排与排之间是带树的绿地，四周行道树，街上有车；偶尔换成一块街心公园。
+    全部用调用前定好种子的全局随机数（调用方负责保存和恢复随机数状态）。"""
+    gs = [ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1)]
+    gz, gb = max(gs), min(gs) - 0.45
+    box(b, cx, cy, gz - 0.35, bw + street, bd + street, 0.4, ASPHALT)
+    if gz - gb > 0.9:
+        box(b, cx, cy, gb, bw + street - 0.1, bd + street - 0.1, gz - 0.35 - gb, STONE)
+    box(b, cx, cy, gz + 0.05, bw - 0.8, bd - 0.8, 0.06, STONE)
+    z = gz + 0.11
+    hx, hy = bw / 2 - 0.4, bd / 2 - 0.4
+    solid = []
+    if random.random() < 0.2:
+        # 街心公园：草地、十字石径、中间一座亭子、一圈树
+        box(b, cx, cy, z, 2 * hx - 1.2, 2 * hy - 1.2, 0.04, LAWN)
+        box(b, cx, cy, z, 2 * hx - 1.2, 0.7, 0.05, STONE)
+        box(b, cx, cy, z, 0.7, 2 * hy - 1.2, 0.055, STONE)
+        prism(b, cx, cy, z, 1.5, 0.06, STONE, n=12)
+        pavilion_jn(b, cx, cy, 0.7, 0.85, n=6, z0=z + 0.06, roof=DARK_TILE)
+        for i in range(22):
+            tx, ty = cx + random.uniform(-1, 1) * (hx - 1.0), cy + random.uniform(-1, 1) * (hy - 1.0)
+            kd, ss = random.random(), random.uniform(1.0, 1.5)
+            if abs(tx - cx) > 0.8 and abs(ty - cy) > 0.8 and math.hypot(tx - cx, ty - cy) > 2.3:
+                plant("tree" if kd < 0.45 else ("ginkgo" if kd < 0.65 else ("maple" if kd < 0.8 else "pine")), tx, ty, ss, z=z + 0.02, force=True)
+    else:
+        nf0, pit = random.randint(5, 7), (0.7 if random.random() < 0.45 else 0.0)
+        for yo in (-3.7, 0.0, 3.7):
+            xc = cx - hx + random.uniform(0.7, 1.2)
+            while True:
+                w, d, gap = random.uniform(3.0, 4.6), random.uniform(1.25, 1.5), random.uniform(0.7, 1.3)
+                nf, pt, sd = max(4, nf0 + random.randint(-1, 0)), random.random() < pit, random.randrange(1 << 30)
+                if xc + w > cx + hx - 0.7:
+                    break
+                lowrise(b, xc + w / 2, cy + yo, w, d, nf, z, random.Random(sd), pitched=pt)
+                solid.append((xc, cy + yo - d / 2, xc + w, cy + yo + d / 2))
+                xc += w + gap
+        for yo in (-1.85, 1.85):                                 # 排与排之间的绿地
+            box(b, cx, cy + yo, z, 2 * hx - 2.0, 1.15, 0.04, LAWN)
+            m = int((2 * hx - 2.4) / 1.9)
+            for k in range(m):
+                tx = cx - hx + 1.2 + (2 * hx - 2.4) * (k + 0.5) / m + random.uniform(-0.3, 0.3)
+                kd, ss = random.random(), random.uniform(0.8, 1.15)
+                plant("tree" if kd < 0.6 else ("ginkgo" if kd < 0.85 else "maple"), tx, cy + yo, ss, z=z + 0.02, force=True)
+    for (ln, fixed, along_x) in ((2 * hx, -hy + 0.3, True), (2 * hx, hy - 0.3, True), (2 * hy, -hx + 0.3, False), (2 * hy, hx - 0.3, False)):
+        m = int(ln / 2.3)
+        for k in range(m):
+            u = -ln / 2 + ln * (k + 0.5) / m + random.uniform(-0.25, 0.25)
+            px, py = (cx + u, cy + fixed) if along_x else (cx + fixed, cy + u)
+            kd, ss = random.random(), random.uniform(0.72, 0.98)
+            if not any(o[0] - 0.12 < px < o[2] + 0.12 and o[1] - 0.12 < py < o[3] + 0.12 for o in solid):
+                plant("ginkgo" if kd < 0.4 else "tree", px, py, ss, z=gz + 0.09, force=True)
+    for i in range(random.randint(6, 10)):
+        side, u, lane = random.randrange(4), random.uniform(-1.0, 1.0), random.uniform(0.3, 1.25)
+        if side < 2:
+            car(b, cx + u * (bw / 2 - 0.5), cy + (-1 if side == 0 else 1) * (hy + lane), gz + 0.062, 0.0, random)
+        else:
+            car(b, cx + (-1 if side == 2 else 1) * (hx + lane), cy + u * (bd / 2 - 0.5), gz + 0.062, math.pi / 2, random)
+    for s in (-1, 1):
+        box(b, cx, cy + s * ((bd + street) / 2 - 0.035), gz + 0.04, bw + street - 0.6, 0.03, 0.014, ROAD_YELLOW)
+        box(b, cx + s * ((bw + street) / 2 - 0.035), cy, gz + 0.04, 0.03, bd + street - 0.6, 0.0145, ROAD_YELLOW)
+
+def grow_quarters(cap_town=9, cap_city=12, max_depth=3):
+    """把空旷的平地补成城区：从已有的街区出发，往东西南北四个方向按原来的街区间距往外长，
+    老城旁边长出老城街区，现代城区旁边长出多层住宅小区；只落在平坦、离江够远、不压任何已有东西的地方。
+    新街区不登记 keep()（那会改动后面种树的随机数），范围记在 NEW_ZONES 里由 no_plant() 挡树；压在下面的已有的树拿掉。"""
+    global N_PLANTS
+    st = random.getstate()
+    L = bridge_layout()["L"]
+    solid_keep = [k for k in KEEP if not any(abs(k[0] - q["cx"]) < q["hx"] and abs(k[1] - q["cy"]) < q["hy"] for q in BLOCKS)]
+    path_pts = []
+    for pts in PATHS:
+        for (a, c) in zip(pts[:-1], pts[1:]):
+            m = max(1, int(math.hypot(c[0] - a[0], c[1] - a[1])))
+            path_pts += [(a[0] + (c[0] - a[0]) * i / m, a[1] + (c[1] - a[1]) * i / m) for i in range(m + 1)]
+    def clash(c):
+        """和已有的街区重叠（贴着可以）。"""
+        x0, y0, x1, y1 = c["cx"] - c["hx"] - 0.2, c["cy"] - c["hy"] - 0.2, c["cx"] + c["hx"] + 0.2, c["cy"] + c["hy"] + 0.2
+        return any(x0 + 0.25 < q["cx"] + q["hx"] and q["cx"] - q["hx"] < x1 - 0.25 and y0 + 0.25 < q["cy"] + q["hy"] and q["cy"] - q["hy"] < y1 - 0.25
+                   for q in BLOCKS)
+    def site_ok(c, n=7):
+        """这块地能不能建：平坦、离江和岛缘够远、不压已有的建筑、大桥、石矶和山径。"""
+        x0, y0, x1, y1 = c["cx"] - c["hx"] - 0.2, c["cy"] - c["hy"] - 0.2, c["cx"] + c["hx"] + 0.2, c["cy"] + c["hy"] + 0.2
+        zs = []
+        for i in range(n):
+            for j in range(n):
+                px, py = x0 + (x1 - x0) * i / (n - 1), y0 + (y1 - y0) * j / (n - 1)
+                if lake_depth(px, py) > -6.0 or isl_rho(px, py)[0] > 0.962:     # 离江、离岛缘都留一点余地
+                    return False
+                g = ground(px, py)
+                if g > 1.6 or tower_sd(px, py) < 6.0:
+                    return False
+                zs.append(g)
+                if any(math.hypot(px - kx, py - ky) < kr for (kx, ky, kr) in solid_keep):
+                    return False
+                s, off = bridge_so(px, py)
+                if abs(off) < 4.5 and -54.0 < s < L + 48.0:
+                    return False
+        if max(zs) - min(zs) > 0.9 or isl_rho(c["cx"], c["cy"])[0] > 0.93:
+            return False
+        return not any(x0 < px < x1 and y0 < py < y1 for (px, py) in path_pts)
+    bt, bc = B("Town"), B("City")
+    n_new = {"town": 0, "city": 0}
+    def build(c):
+        global N_PLANTS
+        zone = (c["cx"] - c["hx"] - 0.3, c["cy"] - c["hy"] - 0.3, c["cx"] + c["hx"] + 0.3, c["cy"] + c["hy"] + 0.3)
+        for k, (px, py, ref) in enumerate(PLANT_REG):            # 压在下面的树拿掉
+            if ref is not None and zone[0] < px < zone[2] and zone[1] < py < zone[3]:
+                if WEB:
+                    PLANTS[ref] = None
+                else:
+                    bpy.data.objects.remove(ref, do_unlink=True)
+                PLANT_REG[k] = (px, py, None)
+                N_PLANTS -= 1
+        random.seed(int(round(c["cx"] * 389 + c["cy"] * 757)) + 21)
+        n0 = len(KEEP)
+        if c["kind"] == "town":
+            town_block(bt, c["cx"] - c["bw"] / 2, c["cy"] - c["bd"] / 2, c["bw"], c["bd"], c["street"])
+        else:
+            xiaoqu_block(bc, c["cx"], c["cy"], c["bw"], c["bd"], c["street"])
+        del KEEP[n0:]
+        BLOCKS.append(c)
+        NEW_ZONES.append(zone)
+        n_new[c["kind"]] += 1
+    # 第一轮：贴着已有街区，按原来的街区间距往四个方向长
+    cap = {"town": cap_town, "city": cap_city}
+    queue = [(q, 0) for q in list(BLOCKS)]
+    while queue:
+        q, depth = queue.pop(0)
+        if depth >= max_depth:
+            continue
+        for (ox, oy) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if n_new[q["kind"]] >= cap[q["kind"]]:
+                continue
+            c = dict(q)
+            c["cx"], c["cy"] = q["cx"] + ox * q["px"], q["cy"] + oy * q["py"]
+            if clash(c) or not site_ok(c):
+                continue
+            build(c)
+            queue.append((c, depth + 1))
+    # 第二轮：见缝插针。网格对不上的空地（比如西南角）第一轮长不过去；每次挑离已有街区最近的一处，太孤立的不要
+    proto = {}
+    for q in BLOCKS:
+        proto.setdefault(q["kind"], q)
+    raster = []
+    x0i, y0i, x1i, y1i = ISL
+    for kind in ("town", "city"):
+        yy = y0i + 8.0
+        while kind in proto and yy < y1i - 8.0:
+            xx = x0i + 8.0
+            while xx < x1i - 8.0:
+                c = dict(proto[kind]); c["cx"], c["cy"] = xx, yy
+                if site_ok(c, 5):
+                    raster.append(c)
+                xx += 2.8
+            yy += 2.8
+    first = dict(n_new)
+    extra = {"town": 5, "city": 3}
+    while True:
+        best = None
+        for c in raster:
+            if n_new[c["kind"]] - first[c["kind"]] >= extra[c["kind"]] or clash(c):
+                continue
+            gap = min(max(abs(c["cx"] - q["cx"]) - c["hx"] - q["hx"], abs(c["cy"] - q["cy"]) - c["hy"] - q["hy"]) for q in BLOCKS)
+            if best is None or gap < best[0]:
+                best = (gap, c)
+        if best is None or best[0] > 14.0:
+            break
+        build(dict(best[1]))
+    bt.build(); bc.build()
+    random.setstate(st)
+    print(f"[yc] new quarters: town {n_new['town']} ({first['town']} grown), city {n_new['city']} ({first['city']} grown); blocks total {len(BLOCKS)}")
+
 def tower_hill(b):
     """黄鹤楼脚下的砌体：山顶广场四周的挡墙和栏杆，南面三层石砌台地和之字形台阶，牌坊、碑廊、四角的亭子，前场铺地，再补树。
     山体本身（岩壁、削坡）在 terrain_geo() 里。"""
@@ -2392,7 +2671,7 @@ def build_scene():
 
     # ---- 近岸老城（武昌）与对岸（汉阳）的粉墙黛瓦
     def town(x0s, y0s, x1s, y1s, bw=11.0, bd=9.0, street=2.2, density=0.85):
-        """街区式老城：街道网格、每个街区一块铺地与沿街对齐的房屋，偶有院落与行道树。"""
+        """街区式老城：街道网格，每格一个街区（town_block）。"""
         bb = B("Town")
         x = x0s
         while x + bw < x1s:
@@ -2401,30 +2680,9 @@ def build_scene():
                 cx, cy = x + bw / 2, y + bd / 2
                 ok = (lake_depth(cx, cy) < -4 and ground(cx, cy) < 1.6 and isl_rho(cx, cy)[0] < 0.94
                       and not blocked(cx, cy) and random.random() < density)
-                if ok:
-                    # 压在大桥引桥下面的街区不建：照常走一遍（随机数和避让范围都不变，别处才不会跟着变），只是不出几何
-                    MUTE[0] = near_bridge(cx, cy)
-                    tb = B("Muted") if MUTE[0] else bb
-                    gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
-                    box(tb, cx, cy, gz - 0.35, bw + street * 0.8, bd + street * 0.8, 0.42, STONE)   # 街区铺地（含街道）
-                    keep(cx, cy, max(bw, bd) * 0.75)
-                    if random.random() < 0.12:
-                        hall_jn(tb, cx, cy, random.uniform(3.2, 4.2), random.uniform(2.0, 2.6), 1.15, z0=gz + 0.07, double=random.random() < 0.5, stair=True)
-                    else:
-                        # 沿街两排房屋 + 中间院落树
-                        for row, sy in ((0, -1), (1, 1)):
-                            n = random.randint(3, 4)
-                            for k in range(n):
-                                w = bw / n - 0.5
-                                hx = x + w / 2 + 0.25 + k * (bw / n)
-                                hy = cy + sy * (bd / 2 - 1.3)
-                                hh = random.uniform(0.7, 1.15)
-                                house(hx, hy, w, random.uniform(1.8, 2.3), hh, 0.0 if random.random() < 0.85 else math.pi / 2)
-                        if random.random() < 0.7:
-                            plant(random.choice(["tree", "tree", "willow"]), cx + random.uniform(-2, 2), cy + random.uniform(-0.8, 0.8), random.uniform(1.1, 1.6), z=gz + 0.07)
-                    MUTE[0] = False
-                    if random.random() < 0.5:
-                        plant("tree", x + bw + street / 2, y + random.uniform(1, bd - 1), random.uniform(1.0, 1.4))
+                if ok and town_block(bb, x, y, bw, bd, street):
+                    BLOCKS.append({"kind": "town", "cx": cx, "cy": cy, "hx": bw / 2 + street * 0.4, "hy": bd / 2 + street * 0.4,
+                                   "px": bw + street, "py": bd + street, "bw": bw, "bd": bd, "street": street})
                 y += bd + street
             x += bw + street
         bb.build()
@@ -2437,6 +2695,9 @@ def build_scene():
     city(46, 16, 72, 46)
     city(-102, -72, -64, -42, floors=(4, 10))   # 汉阳
     city(-102, 50, -62, 72, floors=(4, 10))
+    grow_quarters()                              # 空旷的平地上补新街区
+    if HOUSES:
+        HOUSES[0].build()
     for i in range(520):
         x, y = random.uniform(-100, 62), random.uniform(-72, 72)
         if lake_depth(x, y) < -3 and ground(x, y) < 1.6 and not blocked(x, y) and isl_rho(x, y)[0] < 0.96:
@@ -2737,7 +2998,7 @@ if WEB:
         "hdri": "belfast_sunset_puresky_1k.hdr",
         # 网页版的窗玻璃压暗：玻璃本身是很浅的蓝灰，成图里靠反射天空显深，网页里贴在白墙上看不出窗格
         "mat": {"Glass": {"metalness": 0.3, "roughness": 0.25, "envMapIntensity": 0.6, "tint": [0.3, 0.34, 0.4]}},
-        "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
+        "plants": [q for q in PLANTS if q is not None], "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,
         "plant_light": {"sunGain": 0.8, "ambSky": [0.31, 0.31, 0.29], "ambGround": [0.15, 0.14, 0.1], "sat": 0.92, "ao": 0.45}})

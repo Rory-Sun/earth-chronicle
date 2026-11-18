@@ -268,17 +268,51 @@ _sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(texcoord(nt).outputs["Object"], _sep.inputs["Vector"])
 _n0 = noise(nt, 0.7, 3.0)
 _col = mul_color(nt, rgb(nt, (0.86, 0.85, 0.81)), map_range(nt, _n0.outputs["Fac"], 0.93, 1.04))
+def _mth(nt, op, a, b=None, clamp=False):
+    """数学节点：a、b 可以是插口或常数。"""
+    m = nt.nodes.new("ShaderNodeMath"); m.operation = op; m.use_clamp = clamp
+    for i, v in enumerate((a, b)):
+        if v is None:
+            continue
+        if isinstance(v, (int, float)):
+            m.inputs[i].default_value = v
+        else:
+            nt.links.new(v, m.inputs[i])
+    return m.outputs[0]
+
 _st = noise_mapped(nt, (2.4, 2.4, 0.16), detail=3.0)
 _pt = noise(nt, 0.22, 2.0)
 _sf = nt.nodes.new("ShaderNodeMath"); _sf.operation = 'MULTIPLY'
 nt.links.new(clampv(map_range(nt, _st.outputs["Fac"], 0.0, 1.0, 0.50, 0.72)), _sf.inputs[0])
 nt.links.new(clampv(map_range(nt, _pt.outputs["Fac"], 0.0, 0.75, 0.40, 0.62)), _sf.inputs[1])
 _col = mix_rgb(nt, _col, rgb(nt, (0.60, 0.61, 0.57)), _sf.outputs[0], 'MIX')
+# 雨痕：从墙顶（瓦帽、屋檐、窗台下）往下挂。每个墙面顶点带着所在墙段的顶高 topz（MeshB.add 自动写入），
+# 离顶距离 = topz − z；每一道的长短由只随水平位置变化的噪波决定，所以长短不齐
+_tz = nt.nodes.new("ShaderNodeAttribute"); _tz.attribute_name = "topz"
+_dist = _mth(nt, 'SUBTRACT', _tz.outputs["Fac"], _sep.outputs["Z"])
+_valid = _mth(nt, 'GREATER_THAN', _dist, -0.02)
+_ln = noise_mapped(nt, (0.9, 0.9, 0.0), detail=2.0)
+_len = clampv(map_range(nt, _ln.outputs["Fac"], 0.4, 2.6, 0.36, 0.68))
+_fall = clampv(map_range(nt, _dist, 1.0, 0.0, 0.0, 1.0))
+nt.links.new(_len, _fall.node.inputs["From Max"])
+_s1 = clampv(map_range(nt, _st.outputs["Fac"], 0.0, 1.0, 0.40, 0.60))
+_st2 = noise_mapped(nt, (7.0, 7.0, 0.30), detail=2.0)
+_s2 = clampv(map_range(nt, _st2.outputs["Fac"], 0.0, 0.7, 0.48, 0.60))
+_streak = _mth(nt, 'MULTIPLY', _mth(nt, 'MAXIMUM', _s1, _s2), _mth(nt, 'POWER', _fall, 1.3))
+_band = _mth(nt, 'MULTIPLY', clampv(map_range(nt, _dist, 1.0, 0.0, 0.03, 0.26)),
+             clampv(map_range(nt, _pt.outputs["Fac"], 0.25, 0.7, 0.35, 0.65)))       # 瓦帽下一道断续的灰边
+_rain = _mth(nt, 'MULTIPLY', _mth(nt, 'MAXIMUM', _streak, _band), _valid)
+_col = mix_rgb(nt, _col, rgb(nt, (0.27, 0.28, 0.26)), _mth(nt, 'MULTIPLY', _rain, float(arg("--rain", 2.2))), 'MIX')
+# 墙脚返潮：一道高低不齐的青灰带，贴地一线溅泥发黑
+_zr = _mth(nt, 'SUBTRACT', _sep.outputs["Z"], GZ)
+_hn = noise_mapped(nt, (0.8, 0.8, 0.0), detail=2.0)
+_hg = clampv(map_range(nt, _hn.outputs["Fac"], 0.30, 1.35, 0.32, 0.70))
+_damp = clampv(map_range(nt, _zr, 1.0, 0.0, 0.0, 1.0))
+nt.links.new(_hg, _damp.node.inputs["From Max"])
 _dn = noise(nt, 1.6, 3.0)
-_df = nt.nodes.new("ShaderNodeMath"); _df.operation = 'MULTIPLY'
-nt.links.new(clampv(map_range(nt, _sep.outputs["Z"], 1.0, 0.0, GZ + 0.05, GZ + 1.0)), _df.inputs[0])
-nt.links.new(clampv(map_range(nt, _dn.outputs["Fac"], 0.25, 1.0, 0.30, 0.65)), _df.inputs[1])
-_col = mix_rgb(nt, _col, rgb(nt, (0.44, 0.47, 0.38)), _df.outputs[0], 'MIX')
+_df = _mth(nt, 'MULTIPLY', _mth(nt, 'POWER', _damp, 1.4), clampv(map_range(nt, _dn.outputs["Fac"], 0.55, 1.0, 0.25, 0.55)))
+_col = mix_rgb(nt, _col, rgb(nt, (0.33, 0.37, 0.27)), _mth(nt, 'MULTIPLY', _df, float(arg("--damp", 1.8))), 'MIX')
+_col = mix_rgb(nt, _col, rgb(nt, (0.21, 0.22, 0.19)), _mth(nt, 'MULTIPLY', clampv(map_range(nt, _zr, 1.0, 0.0, 0.0, 0.2)), 0.5), 'MIX')
 nt.links.new(_col, _p.inputs["Base Color"])
 _wb = bump_node(nt, _n0.outputs["Fac"], 0.25, 0.02)
 nt.links.new(_wb.outputs["Normal"], _p.inputs["Normal"])
@@ -291,6 +325,19 @@ SLAB = noise_mix(principled("ShiBan", (0.48, 0.48, 0.45), rough=0.9, bevel=0.03)
 GREYBRICK = noise_mix(principled("QingZhuan", (0.30, 0.31, 0.31), rough=0.85, bevel=0.02), (0.24, 0.25, 0.25), (0.37, 0.38, 0.38), 4.0, bump=0.2)
 POT = principled("TaoPen", (0.34, 0.19, 0.12), rough=0.7)
 # 方砖铺地
+def damp_stone(mat):
+    """近水的石材（驳岸、河埠头、池岸）：水线以上一掌高的地方发暗、生青苔。只影响地面以下的部分。"""
+    nt_ = mat.node_tree
+    p_ = nt_.nodes["Principled BSDF"]
+    src = p_.inputs["Base Color"].links[0].from_socket
+    sep_ = nt_.nodes.new("ShaderNodeSeparateXYZ")
+    nt_.links.new(texcoord(nt_).outputs["Object"], sep_.inputs["Vector"])
+    n_ = noise(nt_, 2.2, 3.0)
+    f_ = nt_.nodes.new("ShaderNodeMath"); f_.operation = 'MULTIPLY'
+    nt_.links.new(clampv(map_range(nt_, sep_.outputs["Z"], 1.0, 0.0, 0.04, 0.42)), f_.inputs[0])
+    nt_.links.new(clampv(map_range(nt_, n_.outputs["Fac"], 0.45, 1.0, 0.30, 0.65)), f_.inputs[1])
+    nt_.links.new(mix_rgb(nt_, src, rgb(nt_, (0.17, 0.22, 0.13)), f_.outputs[0], 'MIX'), p_.inputs["Base Color"])
+damp_stone(GRANITE); damp_stone(SLAB)
 PAVE = principled("FangZhuan", (0.50, 0.50, 0.48), rough=0.9, bevel=0)
 nt = PAVE.node_tree
 _c = tex_node(nt, "PavingStones128", "Color", 0.42, 'Object', noncolor=False)
@@ -497,6 +544,7 @@ class MeshB:
     def __init__(self, name):
         self.name, self.v, self.f, self.m, self.mats = name, [], [], [], []
         self.uv = []
+        self.top = []      # 每个顶点所在墙段的顶高（只有粉墙写入，其余为 −1000），供粉墙材质算雨痕
     def mi(self, mat):
         if mat not in self.mats:
             self.mats.append(mat)
@@ -504,6 +552,14 @@ class MeshB:
     def add(self, verts, faces, mat, uvs=None):
         off = len(self.v)
         self.v.extend(verts)
+        if mat is WHITE_WALL:
+            colz = {}
+            for p in verts:
+                k = (round(p[0], 3), round(p[1], 3))
+                colz[k] = max(colz.get(k, -1e9), p[2])
+            self.top.extend(colz[(round(p[0], 3), round(p[1], 3))] for p in verts)
+        else:
+            self.top.extend([-1000.0] * len(verts))
         self.f.extend(tuple(i + off for i in f) for f in faces)
         self.m.extend([self.mi(mat)] * len(faces))
         self.uv.extend(uvs if uvs is not None else [None] * len(faces))
@@ -527,6 +583,8 @@ class MeshB:
                 else:
                     for k, li in enumerate(poly.loop_indices):
                         data[li].uv = fuv[k]
+        if any(t > -999.0 for t in self.top):
+            me.attributes.new("topz", 'FLOAT', 'POINT').data.foreach_set("value", self.top)
         me.update()
         ob = bpy.data.objects.new(self.name, me)
         ob.location = loc

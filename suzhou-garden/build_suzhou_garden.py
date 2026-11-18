@@ -2820,11 +2820,16 @@ if WEB:
     # 网页版：导出 glb + scene.json（见 tools/diorama_export.py）；树木为实例数据（卡片树），山石、竹、芭蕉为库模型 + 实例记录
     sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "tools")))
     import diorama_export as de
-    def _vcol(mn, ob, co, nrm):
-        if mn not in ("TaiDi", "ChiDi", "EarthCut", "TaiHuShi", "HuangShi"):
+    def _vcol(mn, ob, co, nrm, vi=None):
+        if mn not in ("TaiDi", "ChiDi", "EarthCut", "TaiHuShi", "HuangShi", "FenQiang"):
             return None
         if co is None:
             return (1, 1, 1)
+        if mn == "FenQiang":
+            # 粉墙：R = 离墙顶的距离 / 8 米（网页版着色器用它画从墙顶往下挂的雨痕，见 Viewer.js 的 weatherPatch）
+            tz = ob.data.attributes.get("topz")
+            d = (tz.data[vi].value - co.z) if tz is not None else 0.0
+            return (min(1.0, max(0.0, d / 8.0)), 1.0, 1.0)
         if mn == "EarthCut":
             return de.strata(co.z * 2.4)
         if mn == "ChiDi":
@@ -2841,7 +2846,9 @@ if WEB:
         "hdri": "kloppenheim_06_puresky_1k.hdr",
         "lake": {"pscale": 4.0, "ripple": 0.10, "glitter": 0.0, "clear": 0.22, "reflRange": [0.26, 0.80], "distortion": 0.007,
                  "colDeep": [0.048, 0.110, 0.062], "colNear": [0.105, 0.185, 0.090], "colShore": [0.19, 0.23, 0.13]},
-        "mat": {"EarthCut": {"repeat": 0.30}, "DaiWa": {"repeat": 0.55}},
+        "mat": {"EarthCut": {"repeat": 0.30}, "DaiWa": {"repeat": 0.55},
+                "FenQiang": {"weather": {"rain": 2.0, "damp": 1.6, "ground": GZ}},
+                "JinShanShi": {"wet": {"level": 0.42}}, "ShiBan": {"wet": {"level": 0.42}}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(156,54,26,0.62)", "ginkgo": "rgba(214,166,48,0.66)"}, "plant_top": False,

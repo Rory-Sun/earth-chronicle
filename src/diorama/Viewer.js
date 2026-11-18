@@ -116,6 +116,55 @@ function loadTexture(name, { gray = false, srgb = true } = {}) {
   return p;
 }
 
+// 做旧（苏州园林）：粉墙的雨痕和墙脚返潮、近水石材的青苔。和成图里材质的做法一致：
+// 顶点色 R = 离墙顶的距离 / 8 米（导出时写入），雨痕的长短由只随水平位置变化的噪波决定；世界坐标 y 向上
+const WEATHER_GLSL = /* glsl */`
+  uniform vec3 uWea;
+  varying vec3 vWea;
+  varying vec3 vWeaPos;
+  float weaHash( vec3 p ) { p = fract( p * 0.3183099 + 0.1 ); p *= 17.0; return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) ); }
+  float weaNoise( vec3 x ) {
+    vec3 i = floor( x ), f = fract( x ); f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( mix( weaHash( i ), weaHash( i + vec3( 1, 0, 0 ) ), f.x ), mix( weaHash( i + vec3( 0, 1, 0 ) ), weaHash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
+                mix( mix( weaHash( i + vec3( 0, 0, 1 ) ), weaHash( i + vec3( 1, 0, 1 ) ), f.x ), mix( weaHash( i + vec3( 0, 1, 1 ) ), weaHash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ), f.z );
+  }
+  vec3 weaWall( vec3 col ) {
+    vec3 P = vWeaPos;
+    float dist = vWea.r * 8.0;
+    float blot = weaNoise( P * 0.35 );
+    float len = mix( 0.4, 2.6, smoothstep( 0.25, 0.75, weaNoise( vec3( P.x * 0.9, 3.7, P.z * 0.9 ) ) ) );
+    float fall = pow( clamp( 1.0 - dist / len, 0.0, 1.0 ), 1.3 );
+    float s1 = smoothstep( 0.35, 0.70, weaNoise( vec3( P.x * 3.6, P.y * 0.16, P.z * 3.6 ) ) );
+    float s2 = 0.7 * smoothstep( 0.45, 0.75, weaNoise( vec3( P.x * 11.0, P.y * 0.30 + 9.1, P.z * 11.0 ) ) );
+    float band = ( 1.0 - smoothstep( 0.03, 0.26, dist ) ) * mix( 0.25, 0.7, blot );
+    float rain = max( max( s1, s2 ) * fall, band );
+    col = mix( col, vec3( 0.27, 0.28, 0.26 ), clamp( rain * uWea.x, 0.0, 1.0 ) );
+    float zr = P.y - uWea.z;
+    float hg = mix( 0.30, 1.35, smoothstep( 0.25, 0.75, weaNoise( vec3( P.x * 0.8, 1.3, P.z * 0.8 ) ) ) );
+    float damp = pow( clamp( 1.0 - zr / hg, 0.0, 1.0 ), 1.4 ) * smoothstep( 0.25, 0.7, weaNoise( P * 1.6 + 5.0 ) );
+    col = mix( col, vec3( 0.33, 0.37, 0.27 ), clamp( damp * uWea.y, 0.0, 1.0 ) );
+    return mix( col, vec3( 0.21, 0.22, 0.19 ), 0.5 * ( 1.0 - smoothstep( 0.0, 0.2, zr ) ) );
+  }
+  vec3 weaStone( vec3 col ) {
+    float f = ( 1.0 - smoothstep( 0.04, uWea.z, vWeaPos.y ) ) * smoothstep( 0.3, 0.65, weaNoise( vWeaPos * 2.2 ) );
+    return mix( col, vec3( 0.17, 0.22, 0.13 ), f );
+  }`;
+function weatherPatch(mat, kind, w) {
+  // kind = 'wall'：w = { rain, damp, ground }；kind = 'stone'：w = { level }（水线以上发青的高度）
+  const u = kind === 'wall' ? new THREE.Vector3(w.rain ?? 1, w.damp ?? 1, w.ground ?? 0) : new THREE.Vector3(0, 0, w.level ?? 0.4);
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uWea = { value: u };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\n#ifndef USE_COLOR\nattribute vec3 color;\n#endif\nvarying vec3 vWea;\nvarying vec3 vWeaPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWea = color.rgb;\nvWeaPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + WEATHER_GLSL)
+      .replace('#include <color_fragment>', `#include <color_fragment>\ndiffuseColor.rgb = ${kind === 'wall' ? 'weaWall' : 'weaStone'}( diffuseColor.rgb );`);
+  };
+  mat.userData.weather = u;          // 调试时可直接改这个向量调强度
+  mat.customProgramCacheKey = () => 'weather-' + kind;
+}
+
 let MAT_OVERRIDE = {};   // scene.json 的 mat 字段：逐场景覆盖贴图比例等
 async function applyMaterial(mesh) {
   const m = mesh.material; if (!m) return;
@@ -137,6 +186,8 @@ async function applyMaterial(mesh) {
     if (rgh) { mat.roughnessMap = rgh; mat.roughness = 1.0; }
     if (spec.gray && col) { mat.color.multiplyScalar(1.15); }
   }
+  if (spec.weather && mesh.geometry.attributes.color) weatherPatch(mat, 'wall', spec.weather);
+  else if (spec.wet) weatherPatch(mat, 'stone', spec.wet);
   mesh.material = mat;
 }
 

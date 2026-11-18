@@ -35,7 +35,10 @@ def box_uv(me, scale=1.0):
             data[li].uv = (u * scale, v * scale)
 
 def bake_vertex_colors(ob, vcol_fn):
-    """vcol_fn(mat_name, ob, co_world, normal) -> (r,g,b) 或 None（白）。按角域写入 BYTE_COLOR。"""
+    """vcol_fn(mat_name, ob, co_world, normal[, vi]) -> (r,g,b) 或 None（白）。按角域写入 BYTE_COLOR。
+    vcol_fn 若有名为 vi 的参数，会收到顶点序号，可用来读网格上的逐顶点属性。"""
+    import inspect
+    wants_vi = "vi" in inspect.signature(vcol_fn).parameters
     me = ob.data
     if not me.polygons:
         return
@@ -51,8 +54,9 @@ def bake_vertex_colors(ob, vcol_fn):
         mn = mats[poly.material_index] if poly.material_index < len(mats) else ""
         nrm = (mw.to_3x3() @ poly.normal).normalized()
         for li in poly.loop_indices:
-            co = mw @ me.vertices[me.loops[li].vertex_index].co
-            c = vcol_fn(mn, ob, co, nrm)
+            vi = me.loops[li].vertex_index
+            co = mw @ me.vertices[vi].co
+            c = vcol_fn(mn, ob, co, nrm, vi=vi) if wants_vi else vcol_fn(mn, ob, co, nrm)
             if c is None:
                 c = (1.0, 1.0, 1.0)
             data[li].color = (c[0], c[1], c[2], 1.0)

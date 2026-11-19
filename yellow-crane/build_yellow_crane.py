@@ -1555,6 +1555,13 @@ BRONZE = principled("Bronze", (0.25, 0.155, 0.07), rough=0.42, metal=0.7)       
 FERRY_BLUE = principled("FerryBlue", (0.10, 0.28, 0.52), rough=0.45)
 for _m in (MARBLE, BRONZE, FERRY_BLUE):
     add_fog(_m)
+# 路网和地块
+TRACK_RED = principled("TrackRed", (0.50, 0.20, 0.15), rough=0.85, bevel=0)       # 塑胶跑道
+COURT_GREEN = principled("CourtGreen", (0.15, 0.30, 0.23), rough=0.85, bevel=0)
+COURT_BLUE = principled("CourtBlue", (0.17, 0.27, 0.38), rough=0.85, bevel=0)
+SOIL = noise_mix(principled("Soil", (0.34, 0.26, 0.18), rough=0.95, bevel=0), (0.29, 0.22, 0.15), (0.40, 0.31, 0.21), 9.0)
+for _m in (TRACK_RED, COURT_GREEN, COURT_BLUE, SOIL):
+    add_fog(_m)
 # 船尾迹、桥墩后的水纹：贴着水面的泡沫带。UV 的 u = 离源头多远（0 最浓，1 消失），v = 横向位置（两边淡）
 FOAM = principled("Foam", (0.86, 0.84, 0.76), rough=0.7, bevel=0)
 nt = FOAM.node_tree
@@ -2714,6 +2721,683 @@ def landmarks():
     b.build()
     print(f"[yc] landmarks: ferry line from ({xe:.1f}, {yy:.1f}), width {t_far:.1f}")
 
+# ----------------------------------------------------------------------------- 路网和地块：把空草地填成城市
+# 原来每个街区是单独摆在草坪上的一块垫子，互相不连；大片平地是空草地。
+# urban_plan() 只做规划（纯计算，不出几何）：在 2 × 2 的格子上找路把各片街区连起来，再沿路摆地块。
+UG = 2.0                                  # 路网格子的边长：一条路宽一格（车行道加两侧人行道）
+URBAN_KINDS = (                           # 地块：(种类, 宽几格, 深几格, 最多几块, 同类最小间距, 是否必须临街)
+    ("school", 7, 5, 3, 44.0, True), ("plaza", 4, 4, 3, 50.0, True), ("park", 6, 5, 6, 24.0, False), ("courts", 4, 3, 4, 34.0, True),
+    ("parking", 3, 3, 6, 20.0, True), ("shops", 5, 2, 8, 12.0, True), ("park", 5, 4, 8, 17.0, False), ("nursery", 5, 3, 3, 40.0, False),
+    ("shops", 3, 2, 6, 9.0, True), ("park", 4, 3, 10, 13.0, False))
+
+def urban_plan(seed=2031):
+    rs = random.Random(seed)
+    X0, Y0, X1, Y1 = ISL
+    NX, NY = int((X1 - X0) / UG), int((Y1 - Y0) / UG)
+    BL = bridge_layout()["L"]
+    rects = [(q["cx"] - q["hx"], q["cy"] - q["hy"], q["cx"] + q["hx"], q["cy"] + q["hy"]) for q in BLOCKS]
+    solid_keep = [k for k in KEEP if not any(r[0] < k[0] < r[2] and r[1] < k[1] < r[3] for r in rects)]
+    zones = [(z[0] + 0.3, z[1] + 0.3, z[2] - 0.3, z[3] - 0.3) for z in NEW_ZONES]     # 新街区登记的范围比街区大 0.3
+    path_pts = []
+    for pts in PATHS:
+        for (a, c) in zip(pts[:-1], pts[1:]):
+            m = max(1, int(math.hypot(c[0] - a[0], c[1] - a[1]) * 2))
+            path_pts += [(a[0] + (c[0] - a[0]) * i / m, a[1] + (c[1] - a[1]) * i / m) for i in range(m + 1)]
+    def cell_rect(i, j):
+        return (X0 + i * UG, Y0 + j * UG, X0 + (i + 1) * UG, Y0 + (j + 1) * UG)
+    memo = {}
+    def cell_ok(i, j):
+        """这一格能不能修路、摆地块：平坦的干地，不压街区、建筑、大桥、石矶和山径。"""
+        if (i, j) in memo:
+            return memo[(i, j)]
+        ok = 0 <= i < NX and 0 <= j < NY
+        if ok:
+            a, c, e, f = cell_rect(i, j)
+            zs = []
+            for px in (a, (a + e) / 2, e):
+                for py in (c, (c + f) / 2, f):
+                    if isl_rho(px, py)[0] > 0.955 or lake_depth(px, py) > -5.6 or tower_sd(px, py) < 5.0:
+                        ok = False; break
+                    g = ground(px, py)
+                    s, off = bridge_so(px, py)
+                    if g > 1.5 or (abs(off) < 1.7 and -51.5 < s < BL + 48.0):
+                        ok = False; break
+                    if any(math.hypot(px - kx, py - ky) < kr for (kx, ky, kr) in solid_keep):
+                        ok = False; break
+                    zs.append(g)
+                if not ok:
+                    break
+            if ok and max(zs) - min(zs) > 0.45:
+                ok = False
+            if ok and any(a < r[2] - 0.01 and r[0] + 0.01 < e and c < r[3] - 0.01 and r[1] + 0.01 < f for r in rects):
+                ok = False
+            if ok and any(a < z[2] and z[0] < e and c < z[3] and z[1] < f for z in zones):
+                ok = False
+            if ok and any(a - 0.5 < px < e + 0.5 and c - 0.5 < py < f + 0.5 for (px, py) in path_pts):
+                ok = False
+        memo[(i, j)] = ok
+        return ok
+
+    # ---- 街区连成片（垫板挨着的算一片），每片四周能接路的格子（路口）
+    par = list(range(len(rects)))
+    def find(a):
+        while par[a] != a:
+            par[a] = par[par[a]]; a = par[a]
+        return a
+    for a in range(len(rects)):
+        for c in range(a):
+            ra, rc = rects[a], rects[c]
+            if ra[0] < rc[2] + 0.7 and rc[0] < ra[2] + 0.7 and ra[1] < rc[3] + 0.7 and rc[1] < ra[3] + 0.7:
+                par[find(a)] = find(c)
+    ports = {}                                                   # 格子 → (街区下标, 方向, 垫板边的坐标)：从这一格朝这个方向走，不到一格就是街区
+    cl_ports = {}
+    for k, r in enumerate(rects):
+        for (side, edge) in (("E", r[2]), ("W", r[0]), ("N", r[3]), ("S", r[1])):
+            if side == "E":
+                i = int(math.ceil((edge - X0) / UG - 1e-6)); cand = [(i, j) for j in range(NY)]
+            elif side == "W":
+                i = int(math.floor((edge - X0) / UG + 1e-6)) - 1; cand = [(i, j) for j in range(NY)]
+            elif side == "N":
+                j = int(math.ceil((edge - Y0) / UG - 1e-6)); cand = [(i, j) for i in range(NX)]
+            else:
+                j = int(math.floor((edge - Y0) / UG + 1e-6)) - 1; cand = [(i, j) for i in range(NX)]
+            for (i, j) in cand:
+                a, c, e, f = cell_rect(i, j)
+                inside = (c >= r[1] + 0.5 and f <= r[3] - 0.5) if side in "EW" else (a >= r[0] + 0.5 and e <= r[2] - 0.5)
+                if inside and cell_ok(i, j) and (i, j) not in ports:
+                    ports[(i, j)] = (k, {"E": "W", "W": "E", "N": "S", "S": "N"}[side], edge)
+                    cl_ports.setdefault(find(k), set()).add((i, j))
+    clusters = sorted(cl_ports, key=lambda q: -len(cl_ports[q]))
+
+    road = set()
+    DIRS = ((1, 0), (-1, 0), (0, 1), (0, -1))
+    def route(sources, targets, limit=1e9):
+        """从 sources 里任一格到 targets 里任一格的最省的路：已有的路几乎不要钱，拐弯和贴着别的路并排走要加钱。"""
+        import heapq
+        dist, prev, heap = {}, {}, []
+        for c in sources:
+            for d in range(4):
+                dist[(c, d)] = 0.0
+                heapq.heappush(heap, (0.0, c, d))
+        while heap:
+            g, c, d = heapq.heappop(heap)
+            if g > dist.get((c, d), 1e18) + 1e-9:
+                continue
+            if c in targets and g > 0:
+                out = [c]
+                st = (c, d)
+                while st in prev:
+                    st = prev[st]; out.append(st[0])
+                return g, out[::-1]
+            if g > limit:
+                return None
+            for nd, (dx, dy) in enumerate(DIRS):
+                n = (c[0] + dx, c[1] + dy)
+                if not cell_ok(*n):
+                    continue
+                step = 0.2 if n in road else 1.0
+                if nd != d:
+                    step += 1.6
+                if n not in road:
+                    for (px, py) in ((-dy, dx), (dy, -dx)):                     # 和已有的路并排
+                        w = (n[0] + px, n[1] + py)
+                        if w in road and w != c:
+                            step += 2.5
+                g2 = g + step
+                if g2 < dist.get((n, nd), 1e18):
+                    dist[(n, nd)] = g2
+                    prev[(n, nd)] = (c, d)
+                    heapq.heappush(heap, (g2, n, nd))
+        return None
+
+    # ---- 滨江路的接口：离滨江路最近的一排格子，朝江的方向再走不到两格就是滨江路
+    river_ports = {}
+    for i in range(NX):
+        for j in range(NY):
+            if not cell_ok(i, j):
+                continue
+            a, c, e, f = cell_rect(i, j)
+            cx, cy = (a + e) / 2, (c + f) / 2
+            best = max(DIRS, key=lambda q: lake_depth(cx + q[0] * UG, cy + q[1] * UG))
+            px, py = cx + best[0] * UG, cy + best[1] * UG
+            if lake_depth(px, py) > -6.4 and not cell_ok(i + best[0], j + best[1]) and best[1] == 0:
+                # 滨江路中线在 lake_depth = -4.5：两条边各自量到中线
+                ends = []
+                for yy in (c, f):
+                    t = 0.0
+                    while lake_depth(cx + best[0] * (UG / 2 + t), yy) < -4.5 and t < 3.6:
+                        t += 0.05
+                    ends.append(t)
+                qx, qy = cx + best[0] * (UG / 2 + max(ends)), cy
+                if max(ends) < 3.55 and isl_rho(qx, qy)[0] < 0.97 and ground(qx, qy) < 2.0 and tower_sd(qx, qy) > 4.6 \
+                        and not any(math.hypot(qx - kx, qy - ky) < kr for (kx, ky, kr) in solid_keep):
+                    river_ports[(i, j)] = (best, ends)
+
+    # ---- 先连成树：从最大的一片出发，每次把离已连部分最近的一片接上；接不上的（隔着江）另起一棵
+    links = []
+    todo = list(clusters)
+    comps = []
+    while todo:
+        comp = [todo.pop(0)]
+        grown = True
+        while grown and todo:
+            grown = False
+            src = set(road)
+            for q in comp:
+                src |= cl_ports[q]
+            tg = {}
+            for q in todo:
+                for c in cl_ports[q]:
+                    tg[c] = q
+            got = route(src, set(tg))
+            if got:
+                g, cells = got
+                road.update(cells)
+                q = tg[cells[-1]]
+                links.append(("tree", cells))
+                comp.append(q); todo.remove(q)
+                grown = True
+        comps.append(comp)
+
+    # ---- 再补环：挨得近、却要绕远的两片之间直接修一条
+    def gap(qa, qb):
+        best = 1e9
+        for a in range(len(rects)):
+            if find(a) != qa:
+                continue
+            for c in range(len(rects)):
+                if find(c) != qb:
+                    continue
+                ra, rc = rects[a], rects[c]
+                best = min(best, max(ra[0] - rc[2], rc[0] - ra[2], 0.0) + max(ra[1] - rc[3], rc[1] - ra[3], 0.0))
+        return best
+    pairs = sorted((gap(a, c), a, c) for k, a in enumerate(clusters) for c in clusters[:k])
+    n_loop = 0
+    for (gp, a, c) in pairs:
+        if gp > 40.0 or n_loop >= 9:
+            break
+        got = route(cl_ports[a], cl_ports[c])
+        if not got:
+            continue
+        g, cells = got
+        new = [q for q in cells if q not in road]
+        if 3 <= len(new) <= gp / UG * 1.3 + 4:
+            road.update(cells)
+            links.append(("loop", cells))
+            n_loop += 1
+
+    # ---- 接滨江路
+    def attach(cands, n_max, spacing, max_new):
+        used = []
+        for _ in range(n_max):
+            tg = set(c for c in cands if all(math.hypot(c[0] - u[0], c[1] - u[1]) * UG > spacing for u in used))
+            src = set(road)
+            for q in clusters:
+                src |= cl_ports[q]
+            got = route(src, tg, limit=max_new * 1.6 + 8) if tg else None
+            if not got:
+                break
+            g, cells = got
+            if len([q for q in cells if q not in road]) > max_new:
+                break
+            road.update(cells)
+            used.append(cells[-1])
+            links.append(("attach", cells))
+        return used
+    river_used = attach(river_ports, 9, 30.0, 12)
+
+    # ---- 路口：路的端头是街区接口的，补一小段接到垫板上；路边到街区之间不到一格的缝，铺成人行道
+    stubs = []                                                   # (x0, y0, x1, y1, 朝向, 街区下标, 'road' 或 'pave')
+    ends = set()
+    for (kind, cells) in links:
+        for c in (cells[0], cells[-1]):
+            if c in ports:
+                ends.add(c)
+    for c in sorted(road):
+        a, cc, e, f = cell_rect(*c)
+        for (dx, dy, side) in ((1, 0, "E"), (-1, 0, "W"), (0, 1, "N"), (0, -1, "S")):
+            n = (c[0] + dx, c[1] + dy)
+            if n in road or cell_ok(*n):
+                continue
+            na, nc, ne, nf = cell_rect(*n)
+            for k, r in enumerate(rects):
+                if not (na < r[2] - 0.01 and r[0] + 0.01 < ne and nc < r[3] - 0.01 and r[1] + 0.01 < nf):
+                    continue
+                if side == "E" and r[0] > e - 0.01 and cc >= r[1] - 0.01 and f <= r[3] + 0.01:
+                    rr = (e, cc, r[0], f)
+                elif side == "W" and r[2] < a + 0.01 and cc >= r[1] - 0.01 and f <= r[3] + 0.01:
+                    rr = (r[2], cc, a, f)
+                elif side == "N" and r[1] > f - 0.01 and a >= r[0] - 0.01 and e <= r[2] + 0.01:
+                    rr = (a, f, e, r[1])
+                elif side == "S" and r[3] < cc + 0.01 and a >= r[0] - 0.01 and e <= r[2] + 0.01:
+                    rr = (a, r[3], e, cc)
+                else:
+                    continue
+                is_port = c in ends and ports.get(c, (None, None))[0] == k and ports[c][1] == side
+                if rr[2] - rr[0] > 0.02 and rr[3] - rr[1] > 0.02:
+                    stubs.append(rr + (side, k, "road" if is_port else "pave", c))
+                elif is_port:
+                    stubs.append(rr + (side, k, "open", c))         # 正好贴着：没有缝，只是这一边不做人行道
+                break
+
+    # ---- 地块：沿路摆，一边贴着路
+    used = {}
+    parcels = []
+    def free(i, j):
+        return cell_ok(i, j) and (i, j) not in road and (i, j) not in used
+    street = set(road)                                           # 临街：挨着路，或者挨着街区（街区垫板的外沿就是街道）
+    for i in range(-1, NX + 1):
+        for j in range(-1, NY + 1):
+            if (i, j) not in road and not cell_ok(i, j):
+                a, c, e, f = cell_rect(i, j)
+                if any(a < r[2] - 0.01 and r[0] + 0.01 < e and c < r[3] - 0.01 and r[1] + 0.01 < f for r in rects):
+                    street.add((i, j))
+    def touch(i, j, w, h):
+        sides = {"S": 0, "N": 0, "W": 0, "E": 0}
+        for k in range(w):
+            if (i + k, j - 1) in street: sides["S"] += 1
+            if (i + k, j + h) in street: sides["N"] += 1
+        for k in range(h):
+            if (i - 1, j + k) in street: sides["W"] += 1
+            if (i + w, j + k) in street: sides["E"] += 1
+        return sides
+    for (kind, w0, h0, n_max, spacing, need_front) in URBAN_KINDS:
+        cands = []
+        for (w, h) in ((w0, h0), (h0, w0)):
+            for i in range(NX - w):
+                for j in range(NY - h):
+                    if not all(free(i + u, j + v) for u in range(w) for v in range(h)):
+                        continue
+                    sides = touch(i, j, w, h)
+                    front = max(sides, key=lambda q: sides[q] / (w if q in "SN" else h))
+                    frac = sides[front] / (w if front in "SN" else h)
+                    if need_front and frac < 0.6:
+                        continue
+                    if kind in ("shops",) and (w if front in "SN" else h) < max(w, h):
+                        continue                                      # 商铺的长边贴路
+                    cands.append((sum(sides.values()) + rs.random() * (2.0 if need_front else 6.0), i, j, w, h, front))
+        cands.sort(reverse=True)
+        n = 0
+        for (sc, i, j, w, h, front) in cands:
+            if n >= n_max:
+                break
+            if not all(free(i + u, j + v) for u in range(w) for v in range(h)):
+                continue
+            cx, cy = X0 + (i + w / 2) * UG, Y0 + (j + h / 2) * UG
+            if any(p["kind"] == kind and math.hypot(p["cx"] - cx, p["cy"] - cy) < spacing for p in parcels):
+                continue
+            for u in range(w):
+                for v in range(h):
+                    used[(i + u, j + v)] = len(parcels)
+            parcels.append({"kind": kind, "i": i, "j": j, "w": w, "h": h, "front": front, "cx": cx, "cy": cy,
+                            "x0": X0 + i * UG, "y0": Y0 + j * UG, "x1": X0 + (i + w) * UG, "y1": Y0 + (j + h) * UG})
+            n += 1
+    return {"road": road, "links": links, "stubs": stubs, "ports": ports, "river": {c: river_ports[c] for c in river_used}, "parcels": parcels, "used": used, "cell_ok": cell_ok, "cell_rect": cell_rect,
+            "rects": rects, "NX": NX, "NY": NY, "comps": comps, "street": street}
+
+def urban_fill():
+    """路网和地块的几何：路面、路口、行道树、车，学校、球场、停车场、广场、商铺、公园、苗圃，再在剩下的空地上种成片的树。
+    全部用自己的随机数状态；占地用 claim() 记进 NEW_ZONES（已有的树拿掉），不登记 keep()。在撒树之前调用。"""
+    st = random.getstate()
+    plan = urban_plan()
+    random.seed(2032)
+    n0, np0 = len(KEEP), N_PLANTS
+    b = B("Urban")
+    road, cell_rect, cell_ok, used, parcels = plan["road"], plan["cell_rect"], plan["cell_ok"], plan["used"], plan["parcels"]
+    X0, Y0 = ISL[0], ISL[1]
+    hz = {}
+    def HC(i, j):                                                # 格子角点上的路面高度
+        if (i, j) not in hz:
+            hz[(i, j)] = surface(X0 + i * UG, Y0 + j * UG) + 0.08
+        return hz[(i, j)]
+    def pad_top(k):                                              # 街区垫板的顶面
+        q = BLOCKS[k]
+        gz = max(ground(q["cx"] + sx * q["bw"] / 2, q["cy"] + sy * q["bd"] / 2) for sx in (-1, 1) for sy in (-1, 1))
+        return gz + (0.07 if q["kind"] == "town" else 0.05)
+
+    SW = 0.3                                                     # 人行道的宽
+    def road_rect(x0, y0, x1, y1, hf, edges, corners=(), line=None, mat=ASPHALT):
+        """一块路面，高度由 hf(x, y) 给。edges 里的边做人行道和侧面的裙边；corners 里的角补一小块人行道（拐弯的内角）。
+        人行道和车行道是同一张面上不同材质的格子，互不重叠（重叠的同高面会渲染成黑块）。"""
+        xs, ys = [x0], [y0]
+        hw = ("W" in edges or "SW" in corners or "NW" in corners) and x1 - x0 > 2 * SW + 0.1
+        he = ("E" in edges or "SE" in corners or "NE" in corners) and x1 - x0 > 2 * SW + 0.1
+        hs = ("S" in edges or "SW" in corners or "SE" in corners) and y1 - y0 > 2 * SW + 0.1
+        hn = ("N" in edges or "NW" in corners or "NE" in corners) and y1 - y0 > 2 * SW + 0.1
+        if hw: xs.append(x0 + SW)
+        if he: xs.append(x1 - SW)
+        if hs: ys.append(y0 + SW)
+        if hn: ys.append(y1 - SW)
+        xs.append(x1); ys.append(y1)
+        for a in range(len(xs) - 1):
+            for c in range(len(ys) - 1):
+                iw, ie, i_s, i_n = hw and a == 0, he and a == len(xs) - 2, hs and c == 0, hn and c == len(ys) - 2
+                pave = ((iw and "W" in edges) or (ie and "E" in edges) or (i_s and "S" in edges) or (i_n and "N" in edges)
+                        or (iw and i_s and "SW" in corners) or (ie and i_s and "SE" in corners)
+                        or (iw and i_n and "NW" in corners) or (ie and i_n and "NE" in corners))
+                xa, xb, ya, yb = xs[a], xs[a + 1], ys[c], ys[c + 1]
+                b.add([(xa, ya, hf(xa, ya)), (xb, ya, hf(xb, ya)), (xb, yb, hf(xb, yb)), (xa, yb, hf(xa, yb))], [(0, 1, 2, 3)], STONE if pave else mat)
+        dn = 0.5
+        for sd in edges:                                         # 裙边：盖住路面和地面之间的缝
+            if sd == "W": q = [(x0, y0), (x0, y1)]
+            elif sd == "E": q = [(x1, y1), (x1, y0)]
+            elif sd == "S": q = [(x1, y0), (x0, y0)]
+            else: q = [(x0, y1), (x1, y1)]
+            (ax, ay), (cx, cy) = q
+            b.add([(ax, ay, hf(ax, ay)), (cx, cy, hf(cx, cy)), (cx, cy, hf(cx, cy) - dn), (ax, ay, hf(ax, ay) - dn)], [(0, 1, 2, 3)], STONE)
+        if line == "x":
+            ym = (y0 + y1) / 2
+            b.add([(x0, ym - 0.035, hf(x0, ym) + 0.012), (x1, ym - 0.035, hf(x1, ym) + 0.012), (x1, ym + 0.035, hf(x1, ym) + 0.012), (x0, ym + 0.035, hf(x0, ym) + 0.012)], [(0, 1, 2, 3)], ROAD_YELLOW)
+        elif line == "y":
+            xm = (x0 + x1) / 2
+            b.add([(xm - 0.035, y0, hf(xm, y0) + 0.012), (xm + 0.035, y0, hf(xm, y0) + 0.012), (xm + 0.035, y1, hf(xm, y1) + 0.012), (xm - 0.035, y1, hf(xm, y1) + 0.012)], [(0, 1, 2, 3)], ROAD_YELLOW)
+
+    # ---- 路面
+    stub_at = {}
+    for (sx0, sy0, sx1, sy1, side, k, kind, c) in plan["stubs"]:
+        stub_at[(c, side)] = kind
+    river = plan["river"]
+    NB = {"E": (1, 0), "W": (-1, 0), "N": (0, 1), "S": (0, -1)}
+    n_car = n_st = 0
+    tree_spots = []
+    for c in sorted(road):
+        i, j = c
+        a, cc, e, f = cell_rect(i, j)
+        h00, h10, h11, h01 = HC(i, j), HC(i + 1, j), HC(i + 1, j + 1), HC(i, j + 1)
+        def hf(x, y, a=a, cc=cc, h00=h00, h10=h10, h11=h11, h01=h01):
+            u, v = (x - a) / UG, (y - cc) / UG
+            return h00 * (1 - u) * (1 - v) + h10 * u * (1 - v) + h11 * u * v + h01 * (1 - u) * v
+        opn = set()
+        for sd, (dx, dy) in NB.items():
+            if (i + dx, j + dy) in road or stub_at.get((c, sd)) in ("road", "open") or (c in river and river[c][0] == (dx, dy)):
+                opn.add(sd)
+        edges = set("EWNS") - opn
+        corners = set()
+        for (cn, s1, s2, dx, dy) in (("SW", "S", "W", -1, -1), ("SE", "S", "E", 1, -1), ("NW", "N", "W", -1, 1), ("NE", "N", "E", 1, 1)):
+            if s1 in opn and s2 in opn and (i + dx, j + dy) not in road:
+                corners.add(cn)
+        line = "x" if opn == {"E", "W"} else ("y" if opn == {"N", "S"} else None)
+        road_rect(a, cc, e, f, hf, edges, corners, line)
+        if line and random.random() < 0.38:                      # 路上的车
+            o = random.choice((-0.36, 0.36)); t = random.uniform(0.3, 1.7)
+            x, y = (a + t, (cc + f) / 2 + o) if line == "x" else ((a + e) / 2 + o, cc + t)
+            car(b, x, y, hf(x, y) + 0.01, 0.0 if line == "x" else math.pi / 2, random)
+            n_car += 1
+        for sd in edges:                                         # 行道树的位置：路边的空地上（不挨着街区、不在地块里）
+            dx, dy = NB[sd]
+            n = (i + dx, j + dy)
+            if stub_at.get((c, sd)) or not cell_ok(*n) or n in road:
+                continue
+            if n in used and parcels[used[n]]["kind"] not in ("park",):
+                continue
+            mx, my = (a + e) / 2 + dx * (UG / 2 + 0.55), (cc + f) / 2 + dy * (UG / 2 + 0.55)
+            tree_spots.append((mx + (0 if dx else random.uniform(-0.5, 0.5)), my + (0 if dy else random.uniform(-0.5, 0.5)), random.random(), random.random(), random.uniform(0.82, 1.08)))
+
+    # ---- 路口：接到街区垫板上的一小段；路边到街区之间不到一格的缝铺成人行道
+    for (sx0, sy0, sx1, sy1, side, k, kind, c) in plan["stubs"]:
+        if kind == "open":
+            continue
+        i, j = c
+        zp = pad_top(k) - 0.004
+        if side in "EW":
+            xe, xb = (sx0, sx1) if side == "E" else (sx1, sx0)                # 格子的边、街区的边
+            hA, hB = (HC(i + 1, j), HC(i + 1, j + 1)) if side == "E" else (HC(i, j), HC(i, j + 1))
+            def hf(x, y, xe=xe, xb=xb, hA=hA, hB=hB, y0=sy0, y1=sy1, zp=zp):
+                t = (x - xe) / (xb - xe)
+                return (hA + (hB - hA) * (y - y0) / (y1 - y0)) * (1 - t) + zp * t
+            ed, ln, far = {"S", "N"}, "x", {side}
+        else:
+            ye, yb = (sy0, sy1) if side == "N" else (sy1, sy0)
+            hA, hB = (HC(i, j + 1), HC(i + 1, j + 1)) if side == "N" else (HC(i, j), HC(i + 1, j))
+            def hf(x, y, ye=ye, yb=yb, hA=hA, hB=hB, x0=sx0, x1=sx1, zp=zp):
+                t = (y - ye) / (yb - ye)
+                return (hA + (hB - hA) * (x - x0) / (x1 - x0)) * (1 - t) + zp * t
+            ed, ln, far = {"W", "E"}, "y", {side}
+        if kind == "road":
+            road_rect(sx0, sy0, sx1, sy1, hf, ed, line=ln if max(sx1 - sx0, sy1 - sy0) > 0.0 and min(sx1 - sx0, sy1 - sy0) > 0.5 else None)
+        else:
+            road_rect(sx0, sy0, sx1, sy1, hf, set(), mat=STONE)
+        claim(sx0 - 0.1, sy0 - 0.1, sx1 + 0.1, sy1 + 0.1)
+    # ---- 接滨江路：一直铺到滨江路的中线，盖在它上面一点（都是沥青，看不出接缝）
+    for c, (d, ends) in river.items():
+        i, j = c
+        a, cc, e, f = cell_rect(i, j)
+        xe = e if d[0] > 0 else a
+        hA, hB = (HC(i + 1, j), HC(i + 1, j + 1)) if d[0] > 0 else (HC(i, j), HC(i, j + 1))
+        m = 3
+        for k in range(m):
+            row = []
+            for t in (k / m, (k + 1) / m):
+                pa = (xe + d[0] * ends[0] * t, cc)
+                pb = (xe + d[0] * ends[1] * t, f)
+                za = hA if t == 0 else surface(*pa) + 0.05
+                zb = hB if t == 0 else surface(*pb) + 0.05
+                row.append(((pa[0], pa[1], za), (pb[0], pb[1], zb)))
+            (p0, p1), (p2, p3) = row
+            b.add([p0, p2, p3, p1] if d[0] > 0 else [p2, p0, p1, p3], [(0, 1, 2, 3)], ASPHALT)
+        claim(min(xe, xe + d[0] * max(ends)) - 0.1, cc - 0.1, max(xe, xe + d[0] * max(ends)) + 0.1, f + 0.1)
+    # ---- 路的占地：同一行里连着的格子并成一条
+    for j in sorted(set(c[1] for c in road)):
+        row = sorted(c[0] for c in road if c[1] == j)
+        k = 0
+        while k < len(row):
+            m = k
+            while m + 1 < len(row) and row[m + 1] == row[m] + 1:
+                m += 1
+            claim(X0 + row[k] * UG - 0.15, Y0 + j * UG - 0.15, X0 + (row[m] + 1) * UG + 0.15, Y0 + (j + 1) * UG + 0.15)
+            k = m + 1
+
+    # ---- 地块
+    def frame(p):
+        """地块自己的坐标：u 沿临街的一边，v 从街边往里。返回 (换成世界坐标的函数, 面宽, 进深, u 是否沿世界 x)。"""
+        x0, y0, x1, y1, fr = p["x0"], p["y0"], p["x1"], p["y1"], p["front"]
+        if fr == "S": f = lambda u, v: (x0 + u, y0 + v)
+        elif fr == "N": f = lambda u, v: (x1 - u, y1 - v)
+        elif fr == "W": f = lambda u, v: (x0 + v, y1 - u)
+        else: f = lambda u, v: (x1 - v, y0 + u)
+        ax = fr in "SN"
+        return f, ((x1 - x0) if ax else (y1 - y0)), ((y1 - y0) if ax else (x1 - x0)), ax
+    def lbox(f, u0, v0, u1, v1, z, h, mat):
+        (xa, ya), (xb, yb) = f(u0, v0), f(u1, v1)
+        box(b, (xa + xb) / 2, (ya + yb) / 2, z, abs(xb - xa), abs(yb - ya), h, mat)
+    def lrise(f, ax, uc, vc, wu, dv, nf, z, rs, pitched=False):
+        x, y = f(uc, vc)
+        lowrise(b, x, y, wu if ax else dv, dv if ax else wu, nf, z, rs, pitched=pitched)
+    def tree(f, u, v, kind, s, z):
+        x, y = f(u, v)
+        plant(kind, x, y, s, z=z, force=True)
+    def pad(p, mat):
+        gs = [ground(x, y) for x in (p["x0"], p["cx"], p["x1"]) for y in (p["y0"], p["cy"], p["y1"])]
+        zb = min(gs) - 0.4
+        box(b, p["cx"], p["cy"], zb, p["x1"] - p["x0"] - 0.06, p["y1"] - p["y0"] - 0.06, max(gs) + 0.05 - zb, mat)
+        return max(gs) + 0.05
+    def court(f, u0, v0, u1, v1, z, col, col2):
+        lbox(f, u0 - 0.08, v0 - 0.08, u1 + 0.08, v1 + 0.08, z, 0.012, ROAD_WHITE)
+        lbox(f, u0, v0, u1, v1, z, 0.02, col)
+        along_u = (u1 - u0) > (v1 - v0)
+        if along_u:
+            lbox(f, (u0 + u1) / 2 - 0.03, v0, (u0 + u1) / 2 + 0.03, v1, z, 0.026, ROAD_WHITE)
+            for (ua, ub) in ((u0, u0 + (u1 - u0) * 0.2), (u1 - (u1 - u0) * 0.2, u1)):
+                lbox(f, ua, (v0 + v1) / 2 - (v1 - v0) * 0.2, ub, (v0 + v1) / 2 + (v1 - v0) * 0.2, z, 0.024, col2)
+        else:
+            lbox(f, u0, (v0 + v1) / 2 - 0.03, u1, (v0 + v1) / 2 + 0.03, z, 0.026, ROAD_WHITE)
+            for (va, vb) in ((v0, v0 + (v1 - v0) * 0.2), (v1 - (v1 - v0) * 0.2, v1)):
+                lbox(f, (u0 + u1) / 2 - (u1 - u0) * 0.2, va, (u0 + u1) / 2 + (u1 - u0) * 0.2, vb, z, 0.024, col2)
+    COURT_COLS = ((COURT_GREEN, TRACK_RED), (COURT_BLUE, COURT_GREEN), (TRACK_RED, COURT_GREEN))
+    n_kind = {}
+    for p in parcels:
+        kind = p["kind"]
+        n_kind[kind] = n_kind.get(kind, 0) + 1
+        claim(p["x0"] - 0.05, p["y0"] - 0.05, p["x1"] + 0.05, p["y1"] + 0.05)
+        rs = random.Random(int(round(p["cx"] * 173 + p["cy"] * 911)) + 3)
+        f, Wd, Dp, ax = frame(p)
+        if kind == "school":
+            # 学校：一圈红色跑道围着草地的操场，两排教学楼，临街一座门房和两片球场
+            zt = pad(p, STONE)
+            cu, cv, R, hl = 4.7, Dp - 3.5, 2.7, 1.5
+            def stadium(r, n=10):
+                pts = [(cu + hl + r * math.cos(-math.pi / 2 + math.pi * k / n), cv + r * math.sin(-math.pi / 2 + math.pi * k / n)) for k in range(n + 1)]
+                pts += [(cu - hl + r * math.cos(math.pi / 2 + math.pi * k / n), cv + r * math.sin(math.pi / 2 + math.pi * k / n)) for k in range(n + 1)]
+                return [f(u, v) for (u, v) in pts]
+            slab(b, stadium(R + 0.07), zt - 0.02, zt + 0.014, ROAD_WHITE)
+            slab(b, stadium(R), zt - 0.02, zt + 0.03, TRACK_RED)
+            slab(b, stadium(R - 0.7), zt - 0.01, zt + 0.042, LAWN)
+            nf = rs.randint(4, 5)
+            lrise(f, ax, Wd - 2.5, Dp - 1.6, 3.6, 1.5, nf, zt, rs)
+            lrise(f, ax, Wd - 2.5, Dp - 4.5, 3.6, 1.5, nf, zt, rs)
+            lrise(f, ax, Wd - 2.2, 1.5, 2.6, 1.3, 3, zt, rs)
+            court(f, 1.0, 0.8, 3.7, 2.4, zt, *COURT_COLS[0])
+            court(f, 4.5, 0.8, 7.2, 2.4, zt, *COURT_COLS[1])
+            x, y = f(Wd - 4.6, 1.2)
+            prism(b, x, y, zt, 0.03, 1.9, STEEL, n=6)
+            box(b, x + 0.17, y, zt + 1.6, 0.3, 0.02, 0.22, BOAT_RED)
+            for k in range(6):
+                tree(f, 0.5 + k * (Wd - 5.4) / 5, 0.35, "ginkgo" if k % 2 else "tree", rs.uniform(0.8, 1.0), zt)
+            for k in range(4):
+                tree(f, Wd - 0.45, 1.0 + k * (Dp - 2.0) / 3, "tree", rs.uniform(0.8, 1.0), zt)
+        elif kind == "courts":
+            # 球场：四片塑胶球场，后面一排树
+            zt = pad(p, CONCRETE)
+            uw, vw = (Wd - 1.4) / 2, (Dp - 1.9) / 2
+            for a_ in range(2):
+                for c_ in range(2):
+                    u0, v0 = 0.5 + a_ * (uw + 0.4), 0.5 + c_ * (vw + 0.4)
+                    court(f, u0, v0, u0 + uw, v0 + vw, zt, *COURT_COLS[(a_ + 2 * c_ + rs.randrange(3)) % 3])
+            for k in range(4):
+                tree(f, 0.8 + k * (Wd - 1.6) / 3, Dp - 0.3, "tree" if k % 2 else "ginkgo", rs.uniform(0.75, 0.95), zt)
+        elif kind == "parking":
+            # 停车场：两组背靠背的车位，后面一条绿化带，门口一间岗亭
+            zt = pad(p, ASPHALT)
+            for (va, vb) in ((1.0, 1.52), (3.4, 3.92)):
+                lbox(f, 0.5, (va + vb) / 2 - 0.02, Wd - 0.5, (va + vb) / 2 + 0.02, zt, 0.012, ROAD_WHITE)
+                for vv in (va, vb):
+                    u = 0.7
+                    while u < Wd - 0.7:
+                        if rs.random() < 0.68:
+                            x, y = f(u, vv)
+                            car(b, x, y, zt + 0.01, math.pi / 2 if ax else 0.0, rs)
+                        u += 0.3
+            lbox(f, 0.3, Dp - 0.95, Wd - 0.3, Dp - 0.3, zt, 0.04, LAWN)
+            for k in range(3):
+                tree(f, 0.9 + k * (Wd - 1.8) / 2, Dp - 0.62, "tree", rs.uniform(0.8, 1.0), zt + 0.03)
+            lbox(f, 0.3, 0.25, 0.9, 0.7, zt, 0.4, WHITE_WALL)
+            lbox(f, 0.24, 0.19, 0.96, 0.76, zt + 0.4, 0.05, FERRY_BLUE)
+        elif kind == "plaza":
+            # 广场：中间一座喷水池，四角四块带树的草地
+            zt = pad(p, STONE)
+            lbox(f, 0.7, 0.7, Wd - 0.7, Dp - 0.7, zt, 0.02, GRANITE)
+            x, y = f(Wd / 2, Dp / 2)
+            prism(b, x, y, zt, 1.3, 0.14, MARBLE, n=18)
+            prism(b, x, y, zt, 1.08, 0.165, POND, n=18)
+            prism(b, x, y, zt, 0.3, 0.3, MARBLE, n=10)
+            cone(b, x, y, zt + 0.3, 0.1, 0.03, 0.5, MARBLE, n=8, uv=False)
+            for (ua, va) in ((1.0, 1.0), (Wd - 3.0, 1.0), (1.0, Dp - 3.0), (Wd - 3.0, Dp - 3.0)):
+                lbox(f, ua, va, ua + 2.0, va + 2.0, zt, 0.05, LAWN)
+                for (du, dv) in ((0.55, 0.55), (1.45, 1.45), (0.55, 1.45), (1.45, 0.55)):
+                    if rs.random() < 0.75:
+                        tree(f, ua + du, va + dv, rs.choice(("ginkgo", "tree", "maple")), rs.uniform(0.75, 1.0), zt + 0.04)
+        elif kind == "shops":
+            # 沿街商铺：一排两三层的小楼，后院几棵树
+            zt = pad(p, STONE)
+            u = 0.35
+            while True:
+                w, d = rs.uniform(2.2, 3.3), rs.uniform(1.6, 2.0)
+                if u + w > Wd - 0.3:
+                    break
+                lrise(f, ax, u + w / 2, 0.45 + d / 2, w, d, rs.choice((2, 2, 3)), zt, rs, pitched=rs.random() < 0.6)
+                u += w + rs.uniform(0.25, 0.5)
+            for k in range(int(Wd / 2.4)):
+                tree(f, 1.0 + k * 2.4 + rs.uniform(-0.3, 0.3), Dp - 0.6, rs.choice(("tree", "tree", "ginkgo")), rs.uniform(0.75, 1.0), zt)
+        elif kind == "nursery":
+            # 苗圃：一垄一垄的地，垄上是成行的小树；角上一间棚屋
+            zt = pad(p, SOIL)
+            nrow = int((Dp - 1.0) / 1.0)
+            for k in range(nrow):
+                v = 0.8 + k * (Dp - 1.6) / max(1, nrow - 1)
+                lbox(f, 0.4, v - 0.24, Wd - 2.2 if k < 2 else Wd - 0.4, v + 0.24, zt, 0.03, LAWN)
+                kd = ("ginkgo", "tree", "maple", "pine", "tree")[k % 5]
+                u = 0.8
+                while u < (Wd - 2.6 if k < 2 else Wd - 0.7):
+                    tree(f, u, v, kd, rs.uniform(0.5, 0.68), zt + 0.02)
+                    u += 0.95
+            lbox(f, Wd - 1.9, 0.4, Wd - 0.4, 1.5, zt, 0.42, CONCRETE)
+            lbox(f, Wd - 1.96, 0.34, Wd - 0.34, 1.56, zt + 0.42, 0.05, FLATROOF)
+        else:
+            # 公园：不垫板，就在草地上。一口池塘，绕池一圈石径，一条小路通到街边，四周成片的树；大一点的再加一座亭子
+            pu, pv = Wd * rs.uniform(0.42, 0.58), Dp * rs.uniform(0.45, 0.6)
+            R = min(Wd, Dp) * rs.uniform(0.16, 0.2)
+            cx, cy = f(pu, pv)
+            z = max(ground(cx + R * math.cos(k * math.pi / 4), cy + R * math.sin(k * math.pi / 4)) for k in range(8))
+            n = 20
+            wob = [1.0 + 0.16 * math.sin(3 * (2 * math.pi * k / n) + rs.uniform(0, 6.28) * 0 + p["cx"]) + 0.1 * math.sin(2 * (2 * math.pi * k / n) + p["cy"]) for k in range(n)]
+            ring = lambda r, zz: [(cx + r * wob[k] * math.cos(2 * math.pi * k / n), cy + r * wob[k] * math.sin(2 * math.pi * k / n), zz) for k in range(n)]
+            ri, top = R - 0.26, z + 0.1
+            v_ = ring(R, z - 0.45) + ring(R, top) + ring(ri, top) + ring(ri, z - 0.05)
+            f_ = []
+            for k in range(n):
+                k2 = (k + 1) % n
+                f_ += [(k, k2, n + k2, n + k), (n + k, n + k2, 2 * n + k2, 2 * n + k), (2 * n + k, 2 * n + k2, 3 * n + k2, 3 * n + k)]
+            b.add(v_, f_, GRANITE)
+            b.add(ring(ri, z + 0.04), [tuple(range(n))], POND)
+            loop = [(cx + (R + 1.0) * 1.12 * math.cos(2 * math.pi * k / 14), cy + (R + 1.0) * 1.12 * math.sin(2 * math.pi * k / 14)) for k in range(15)]
+            path(b, loop, w=0.42)
+            gx, gy = f(pu, 0.2)
+            k0 = min(range(14), key=lambda k: math.hypot(loop[k][0] - gx, loop[k][1] - gy))
+            path(b, [(gx, gy), loop[k0]], w=0.42)
+            pav = None
+            if Wd * Dp > 90:
+                pav = f(pu + (R + 2.4) * (1 if pu < Wd / 2 else -1), pv + rs.uniform(-0.6, 0.6))
+                pavilion_jn(b, pav[0], pav[1], 0.5, 0.62, n=6, roof=rs.choice((DARK_TILE, GOLD)))
+            m = int(Wd * Dp * 0.3)
+            for k in range(m):
+                u, v = rs.uniform(0.5, Wd - 0.5), rs.uniform(0.5, Dp - 0.5)
+                x, y = f(u, v)
+                dd = math.hypot(x - cx, y - cy)
+                k1, s1 = rs.random(), rs.uniform(1.05, 1.6)
+                if dd < R * 1.2 + 0.5 or abs(dd - (R + 1.0) * 1.12) < 0.6 or (pav and math.hypot(x - pav[0], y - pav[1]) < 1.5) \
+                        or (abs(u - pu) < 0.6 and v < pv):
+                    continue
+                if dd < R + 3.0:
+                    kd = "willow" if k1 < 0.5 else ("maple" if k1 < 0.75 else "tree")
+                else:
+                    kd = "tree" if k1 < 0.4 else ("ginkgo" if k1 < 0.6 else ("maple" if k1 < 0.75 else ("pine" if k1 < 0.9 else "bush")))
+                plant(kd, x, y, s1, force=True)
+
+    # ---- 行道树
+    for (x, y, k1, k2, s1) in tree_spots:
+        if k1 < 0.85:
+            plant("ginkgo" if k2 < 0.45 else "tree", x, y, s1, force=True)
+            n_st += 1
+    # ---- 剩下的空地：成片的树丛（一丛几棵，丛与丛之间留出草地），江边多垂柳
+    NX, NY = plan["NX"], plan["NY"]
+    left = [(i, j) for i in range(NX) for j in range(NY) if cell_ok(i, j) and (i, j) not in road and (i, j) not in used]
+    left_set = set(left)
+    random.shuffle(left)
+    groves = []
+    for (i, j) in left:
+        if len(groves) >= 110:
+            break
+        gx, gy = X0 + (i + random.random()) * UG, Y0 + (j + random.random()) * UG
+        if any(math.hypot(gx - qx, gy - qy) < 6.5 for (qx, qy) in groves):
+            continue
+        groves.append((gx, gy))
+        near = lake_depth(gx, gy) > -15.0
+        for k in range(random.randint(4, 8)):
+            x, y = gx + random.gauss(0, 1.5), gy + random.gauss(0, 1.5)
+            k1, s1 = random.random(), random.uniform(1.1, 1.65)
+            if (int((x - X0) // UG), int((y - Y0) // UG)) not in left_set:
+                continue
+            if near:
+                kd = "willow" if k1 < 0.45 else ("tree" if k1 < 0.75 else ("ginkgo" if k1 < 0.9 else "maple"))
+            else:
+                kd = "tree" if k1 < 0.4 else ("ginkgo" if k1 < 0.58 else ("maple" if k1 < 0.72 else ("pine" if k1 < 0.92 else "bush")))
+            plant(kd, x, y, s1, force=True)
+    del KEEP[n0:]
+    b.build()
+    print(f"[yc] urban: road cells {len(road)}, stubs {len(plan['stubs'])}, river links {len(river)}, cars {n_car}, street trees {n_st}, "
+          f"parcels {n_kind}, groves {len(groves)}, new plants {N_PLANTS - np0}")
+    random.setstate(st)
+
 def tower_hill(b):
     """黄鹤楼脚下的砌体：山顶广场四周的挡墙和栏杆，南面三层石砌台地和之字形台阶，牌坊、碑廊、四角的亭子，前场铺地，再补树。
     山体本身（岩壁、削坡）在 terrain_geo() 里。"""
@@ -2972,6 +3656,7 @@ def build_scene():
     if HOUSES:
         HOUSES[0].build()
     landmarks()                                  # 胜像宝塔、铜雕、纪念碑、红楼前的铜像、晴川饭店、轮渡
+    urban_fill()                                 # 路网和地块：街区之间连路，空草地填成学校、球场、公园……
     for i in range(520):
         x, y = random.uniform(-100, 62), random.uniform(-72, 72)
         if lake_depth(x, y) < -3 and ground(x, y) < 1.6 and not blocked(x, y) and isl_rho(x, y)[0] < 0.96:

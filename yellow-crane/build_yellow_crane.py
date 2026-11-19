@@ -3500,6 +3500,108 @@ def tower_hill(b):
     random.setstate(st)
     print(f"[yc] tower hill: top {TIER_A:.2f}, tiers {TIER_B:.2f} / {TIER_C:.2f}, forecourt {zg:.2f}")
 
+def feather_forest(i0, i1, seed=2041):
+    """打散山林的边界。山林是按"地面高过 1.2 就种"撒的，边界就是一条等高线，齐得像修剪过的绿篱。
+    这里在种完以后改：林缘往里几个单位疏掉一些树，往外几个单位疏疏落落地补一些树；
+    一张低频噪声决定哪一段往里凹（疏得多、不往外补）、哪一段往外伸（疏得少、补得远），边界就成了犬牙交错的。
+    PLANT_REG[i0:i1] 是山林的树。用自己的随机数状态，放在所有种植之后，别处不受影响。"""
+    global N_PLANTS
+    st = random.getstate(); random.seed(seed)
+    C = 1.8                                                      # 粗格子：一格里大约四棵林木，林子内部不会有空格
+    X0, Y0, X1, Y1 = ISL
+    NX, NY = int((X1 - X0) / C) + 1, int((Y1 - Y0) / C) + 1
+    cell = lambda x, y: (int((x - X0) / C), int((y - Y0) / C))
+    F = set(cell(q[0], q[1]) for q in PLANT_REG[i0:i1] if q[2] is not None)
+    # 岛缘以外和水里的格子不算"林外的空地"：贴着切面和江边的林子保持原样
+    OUT = set()
+    for i in range(-1, NX + 1):
+        for j in range(-1, NY + 1):
+            x, y = X0 + (i + 0.5) * C, Y0 + (j + 0.5) * C
+            if isl_rho(x, y)[0] > 0.972 or lake_depth(x, y) > -2.5:
+                OUT.add((i, j))
+    N8 = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+    def spread(src, into, dmax):
+        """从 src 往 into 里一圈一圈地量距离（格数）。"""
+        d, front = {}, list(src)
+        for k in range(1, dmax + 1):
+            nxt = []
+            for (i, j) in front:
+                for (dx, dy) in N8:
+                    n = (i + dx, j + dy)
+                    if n in into and n not in d:
+                        d[n] = k; nxt.append(n)
+            front = nxt
+        return d
+    ALL = set((i, j) for i in range(-1, NX + 1) for j in range(-1, NY + 1))
+    OPEN = ALL - F - OUT
+    # 往里疏只从山脚的平地量起：坡上的林间空地（亭台周围、山径两侧）不算，否则坡上的林子被疏出一块块光秃的山坡
+    FLAT = set(q for q in OPEN if ground(X0 + (q[0] + 0.5) * C, Y0 + (q[1] + 0.5) * C) < 1.25)
+    d_in = spread(FLAT, F, 3)                                    # 林子里：离山脚的平地几格
+    d_out = spread(F, OPEN, 4)                                   # 空地上：离林子几格
+    def tongue(x, y):                                            # 0 = 往里凹，1 = 往外伸
+        return min(1.0, max(0.0, (fbm(x * 0.085 + 31.0, y * 0.085 + 17.0, 3) - 0.32) / 0.36))
+    # ---- 往里疏
+    n_cut = 0
+    for k in range(i0, i1):
+        x, y, ref = PLANT_REG[k]
+        r = random.random()
+        d = d_in.get(cell(x, y))
+        if ref is None or d is None:
+            continue
+        if r < (0.55, 0.28, 0.1)[d - 1] * (1.15 - tongue(x, y)) and ground(x, y) < 4.0:
+            if WEB:
+                PLANTS[ref] = None
+            else:
+                bpy.data.objects.remove(ref, do_unlink=True)
+            PLANT_REG[k] = (x, y, None)
+            N_PLANTS -= 1
+            n_cut += 1
+    # ---- 往外散
+    rects = [(q["cx"] - q["hx"] - 0.4, q["cy"] - q["hy"] - 0.4, q["cx"] + q["hx"] + 0.4, q["cy"] + q["hy"] + 0.4) for q in BLOCKS]
+    solid_keep = [k for k in KEEP if not any(r[0] < k[0] < r[2] and r[1] < k[1] < r[3] for r in rects)]
+    path_pts = []
+    for pts in PATHS:
+        for (a, c) in zip(pts[:-1], pts[1:]):
+            m = max(1, int(math.hypot(c[0] - a[0], c[1] - a[1]) * 2))
+            path_pts += [(a[0] + (c[0] - a[0]) * i / m, a[1] + (c[1] - a[1]) * i / m) for i in range(m + 1)]
+    near = {}                                                    # 已有的树和山径：新树不贴着它们
+    def reg(x, y):
+        near.setdefault((int(x // 1.0), int(y // 1.0)), []).append((x, y))
+    for q in PLANT_REG:
+        if q[2] is not None:
+            reg(q[0], q[1])
+    for (x, y) in path_pts:
+        reg(x, y)
+    def crowded(x, y, r=0.62):
+        i, j = int(x // 1.0), int(y // 1.0)
+        return any(math.hypot(x - qx, y - qy) < r for di in (-1, 0, 1) for dj in (-1, 0, 1) for (qx, qy) in near.get((i + di, j + dj), ()))
+    n_add = 0
+    for (i, j) in sorted(d_out):
+        d = d_out[(i, j)]
+        cx, cy = X0 + (i + 0.5) * C, Y0 + (j + 0.5) * C
+        reach = 0.5 + 3.6 * tongue(cx, cy)                       # 这一段林缘往外伸几格
+        for k in range(4):
+            x, y = X0 + (i + random.random()) * C, Y0 + (j + random.random()) * C
+            r1, r2, s = random.random(), random.random(), random.uniform(1.0, 1.5)
+            if d - 0.5 > reach or r1 > 0.78 * (1.0 - (d - 0.5) / (reach + 0.5)) ** 1.3:
+                continue
+            ld = lake_depth(x, y)
+            if ld > -3.3 or -5.7 < ld < -3.3 or isl_rho(x, y)[0] > 0.972 or no_plant(x, y):
+                continue
+            if any(q[0] < x < q[2] and q[1] < y < q[3] for q in rects) or any(math.hypot(x - kx, y - ky) < kr for (kx, ky, kr) in solid_keep):
+                continue
+            if math.hypot(ground(x + 0.6, y) - ground(x - 0.6, y), ground(x, y + 0.6) - ground(x, y - 0.6)) / 1.2 > 2.2 or crowded(x, y):
+                continue
+            if d <= 2:
+                kind = "pine" if r2 < 0.34 else ("tree" if r2 < 0.66 else ("ginkgo" if r2 < 0.82 else ("maple" if r2 < 0.94 else "bush")))
+            else:
+                kind = "tree" if r2 < 0.5 else ("ginkgo" if r2 < 0.66 else ("maple" if r2 < 0.78 else ("pine" if r2 < 0.88 else "bush")))
+            plant(kind, x, y, s * (1.0 - 0.07 * d), force=True)
+            reg(x, y)
+            n_add += 1
+    print(f"[yc] forest edge: thinned {n_cut}, scattered {n_add} (forest cells {len(F)}, edge cells in/out {len(d_in)}/{len(d_out)})")
+    random.setstate(st)
+
 def build_scene():
     make_variants()
     island()
@@ -3683,6 +3785,7 @@ def build_scene():
     # ---- 山林（蛇山、龟山、远山）
     x0, y0, x1, y1 = ISL
     cnt = 0
+    nf0 = len(PLANT_REG)
     y = y0 + 1.0
     while y < y1 - 1.0:
         x = x0 + 1.0
@@ -3703,6 +3806,7 @@ def build_scene():
                         cnt += 1
             x += 0.9
         y += 0.9
+    nf1 = len(PLANT_REG)
     # 平地散树与灌木
     for i in range(900):
         x, y = random.uniform(x0, x1), random.uniform(y0, y1)
@@ -3719,6 +3823,7 @@ def build_scene():
         z, k = terrain(x, y)
         if k == 'land' and z < 9.0 and -16 < lake_depth(x, y) < -0.8 and random.random() < 0.7:
             plant("bush", x, y, random.uniform(0.9, 1.6))
+    feather_forest(nf0, nf1)                     # 打散山林的边界（放在所有种植之后）
     print(f"[yc] hill trees={cnt}, plants total={N_PLANTS}")
 
 

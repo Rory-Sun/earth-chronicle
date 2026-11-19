@@ -1551,7 +1551,7 @@ for _m in (FACADE3, FACADE4, GLASS2, FLATROOF):
     add_fog(_m)
 # 补充的真实景物
 MARBLE = principled("WhiteMarble", (0.84, 0.83, 0.79), rough=0.5)
-BRONZE = principled("Bronze", (0.30, 0.19, 0.09), rough=0.38, metal=0.85)
+BRONZE = principled("Bronze", (0.25, 0.155, 0.07), rough=0.42, metal=0.7)        # 深一些：铜雕背后是米色的石墙，颜色浅了分不开
 FERRY_BLUE = principled("FerryBlue", (0.10, 0.28, 0.52), rough=0.45)
 for _m in (MARBLE, BRONZE, FERRY_BLUE):
     add_fog(_m)
@@ -2478,6 +2478,84 @@ def ferry(x, y, ang, L=5.0, W=1.5):
     b.build(loc=(x, y, 0), rot=ang)
     FERRY_WAKES.append((x, y, ang, L, W))
 
+def tube(b, pts, radii, mat, n=6):
+    """沿折线扫出的圆管，每个点一个半径（鹤颈、蛇、胳膊）。"""
+    P = [mathutils.Vector(q) for q in pts]
+    if not isinstance(radii, (list, tuple)):
+        radii = [radii] * len(P)
+    v, u_prev = [], None
+    for i, q in enumerate(P):
+        d = (P[min(i + 1, len(P) - 1)] - P[max(i - 1, 0)]).normalized()
+        u = d.cross(mathutils.Vector((0, 0, 1))) if u_prev is None else u_prev - d * u_prev.dot(d)
+        if u.length < 1e-4:
+            u = d.cross(mathutils.Vector((1, 0, 0)))
+        u.normalize()
+        w = d.cross(u).normalized()
+        u_prev = u
+        v += [tuple(q + (u * math.cos(2 * math.pi * k / n) + w * math.sin(2 * math.pi * k / n)) * radii[i]) for k in range(n)]
+    f = [(i * n + k, i * n + (k + 1) % n, (i + 1) * n + (k + 1) % n, (i + 1) * n + k) for i in range(len(P) - 1) for k in range(n)]
+    f.append(tuple(reversed(range(n))))
+    f.append(tuple(range((len(P) - 1) * n, len(P) * n)))
+    b.add(v, f, mat)
+
+def spindle(b, p0, p1, r, mat, n=8, seg=6, pw=0.6):
+    """两头收尖的纺锤体（鹤身、头）；pw 越小越接近椭球。"""
+    P0, P1 = mathutils.Vector(p0), mathutils.Vector(p1)
+    ts = [i / seg for i in range(seg + 1)]
+    tube(b, [P0.lerp(P1, q) for q in ts], [max(r * math.sin(math.pi * q) ** pw, r * 0.14) for q in ts], mat, n=n)
+
+def plate(b, pts, th, mat):
+    """有厚度的薄板，轮廓是空间里的一圈点（翅膀、尾羽）。"""
+    P = [mathutils.Vector(q) for q in pts]
+    m = len(P)
+    nv = mathutils.Vector((0, 0, 0))
+    for i in range(m):
+        a, c = P[i], P[(i + 1) % m]
+        nv += mathutils.Vector(((a.y - c.y) * (a.z + c.z), (a.z - c.z) * (a.x + c.x), (a.x - c.x) * (a.y + c.y)))
+    nv.normalize()
+    v = [tuple(q + nv * th / 2) for q in P] + [tuple(q - nv * th / 2) for q in P]
+    f = [(0, i, i + 1) for i in range(1, m - 1)] + [(m, m + i + 1, m + i) for i in range(1, m - 1)]
+    f += [(i, i + m, (i + 1) % m + m, (i + 1) % m) for i in range(m)]
+    b.add(v, f, mat)
+
+def slab(b, pts, z0, z1, mat):
+    """多边形的板（pts 逆时针）。"""
+    n = len(pts)
+    v = [(x, y, z0) for (x, y) in pts] + [(x, y, z1) for (x, y) in pts]
+    f = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)] + [tuple(range(n, 2 * n)), tuple(reversed(range(n)))]
+    b.add(v, f, mat)
+
+def bronze_crane(b, T, pose):
+    """一只铜鹤。T(x, y, z) 把鹤自己的坐标（+x 是前，脚踩在 z = 0）换成世界坐标；pose: 'up' 昂首振翅，'down' 收翅平视。
+    脖子、腿、喙都比真鹤粗得多：照真比例在成图里不到一个像素。"""
+    def tb(pts, r, n=6):
+        tube(b, [T(*q) for q in pts], r, BRONZE, n=n)
+    def sp(p0, p1, r, **kw):
+        spindle(b, T(*p0), T(*p1), r * T.s, BRONZE, **kw)
+    def pl(pts, th):
+        plate(b, [T(*q) for q in pts], th * T.s, BRONZE)
+    R = lambda *rs: [q * T.s for q in rs]
+    up = pose == "up"
+    for s in (-1, 1):                                                               # 腿：膝盖往后弯
+        tb([(0.03, s * 0.1, -0.05), (-0.06, s * 0.09, 0.30), (0.03, s * 0.08, 0.60)], R(0.07, 0.06, 0.07), n=5)
+    if up:
+        sp((-0.40, 0, 0.60), (0.34, 0, 0.90), 0.24)                                 # 身
+        tb([(0.22, 0, 0.86), (0.39, 0, 1.08), (0.35, 0, 1.34), (0.28, 0, 1.56), (0.33, 0, 1.76)], R(0.12, 0.10, 0.085, 0.08, 0.08))   # 颈
+        sp((0.24, 0, 1.74), (0.54, 0, 1.86), 0.12, pw=0.5)                          # 头
+        tb([(0.46, 0, 1.84), (0.94, 0, 2.02)], R(0.06, 0.015), n=5)                 # 喙
+        for s in (-1, 1):                                                           # 翅：举过背，向后上方张开
+            dz = 0.16 if s > 0 else -0.22                                           # 两扇翅膀一高一低，从侧面看才分得开
+            pl([(0.2, s * 0.14, 0.9), (-0.22, s * 0.14, 0.8), (-0.8, s * 0.4, 1.12 + dz * 0.4), (-1.18, s * 0.62, 1.92 + dz),
+                (-0.42, s * 0.5, 1.58 + dz * 0.6)], 0.08)
+    else:
+        sp((-0.42, 0, 0.66), (0.34, 0, 0.78), 0.24)
+        tb([(0.22, 0, 0.80), (0.42, 0, 1.00), (0.42, 0, 1.22), (0.36, 0, 1.40)], R(0.12, 0.10, 0.085, 0.08))
+        sp((0.28, 0, 1.38), (0.60, 0, 1.44), 0.12, pw=0.5)
+        tb([(0.52, 0, 1.42), (1.0, 0, 1.34)], R(0.06, 0.015), n=5)
+        for s in (-1, 1):                                                           # 翅：收在身侧，翅尖搭到尾上
+            pl([(0.24, s * 0.24, 0.86), (-0.3, s * 0.25, 0.84), (-0.8, s * 0.1, 0.5), (-0.3, s * 0.25, 0.58), (0.18, s * 0.25, 0.62)], 0.07)
+    pl([(-0.2, 0.13, 0.74), (-0.2, -0.13, 0.74), (-0.66, -0.17, 0.42), (-0.78, 0, 0.32), (-0.66, 0.17, 0.42)], 0.06)   # 尾羽
+
 def landmarks():
     """补几样真实存在的景物（都是往上加，不动布局；在补完新街区之后、撒树之前调用）。"""
     b = B("Landmarks")
@@ -2500,22 +2578,36 @@ def landmarks():
     prism(b, sx, sy, z + 1.30, 0.15, 0.035, FINIAL, n=12)                         # 伞盖
     prism(b, sx, sy, z + 1.335, 0.045, 0.2, FINIAL, n=8)
     # ---- 黄鹤归来铜雕：龟蛇背上两只黄鹤。放在台地 C 的东翼
-    cx_, cy_ = TOWER[0] + 6.0, YC + 1.25
-    box(b, cx_, cy_, zc, 1.3, 1.0, 0.16, GRANITE)
-    box(b, cx_, cy_, zc + 0.16, 1.0, 0.72, 0.3, MARBLE)
-    z = zc + 0.46
-    cone(b, cx_, cy_, z, 0.44, 0.2, 0.2, BRONZE, n=10, uv=False)                  # 龟
-    rod(b, (cx_ + 0.3, cy_, z + 0.08), (cx_ + 0.58, cy_, z + 0.2), 0.05, BRONZE)
-    for (dx_, dy_, hgt, lean) in ((-0.1, -0.12, 0.62, 1), (0.14, 0.14, 0.5, -1)):
-        px, py = cx_ + dx_, cy_ + dy_
-        rod(b, (px, py - 0.03, z + 0.18), (px, py - 0.03, z + 0.18 + hgt * 0.5), 0.014, BRONZE)       # 腿
-        rod(b, (px, py + 0.03, z + 0.18), (px, py + 0.03, z + 0.18 + hgt * 0.5), 0.014, BRONZE)
-        zb = z + 0.18 + hgt * 0.5
-        rod(b, (px - 0.2 * lean, py, zb - 0.02), (px + 0.14 * lean, py, zb + 0.1), 0.06, BRONZE)       # 身
-        rod(b, (px + 0.12 * lean, py, zb + 0.12), (px + 0.2 * lean, py, zb + hgt * 0.7), 0.02, BRONZE)  # 颈
-        rod(b, (px + 0.2 * lean, py, zb + hgt * 0.7), (px + 0.36 * lean, py, zb + hgt * 0.68), 0.014, BRONZE)   # 喙
-        rod(b, (px - 0.05 * lean, py - 0.05, zb + 0.08), (px - 0.3 * lean, py - 0.3, zb + 0.3), 0.035, BRONZE)  # 翅
-        rod(b, (px - 0.05 * lean, py + 0.05, zb + 0.08), (px - 0.3 * lean, py + 0.3, zb + 0.3), 0.035, BRONZE)
+    # 大小照沙盘里黄鹤楼的大小来定（真的铜雕高 5.1 米，是楼高的十分之一），不照 1 单位 = 12 米：那样在成图里只有十来个像素
+    # 位置：台地 C 北边 1.5 宽是下来的台阶，铜雕只能放在台阶前面 2.5 宽的空地上，基座不能再大；往高里做
+    cx_, cy_ = TOWER[0] + 6.0, YC + 1.2
+    prism(b, cx_, cy_, zc, 1.12, 0.14, GRANITE, n=20)
+    prism(b, cx_, cy_, zc + 0.14, 0.98, 0.3, MARBLE, n=20)
+    z = zc + 0.44
+    yaw = math.radians(45.0)                                                        # 龟头朝东北：从成图的视角看正好是侧面
+    ca, sa = math.cos(yaw), math.sin(yaw)
+    def SL(x, y, zz):                                                               # 铜雕自己的坐标 → 世界坐标
+        return (cx_ + x * ca - y * sa, cy_ + x * sa + y * ca, z + zz)
+    cone(b, cx_, cy_, z, 0.78, 0.74, 0.10, BRONZE, n=14, uv=False)                  # 龟甲
+    cone(b, cx_, cy_, z + 0.10, 0.74, 0.50, 0.17, BRONZE, n=14, uv=False)
+    cone(b, cx_, cy_, z + 0.27, 0.50, 0.18, 0.09, BRONZE, n=14, uv=False)
+    tube(b, [SL(0.6, 0, 0.12), SL(0.92, 0, 0.26), SL(1.10, 0, 0.40)], [0.15, 0.13, 0.12], BRONZE)   # 龟颈和龟头
+    spindle(b, SL(1.0, 0, 0.38), SL(1.36, 0, 0.52), 0.17, BRONZE, pw=0.5)
+    for (lx_, ly_) in ((0.5, 0.52), (0.5, -0.52), (-0.5, 0.52), (-0.5, -0.52)):     # 四只脚
+        spindle(b, SL(lx_ * 0.9, ly_ * 0.9, 0.1), SL(lx_ * 1.7, ly_ * 1.7, 0.03), 0.14, BRONZE)
+    snake = []
+    for k in range(17):                                                             # 蛇：在龟甲上盘一圈多，尾巴在外，头从龟尾那边昂起来
+        a_ = math.pi / 2 + 2.5 * math.pi * k / 16
+        r_ = 0.78 - 0.22 * k / 16
+        snake.append(SL(r_ * math.cos(a_), r_ * math.sin(a_), 0.12 + 0.2 * k / 16))
+    snake += [SL(-0.66, -0.12, 0.52), SL(-0.72, -0.06, 0.74), SL(-0.6, 0.0, 0.86)]
+    tube(b, snake, [0.03] + [0.07] * (len(snake) - 1), BRONZE)
+    spindle(b, SL(-0.68, -0.02, 0.84), SL(-0.42, 0.04, 0.9), 0.1, BRONZE, pw=0.5)
+    for (ox, oy, oz, sc, flip, pose) in ((-0.32, 0.16, 0.30, 1.15, 1, "up"), (0.58, -0.2, 0.17, 0.9, 1, "down")):
+        def T(x, y, zz, ox=ox, oy=oy, oz=oz, sc=sc, flip=flip):
+            return SL(ox + flip * sc * x, oy + flip * sc * y, oz + sc * zz)
+        T.s = sc
+        bronze_crane(b, T, pose)
     # ---- 武汉长江大桥建成纪念碑：武昌桥头江边的观景平台上
     mx, my = -10.0, -34.2
     gz = ground(mx, my)
@@ -2529,23 +2621,45 @@ def landmarks():
     box(b, mx, my, zt + 2.58, 0.56, 0.56, 0.12, MARBLE)
     prism(b, mx, my, zt + 2.70, 0.13, 0.26, FINIAL, n=8)
     # ---- 红楼前的孙中山铜像和首义广场一角
-    px0, px1, py0, py1 = 26.0, 34.0, -40.0, -37.9
-    claim(px0 - 0.2, py0 - 0.1, px1 + 0.2, py1 + 0.2)
-    gz = max(ground(px0, py0), ground(px1, py0), ground(px0, py1), ground(px1, py1))
-    box(b, (px0 + px1) / 2, (py0 + py1) / 2, gz - 0.4, px1 - px0, py1 - py0, 0.46, STONE)
+    # 广场从红楼门前铺到大道的人行道边（南沿和大道平行，越往东越宽）；铜像离开红楼的墙一段，
+    # 从成图的视角看背后是浅色的铺地：原来贴着墙，深色的铜像叠在深色的屋顶上，看不出来
+    px0, px1, yn = 25.5, 35.0, -37.9
+    def yedge(x):                                                                   # 广场南沿：离大桥轴线 1.6（人行道外沿是 1.5）
+        y = yn
+        while abs(bridge_so(x, y - 0.05)[1]) > 1.6 and y > -46.0:
+            y -= 0.05
+        return y
+    for k in range(5):                                                              # 占地：分成五条，贴着斜的南沿
+        xa, xb = px0 + (px1 - px0) * k / 5, px0 + (px1 - px0) * (k + 1) / 5
+        claim(xa - (0.2 if k == 0 else 0.0), yedge((xa + xb) / 2) - 0.1, xb + (0.2 if k == 4 else 0.0), yn + 0.2)
+    quad = [(px0, yedge(px0)), (px1, yedge(px1)), (px1, yn), (px0, yn)]
+    gz = max(ground(x, y) for (x, y) in quad + [((px0 + px1) / 2, yedge((px0 + px1) / 2)), ((px0 + px1) / 2, yn)])
+    slab(b, quad, gz - 0.8, gz + 0.06, STONE)
     zt = gz + 0.06
-    stx, sty = 30.0, -39.0                                                          # 和红楼的大门对正
+    stx, sty = 30.0, -40.7                                                          # 和红楼的大门对正
+    # 铜像西北面（从成图的视角看是它的背后）到红楼墙根铺一片白石板，深色的人像衬在上面
+    slab(b, [(26.6, yedge(26.6) + 0.12), (31.5, yedge(31.5) + 0.12), (31.5, yn - 0.06), (26.6, yn - 0.06)], zt, zt + 0.05, MARBLE)
+    box(b, 33.4, yn - 0.8, zt, 2.6, 1.1, 0.04, LAWN)
     for s in (-1, 1):
-        box(b, stx + s * 2.6, sty, zt, 2.6, 1.5, 0.04, LAWN)
-        prism(b, stx + s * 1.05, py0 + 0.25, zt, 0.02, 1.5, STEEL, n=5)             # 旗杆
-        box(b, stx + s * 1.05 + 0.13, py0 + 0.25, zt + 1.28, 0.24, 0.012, 0.16, BOAT_RED)
-    box(b, stx, sty, zt, 1.3, 1.3, 0.14, GRANITE)
-    box(b, stx, sty, zt + 0.14, 0.62, 0.62, 0.9, GRANITE)
-    z = zt + 1.04
-    box(b, stx, sty, z, 0.2, 0.15, 0.36, BRONZE)                                    # 长衫
-    box(b, stx, sty, z + 0.36, 0.25, 0.16, 0.2, BRONZE)                             # 肩
-    prism(b, stx, sty, z + 0.56, 0.06, 0.12, BRONZE, n=8)                           # 头
-    rod(b, (stx + 0.13, sty - 0.04, z + 0.5), (stx + 0.16, sty - 0.07, z + 0.02), 0.022, BRONZE)   # 手杖
+        prism(b, stx + s * 2.3, sty, zt, 0.035, 2.4, STEEL, n=6)                    # 旗杆
+        box(b, stx + s * 2.3 + 0.22, sty, zt + 2.02, 0.4, 0.025, 0.28, BOAT_RED)
+    z = zt + 0.05
+    box(b, stx, sty, z, 1.5, 1.5, 0.12, GRANITE)                                    # 基座：灰石的，矮一些，人像才显得大
+    box(b, stx, sty, z + 0.12, 1.2, 1.2, 0.10, GRANITE)
+    box(b, stx, sty, z + 0.22, 0.8, 0.8, 0.5, GRANITE)
+    box(b, stx, sty, z + 0.72, 0.92, 0.92, 0.07, GRANITE)
+    z += 0.79
+    f = 1.3                                                                         # 人像高约 1.6：和黄鹤楼一样是夸大的，照比例只有三四个像素
+    cone(b, stx, sty, z, 0.23 * f, 0.16 * f, 0.66 * f, BRONZE, n=10, uv=False)      # 长袍
+    cone(b, stx, sty, z + 0.66 * f, 0.17 * f, 0.21 * f, 0.26 * f, BRONZE, n=10, uv=False)   # 马褂
+    cone(b, stx, sty, z + 0.92 * f, 0.21 * f, 0.07 * f, 0.08 * f, BRONZE, n=10, uv=False)   # 肩
+    prism(b, stx, sty, z + 1.00 * f, 0.055 * f, 0.05 * f, BRONZE, n=8)
+    spindle(b, (stx, sty, z + 1.03 * f), (stx, sty, z + 1.27 * f), 0.105 * f, BRONZE, pw=0.5)   # 头
+    def FP(x, y, zz):
+        return (stx + x * f, sty + y * f, z + zz * f)
+    tube(b, [FP(-0.2, 0, 0.94), FP(-0.26, -0.03, 0.66), FP(-0.25, -0.08, 0.42)], [0.06 * f, 0.055 * f, 0.05 * f], BRONZE)   # 左臂垂着
+    tube(b, [FP(0.2, 0, 0.94), FP(0.28, -0.06, 0.7), FP(0.28, -0.2, 0.56)], [0.06 * f, 0.055 * f, 0.05 * f], BRONZE)        # 右手拄杖
+    rod(b, FP(0.28, -0.22, 0.56), FP(0.31, -0.26, 0.01), 0.03 * f, BRONZE)
     # ---- 对岸的晴川饭店：汉阳江边的白色高层
     hx_, hy_ = -47.0, 20.0
     claim(hx_ - 3.6, hy_ - 2.8, hx_ + 3.6, hy_ + 2.8)

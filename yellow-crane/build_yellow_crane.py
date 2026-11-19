@@ -1549,6 +1549,12 @@ GLASS2 = principled("GlassBlue", (0.12, 0.29, 0.35), rough=0.15, metal=0.6, spec
 FLATROOF = principled("FlatRoof", (0.42, 0.42, 0.41), rough=0.95, bevel=0)
 for _m in (FACADE3, FACADE4, GLASS2, FLATROOF):
     add_fog(_m)
+# 补充的真实景物
+MARBLE = principled("WhiteMarble", (0.84, 0.83, 0.79), rough=0.5)
+BRONZE = principled("Bronze", (0.30, 0.19, 0.09), rough=0.38, metal=0.85)
+FERRY_BLUE = principled("FerryBlue", (0.10, 0.28, 0.52), rough=0.45)
+for _m in (MARBLE, BRONZE, FERRY_BLUE):
+    add_fog(_m)
 # 船尾迹、桥墩后的水纹：贴着水面的泡沫带。UV 的 u = 离源头多远（0 最浓，1 消失），v = 横向位置（两边淡）
 FOAM = principled("Foam", (0.86, 0.84, 0.76), rough=0.7, bevel=0)
 nt = FOAM.node_tree
@@ -2440,6 +2446,159 @@ def grow_quarters(cap_town=9, cap_city=12, max_depth=3):
     bt.build(); bc.build()
     random.setstate(st)
     print(f"[yc] new quarters: town {n_new['town']} ({first['town']} grown), city {n_new['city']} ({first['city']} grown); blocks total {len(BLOCKS)}")
+    print("[yc] blocks: " + " ".join(f"{q['kind'][0]}({q['cx']:.1f},{q['cy']:.1f})" for q in BLOCKS))
+
+FERRY_WAKES = []   # 渡轮的尾迹（船只那一段一起画）
+
+def claim(x0, y0, x1, y1):
+    """给新加的景物占一块地：以后这里不种树（NEW_ZONES，由 no_plant() 挡），已经种在这里的树拿掉。"""
+    global N_PLANTS
+    NEW_ZONES.append((x0, y0, x1, y1))
+    for k, (px, py, ref) in enumerate(PLANT_REG):
+        if ref is not None and x0 < px < x1 and y0 < py < y1:
+            if WEB:
+                PLANTS[ref] = None
+            else:
+                bpy.data.objects.remove(ref, do_unlink=True)
+            PLANT_REG[k] = (px, py, None)
+            N_PLANTS -= 1
+
+def ferry(x, y, ang, L=5.0, W=1.5):
+    """武汉轮渡：白船身、蓝腰线，两层客舱。"""
+    b = B("Ferry")
+    hull(b, L, W, 0.26, WHITE_HULL, BOAT_DECK)
+    box(b, 0, 0, 0.26, L * 0.74, W * 0.88, 0.16, FERRY_BLUE)
+    box(b, 0, 0, 0.42, L * 0.72, W * 0.84, 0.34, WHITE_HULL)
+    box(b, 0, 0, 0.50, L * 0.72 + 0.03, W * 0.84 + 0.03, 0.14, LATTICE)
+    box(b, 0.1, 0, 0.76, L * 0.5, W * 0.7, 0.3, WHITE_HULL)
+    box(b, 0.1, 0, 0.83, L * 0.5 + 0.03, W * 0.7 + 0.03, 0.12, LATTICE)
+    box(b, 0.1, 0, 1.06, L * 0.54, W * 0.76, 0.04, FERRY_BLUE)
+    box(b, L * 0.2, 0, 1.1, 0.5, W * 0.45, 0.22, WHITE_HULL)
+    prism(b, -L * 0.12, 0, 1.1, 0.1, 0.36, FERRY_BLUE, n=8)
+    b.build(loc=(x, y, 0), rot=ang)
+    FERRY_WAKES.append((x, y, ang, L, W))
+
+def landmarks():
+    """补几样真实存在的景物（都是往上加，不动布局；在补完新街区之后、撒树之前调用）。"""
+    b = B("Landmarks")
+    n0 = len(KEEP)
+    XA, XB = TIER_X
+    YB, YC = TIER_Y
+    zc = TIER_C
+    # ---- 胜像宝塔：公园里元代的白色喇嘛塔。放在台地 C 的西翼
+    sx, sy = TOWER[0] - 6.0, YC + 1.25
+    box(b, sx, sy, zc, 1.5, 1.5, 0.2, GRANITE)
+    for k, (w, h) in enumerate(((1.24, 0.16), (1.04, 0.14), (0.86, 0.14))):
+        box(b, sx, sy, zc + 0.2 + sum(hh for (_, hh) in ((1.24, 0.16), (1.04, 0.14), (0.86, 0.14))[:k]), w, w, h, MARBLE)
+    z = zc + 0.64
+    cone(b, sx, sy, z, 0.36, 0.46, 0.42, MARBLE, n=16, uv=False)                  # 覆钵
+    cone(b, sx, sy, z + 0.42, 0.46, 0.24, 0.14, MARBLE, n=16, uv=False)
+    box(b, sx, sy, z + 0.56, 0.36, 0.36, 0.12, MARBLE)
+    cone(b, sx, sy, z + 0.68, 0.17, 0.06, 0.62, MARBLE, n=12, uv=False)           # 相轮
+    for k in range(5):
+        prism(b, sx, sy, z + 0.74 + k * 0.11, 0.185 - 0.024 * k, 0.03, FINIAL, n=12)
+    prism(b, sx, sy, z + 1.30, 0.15, 0.035, FINIAL, n=12)                         # 伞盖
+    prism(b, sx, sy, z + 1.335, 0.045, 0.2, FINIAL, n=8)
+    # ---- 黄鹤归来铜雕：龟蛇背上两只黄鹤。放在台地 C 的东翼
+    cx_, cy_ = TOWER[0] + 6.0, YC + 1.25
+    box(b, cx_, cy_, zc, 1.3, 1.0, 0.16, GRANITE)
+    box(b, cx_, cy_, zc + 0.16, 1.0, 0.72, 0.3, MARBLE)
+    z = zc + 0.46
+    cone(b, cx_, cy_, z, 0.44, 0.2, 0.2, BRONZE, n=10, uv=False)                  # 龟
+    rod(b, (cx_ + 0.3, cy_, z + 0.08), (cx_ + 0.58, cy_, z + 0.2), 0.05, BRONZE)
+    for (dx_, dy_, hgt, lean) in ((-0.1, -0.12, 0.62, 1), (0.14, 0.14, 0.5, -1)):
+        px, py = cx_ + dx_, cy_ + dy_
+        rod(b, (px, py - 0.03, z + 0.18), (px, py - 0.03, z + 0.18 + hgt * 0.5), 0.014, BRONZE)       # 腿
+        rod(b, (px, py + 0.03, z + 0.18), (px, py + 0.03, z + 0.18 + hgt * 0.5), 0.014, BRONZE)
+        zb = z + 0.18 + hgt * 0.5
+        rod(b, (px - 0.2 * lean, py, zb - 0.02), (px + 0.14 * lean, py, zb + 0.1), 0.06, BRONZE)       # 身
+        rod(b, (px + 0.12 * lean, py, zb + 0.12), (px + 0.2 * lean, py, zb + hgt * 0.7), 0.02, BRONZE)  # 颈
+        rod(b, (px + 0.2 * lean, py, zb + hgt * 0.7), (px + 0.36 * lean, py, zb + hgt * 0.68), 0.014, BRONZE)   # 喙
+        rod(b, (px - 0.05 * lean, py - 0.05, zb + 0.08), (px - 0.3 * lean, py - 0.3, zb + 0.3), 0.035, BRONZE)  # 翅
+        rod(b, (px - 0.05 * lean, py + 0.05, zb + 0.08), (px - 0.3 * lean, py + 0.3, zb + 0.3), 0.035, BRONZE)
+    # ---- 武汉长江大桥建成纪念碑：武昌桥头江边的观景平台上
+    mx, my = -10.0, -34.2
+    gz = ground(mx, my)
+    claim(mx - 1.9, my - 1.9, mx + 1.9, my + 1.9)
+    box(b, mx, my, gz - 0.6, 2.4, 2.4, 0.82, GRANITE)
+    zt = gz + 0.22
+    rail(b, [(mx - 1.1, my - 1.1), (mx + 1.1, my - 1.1), (mx + 1.1, my + 1.1), (mx - 1.1, my + 1.1)], zt, step=0.55, mat=WHITE_WALL, post=0.3)
+    box(b, mx, my, zt, 0.9, 0.9, 0.16, GRANITE)
+    box(b, mx, my, zt + 0.16, 0.66, 0.66, 0.32, MARBLE)
+    prism(b, mx, my, zt + 0.48, 0.2, 2.1, MARBLE, n=8, phase=math.pi / 8)
+    box(b, mx, my, zt + 2.58, 0.56, 0.56, 0.12, MARBLE)
+    prism(b, mx, my, zt + 2.70, 0.13, 0.26, FINIAL, n=8)
+    # ---- 红楼前的孙中山铜像和首义广场一角
+    px0, px1, py0, py1 = 26.0, 34.0, -40.0, -37.9
+    claim(px0 - 0.2, py0 - 0.1, px1 + 0.2, py1 + 0.2)
+    gz = max(ground(px0, py0), ground(px1, py0), ground(px0, py1), ground(px1, py1))
+    box(b, (px0 + px1) / 2, (py0 + py1) / 2, gz - 0.4, px1 - px0, py1 - py0, 0.46, STONE)
+    zt = gz + 0.06
+    stx, sty = 30.0, -39.0                                                          # 和红楼的大门对正
+    for s in (-1, 1):
+        box(b, stx + s * 2.6, sty, zt, 2.6, 1.5, 0.04, LAWN)
+        prism(b, stx + s * 1.05, py0 + 0.25, zt, 0.02, 1.5, STEEL, n=5)             # 旗杆
+        box(b, stx + s * 1.05 + 0.13, py0 + 0.25, zt + 1.28, 0.24, 0.012, 0.16, BOAT_RED)
+    box(b, stx, sty, zt, 1.3, 1.3, 0.14, GRANITE)
+    box(b, stx, sty, zt + 0.14, 0.62, 0.62, 0.9, GRANITE)
+    z = zt + 1.04
+    box(b, stx, sty, z, 0.2, 0.15, 0.36, BRONZE)                                    # 长衫
+    box(b, stx, sty, z + 0.36, 0.25, 0.16, 0.2, BRONZE)                             # 肩
+    prism(b, stx, sty, z + 0.56, 0.06, 0.12, BRONZE, n=8)                           # 头
+    rod(b, (stx + 0.13, sty - 0.04, z + 0.5), (stx + 0.16, sty - 0.07, z + 0.02), 0.022, BRONZE)   # 手杖
+    # ---- 对岸的晴川饭店：汉阳江边的白色高层
+    hx_, hy_ = -47.0, 20.0
+    claim(hx_ - 3.6, hy_ - 2.8, hx_ + 3.6, hy_ + 2.8)
+    gz = max(ground(hx_ + sx_ * 3.2, hy_ + sy_ * 2.4) for sx_ in (-1, 1) for sy_ in (-1, 1))
+    box(b, hx_, hy_, gz - 0.5, 6.6, 5.0, 0.56, STONE)
+    z0 = gz + 0.06
+    box(b, hx_, hy_ - 0.3, z0, 5.2, 3.0, 0.8, CONCRETE)                             # 裙楼
+    box(b, hx_, hy_ - 0.3, z0 + 0.1, 5.24, 3.04, 0.26, GLASS)
+    box(b, hx_, hy_ - 0.3, z0 + 0.48, 5.24, 3.04, 0.2, GLASS)
+    box(b, hx_, hy_ - 0.3, z0 + 0.8, 5.3, 3.1, 0.05, FLATROOF)
+    tw, td, H, nf = 3.4, 1.5, 7.2, 18
+    fh = H / nf
+    box(b, hx_, hy_, z0, tw, td, H, WHITE_WALL)
+    for k in range(2, nf):
+        box(b, hx_, hy_, z0 + k * fh + 0.1, tw + 0.03, td + 0.03, fh * 0.46, GLASS)
+    _face_cols(b, hx_, hy_, tw, td, WHITE_WALL, 0.6, 0.18, 0.035, z0, z0 + H, True)
+    _roof(b, hx_, hy_, z0 + H, tw, td, WHITE_WALL, random.Random(88), 1)
+    box(b, hx_, hy_, z0 + H + 0.05, 1.6, 0.9, 0.5, WHITE_WALL)
+    prism(b, hx_ + 0.3, hy_, z0 + H + 0.55, 0.035, 1.3, STEEL, n=6)
+    st = random.getstate(); random.seed(1225)                                       # 种树要抽随机数：用自己的状态，不动全局的
+    for (tx, ty) in ((hx_ - 2.9, hy_ + 2.0), (hx_ + 2.9, hy_ + 2.0), (hx_ - 2.9, hy_ - 2.1), (hx_ + 2.9, hy_ - 2.1)):
+        plant("tree", tx, ty, 1.0, z=z0, force=True)
+    random.setstate(st)
+    # ---- 轮渡：两岸各一座趸船码头，江上两条渡轮
+    yy = 40.0                                                                       # 再往南的航线从成图的视角看正好被黄鹤楼挡住
+    xe = max(x / 4.0 for x in range(-240, 160) if lake_depth(x / 4.0, yy) > 0.0)   # 东岸水边
+    ux, uy = -0.949, 0.316                                                          # 垂直于江流、指向对岸
+    t_far = 1.0
+    while lake_depth(xe + ux * (t_far + 1.0), yy + uy * (t_far + 1.0)) > 0.0 and t_far < 80.0:
+        t_far += 0.25
+    for (tb, sgn) in ((0.0, 1), (t_far, -1)):
+        # 趸船在离岸 1.8 的水里，栈桥接到岸上，岸上一座蓝顶的候船室
+        wx, wy = xe + ux * (tb + sgn * 1.8), yy + uy * (tb + sgn * 1.8)
+        ang = math.atan2(uy, ux) + math.pi / 2
+        rbox(b, wx, wy, -0.12, 3.4, 1.1, 0.36, RIDGE, ang)
+        rbox(b, wx, wy, 0.24, 3.3, 1.0, 0.03, BOAT_DECK, ang)
+        rbox(b, wx, wy, 0.27, 2.2, 0.66, 0.36, WHITE_HULL, ang)
+        rbox(b, wx, wy, 0.63, 2.5, 0.86, 0.05, FERRY_BLUE, ang)
+        lx, ly = xe + ux * (tb - sgn * 1.4), yy + uy * (tb - sgn * 1.4)
+        lz = ground(lx, ly)
+        rod(b, (wx, wy, 0.27), (lx, ly, lz + 0.05), 0.14, STEEL)
+        hx2, hy2 = xe + ux * (tb - sgn * 2.5), yy + uy * (tb - sgn * 2.5)
+        claim(hx2 - 1.5, hy2 - 1.5, hx2 + 1.5, hy2 + 1.5)
+        hz = ground(hx2, hy2)
+        rbox(b, hx2, hy2, hz - 0.3, 2.0, 1.2, 0.36, GRANITE, ang)
+        rbox(b, hx2, hy2, hz + 0.06, 1.7, 0.9, 0.5, WHITE_WALL, ang)
+        rbox(b, hx2, hy2, hz + 0.2, 1.72, 0.92, 0.2, GLASS, ang)
+        rbox(b, hx2, hy2, hz + 0.56, 2.0, 1.2, 0.06, FERRY_BLUE, ang)
+    ferry(xe + ux * t_far * 0.36, yy + uy * t_far * 0.36, math.atan2(uy, ux))
+    ferry(xe + ux * t_far * 0.70 - 0.6, yy + uy * t_far * 0.70 - 1.9, math.atan2(-uy, -ux))
+    del KEEP[n0:]
+    b.build()
+    print(f"[yc] landmarks: ferry line from ({xe:.1f}, {yy:.1f}), width {t_far:.1f}")
 
 def tower_hill(b):
     """黄鹤楼脚下的砌体：山顶广场四周的挡墙和栏杆，南面三层石砌台地和之字形台阶，牌坊、碑廊、四角的亭子，前场铺地，再补树。
@@ -2698,16 +2857,17 @@ def build_scene():
     grow_quarters()                              # 空旷的平地上补新街区
     if HOUSES:
         HOUSES[0].build()
+    landmarks()                                  # 胜像宝塔、铜雕、纪念碑、红楼前的铜像、晴川饭店、轮渡
     for i in range(520):
         x, y = random.uniform(-100, 62), random.uniform(-72, 72)
         if lake_depth(x, y) < -3 and ground(x, y) < 1.6 and not blocked(x, y) and isl_rho(x, y)[0] < 0.96:
             plant(random.choice(["tree", "tree", "willow", "bush", "ginkgo", "maple"]), x, y, random.uniform(1.2, 1.8))
 
     # ---- 江上船只：沿河道中心线
-    wake_boats = []
+    wake_boats = list(FERRY_WAKES)
     for (s, off, kind, flip) in ((22, -4, 'barge', 0), (36, 6, 'barge', 1), (58, -7, 'cruise', 0), (74, 3, 'barge', 1),
                                  (96, -5, 'barge', 0), (118, 7, 'cruise', 1), (134, -3, 'barge', 0), (150, 5, 'barge', 1),
-                                 (44, 11, 'small', 0), (86, -12, 'small', 1), (110, 12, 'small', 0), (164, -9, 'small', 1), (30, 13, 'small', 0)):
+                                 (44, 11, 'small', 0), (86, -12, 'small', 1), (110, 12, 'small', 0), (174, -9, 'small', 1), (30, 13, 'small', 0)):
         x, y, dx, dy = P_r(s)
         nx, ny = -dy, dx
         px, py = x + nx * off, y + ny * off

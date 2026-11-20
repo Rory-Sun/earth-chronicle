@@ -26,6 +26,21 @@ TEX_DIR = os.path.normpath(os.path.join(HERE, "..", "assets", "textures_cc0"))  
 OUT = os.path.abspath(arg("--out", os.path.join(HERE, "output", "yellow_crane", "yellow_crane.png")))
 SAVE_BLEND = "--save" in argv
 NOMIST = "--nomist" in argv
+def arg3(name, default):
+    """形如 --name r,g,b 的三个数。"""
+    return tuple(float(v) for v in arg(name, default).split(","))
+# 光线（调光时用命令行覆盖，默认值就是成图用的）。
+# 原来是仰角 25°、强度 3.8、颜色 (1.0, 0.87, 0.68)、天光 0.3、补光 250：明亮干净，但说是夕照，暖色和长影子都不明显。
+# 试过把环境光压到 0.16~0.22（阴影成了灰褐色，整张图发闷）和降曝光（背景跟着发灰），都不如原来。
+# 定下来的是小幅调整：太阳低一点、强一点、暖一点，天光和补光各减一成多；过曝的比例和原来一样。
+SUN_EL = float(arg("--sun-el", 20))             # 太阳仰角（度）
+SUN_ENERGY = float(arg("--sun-energy", 4.6))
+SUN_COL = arg3("--sun-col", "1.0,0.83,0.60")
+SKY_STR = float(arg("--sky", 0.26))             # HDRI 天空的强度（环境光）
+FILL_ENERGY = float(arg("--fill", 210))         # 冷色补光
+FILL_COL = arg3("--fill-col", "0.78,0.88,1.0")
+EXPOSURE = float(arg("--exposure", 0.1))
+GRASS_K = arg3("--grass", "0.97,0.93,1.0")      # 草地颜色的倍数：绿得太艳，压一点
 WEB = "--export-glb" in argv          # 网页导出模式：树木只记录实例数据，不加载模型
 PLANTS = []                           # [kind, variant, x, y, z, height, rot]
 random.seed(7)
@@ -256,7 +271,7 @@ _gd = tex_node(nt, "Grass004", "Displacement", 0.8, 'Object')
 _sep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(texcoord(nt).outputs["Object"], _sep.inputs["Vector"])
 _n1 = noise(nt, 0.35, 3.0)
-_lawn_tint = ramp(nt, [(0.3, (0.86, 0.84, 0.54)), (0.7, (1.08, 1.02, 0.76))])
+_lawn_tint = ramp(nt, [(0.3, tuple(a * k for a, k in zip((0.86, 0.84, 0.54), GRASS_K))), (0.7, tuple(a * k for a, k in zip((1.08, 1.02, 0.76), GRASS_K)))])
 nt.links.new(_n1.outputs["Fac"], _lawn_tint.inputs["Fac"])
 _grass_col = mul_color(nt, _gc.outputs["Color"], _lawn_tint.outputs["Color"])
 _hr = ramp(nt, [(0.0, (0.20, 0.30, 0.14)), (0.4, (0.18, 0.28, 0.15)), (1.0, (0.20, 0.27, 0.16))])
@@ -3853,18 +3868,18 @@ def setup_camera_lights():
 
     # 晨光：东北偏东、仰角 26°，偏暖
     sun_data = bpy.data.lights.new("Sun", 'SUN')
-    sun_data.energy = 3.8
-    sun_data.color = (1.0, 0.87, 0.68)
+    sun_data.energy = SUN_ENERGY
+    sun_data.color = SUN_COL
     sun_data.angle = math.radians(2.5)
     sun = bpy.data.objects.new("Sun", sun_data)
     COL.objects.link(sun)
-    sun.rotation_euler = mathutils.Euler((math.radians(65), 0, math.radians(318)), 'XYZ')   # 西南方低角度金色阳光
+    sun.rotation_euler = mathutils.Euler((math.radians(90 - SUN_EL), 0, math.radians(318)), 'XYZ')   # 西南方低角度金色阳光
     if "--sunonly" in argv:
         sun_data.energy = 1.6
     fill_data = bpy.data.lights.new("Fill", 'AREA')
-    fill_data.energy = 250
+    fill_data.energy = FILL_ENERGY
     fill_data.size = 220
-    fill_data.color = (0.78, 0.88, 1.0)
+    fill_data.color = FILL_COL
     fill = bpy.data.objects.new("Fill", fill_data)
     COL.objects.link(fill)
     fill.location = (-220, 60, 180)
@@ -3892,7 +3907,7 @@ def setup_camera_lights():
         wnt.links.new(wtc.outputs["Generated"], wmp.inputs["Vector"])
         wnt.links.new(wmp.outputs["Vector"], env.inputs["Vector"])
         wnt.links.new(env.outputs["Color"], bg.inputs["Color"])
-        bg.inputs["Strength"].default_value = 0.03 if "--sunonly" in argv else 0.3
+        bg.inputs["Strength"].default_value = 0.03 if "--sunonly" in argv else SKY_STR
         print(f"[yc] hdri sun u={u} rot={rot:.1f}")
     else:
         bg.inputs["Color"].default_value = (0.80, 0.87, 0.95, 1)
@@ -4016,7 +4031,7 @@ def setup_render():
     vs = scene.view_settings
     vs.view_transform = 'Standard'   # AgX/Filmic 会把浅色背景板压灰、绿色变闷
     vs.look = 'None'
-    vs.exposure = 0.1
+    vs.exposure = EXPOSURE
     vs.gamma = 1.0
     scene.render.filter_size = 1.6
     scene.render.film_transparent = False
@@ -4056,7 +4071,8 @@ if WEB:
     de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "RiverMist"}, _vcol, uv_scale=1.0, extra={
         "title": "武汉黄鹤楼", "unit_m": 12,
         "camera": {"target": [-4, -9, 0], "az": 36, "dist": 232, "pitch": 36, "lens": 45, "min_dist": 50, "max_dist": 520},
-        "sun": {"euler_deg": [65, 0, 318], "color": [1.0, 0.86, 0.66], "strength": 3.6},
+        "sun": {"euler_deg": [90 - SUN_EL, 0, 318], "color": [SUN_COL[0], round(SUN_COL[1] - 0.01, 3), round(SUN_COL[2] - 0.02, 3)],
+                "strength": round(3.6 * SUN_ENERGY / 3.8, 2)},
         "backdrop": [[0.90, 0.85, 0.72], [0.94, 0.90, 0.79]],
         "water": ["RiverWater"], "bounds": list(ISL), "shadow_half": 115, "fog": [0.92, 0.88, 0.78],
         "hdri": "belfast_sunset_puresky_1k.hdr",

@@ -3088,7 +3088,10 @@ if WEB:
         "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 68, "shadow_bias": 0.05, "fog": [0.90, 0.93, 0.93],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
         "lake": {"pscale": 4.0, "ripple": 0.10, "glitter": 0.0, "clear": 0.22, "reflRange": [0.17, 0.80], "distortion": 0.007,
-                 "colDeep": [0.048, 0.110, 0.062], "colNear": [0.105, 0.185, 0.090], "colShore": [0.19, 0.23, 0.13]},
+                 "colDeep": [0.048, 0.110, 0.062], "colNear": [0.105, 0.185, 0.090], "colShore": [0.19, 0.23, 0.13],
+                 # 河水：水面顶点色的 B 通道是河道标记（见 pond_water），着色器按它换成这一组颜色
+                 # （比成图材质里的河水色深一档：网页上天光倒影更亮，照搬成图的数值会发白）
+                 "canalMix": WCANAL, "canalDeep": [0.058, 0.085, 0.046], "canalNear": [0.095, 0.130, 0.070], "canalShore": [0.16, 0.185, 0.105]},
         "mat": {"EarthCut": {"repeat": 0.30}, "DaiWa": {"repeat": 0.55},
                 "FenQiang": {"weather": {"rain": 2.0, "damp": 1.6, "ground": GZ}},
                 "JinShanShi": {"wet": {"level": 0.42}}, "ShiBan": {"wet": {"level": 0.42}}},

@@ -11,10 +11,10 @@ import {
 
 const VERT = /* glsl */`
   uniform mat4 textureMatrix;
-  attribute vec2 shore;
+  attribute vec3 shore;
   varying vec4 mirrorCoord;
   varying vec4 worldPosition;
-  varying vec2 vShore;
+  varying vec3 vShore;
   #include <common>
   #include <fog_pars_vertex>
   #include <shadowmap_pars_vertex>
@@ -58,9 +58,13 @@ const FRAG = /* glsl */`
   uniform float glitter;
   uniform float pscale;
   uniform float clear;
+  uniform float canalMix;
+  uniform vec3 canalDeep;
+  uniform vec3 canalNear;
+  uniform vec3 canalShore;
   varying vec4 mirrorCoord;
   varying vec4 worldPosition;
-  varying vec2 vShore;
+  varying vec3 vShore;
 
   #include <common>
   #include <packing>
@@ -87,6 +91,7 @@ const FRAG = /* glsl */`
     #include <logdepthbuf_fragment>
     vec2 P = vec2( worldPosition.x, - worldPosition.z ) * pscale;   // 沙盘平面坐标（与 Blender 的 XY 一致）；小水面放大图案比例
     float sh = vShore.x, deep = vShore.y;
+    float cn = step( 0.5, vShore.z ) * canalMix;   // 河道（另一套水色：城里的河是浑的）；canalMix = 0 的场景不受影响
 
     // 风痕：沿风向拉长的条带，calm = 1 处平静如镜；随时间缓慢漂移
     vec2 wq = rot2( vec2( P.x * 0.022, P.y * 0.075 ), 0.42 ) + time * vec2( 0.0030, 0.0011 );
@@ -108,6 +113,7 @@ const FRAG = /* glsl */`
     // 水体色：湖心深、岸边浅，大尺度色斑，岸线白沫；只受阳光阴影影响，不随波纹明暗
     vec3 bodyc = mix( colNear, colDeep, deep );
     bodyc = mix( bodyc, colShore, 0.7 * sh );
+    bodyc = mix( bodyc, mix( mix( canalNear, canalDeep, deep ), canalShore, 0.7 * sh ), cn );
     bodyc *= mix( 0.80, 1.18, fbm3( P * 0.09 + 5.0 ) );
     float foam = clamp( ( vnoise( P * 9.0 ) - 0.60 ) / 0.40, 0.0, 1.0 ) * clamp( ( sh - 0.65 ) / 0.35, 0.0, 1.0 ) * 0.8;
     bodyc = mix( bodyc, vec3( 0.84, 0.87, 0.86 ), foam );
@@ -145,7 +151,7 @@ const FRAG = /* glsl */`
     col += vec3( 1.0, 0.96, 0.88 ) * gl * dirf * smoothstep( 0.2, 0.9, ruf ) * shadow * glitter;
 
     // 近岸水浅：略透出湖床
-    float alpha = 1.0 - max( clear, clamp( ( sh - 0.45 ) / 0.55, 0.0, 1.0 ) * 0.55 );
+    float alpha = 1.0 - max( clear, clamp( ( sh - 0.45 ) / 0.55, 0.0, 1.0 ) * 0.55 ) * ( 1.0 - 0.75 * cn );   // 河水浑，不透
     gl_FragColor = vec4( col, alpha );
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -154,7 +160,7 @@ const FRAG = /* glsl */`
 
 export class LakeSurface extends Mesh {
   /**
-   * @param geometry 世界坐标（Y 轴向上）下的水面网格；可带 shore 属性（x：0 开阔 → 1 岸线，y：0 岸边 → 1 湖心）
+   * @param geometry 世界坐标（Y 轴向上）下的水面网格；可带 shore 属性（x：0 开阔 → 1 岸线，y：0 岸边 → 1 湖心，z：1 = 河道）
    * @param options  { level, size, waterNormals, sunDirection, sunColor, sky, skySunU, fog, params }
    */
   constructor(geometry, options = {}) {
@@ -182,6 +188,7 @@ export class LakeSurface extends Mesh {
         colDeep: { value: new Color(0.070, 0.130, 0.155) }, colNear: { value: new Color(0.135, 0.195, 0.190) }, colShore: { value: new Color(0.250, 0.290, 0.235) },
         reflRange: { value: [0.21, 0.75] }, distortion: { value: 0.022 }, ripple: { value: 0.30 }, glitter: { value: 0.9 },
         pscale: { value: 1.0 }, clear: { value: 0.0 },
+        canalMix: { value: 0.0 }, canalDeep: { value: new Color(0.058, 0.085, 0.046) }, canalNear: { value: new Color(0.095, 0.130, 0.070) }, canalShore: { value: new Color(0.16, 0.185, 0.105) },
       }]),
       vertexShader: VERT, fragmentShader: FRAG, lights: true, fog: options.fog !== false, transparent: true,
     });

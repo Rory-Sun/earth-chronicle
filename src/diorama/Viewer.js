@@ -429,10 +429,14 @@ export async function startDiorama(id, ui) {
       const geo = wm.geometry.clone(); wm.updateWorldMatrix(true, false); geo.applyMatrix4(wm.matrixWorld);
       const pos = geo.attributes.position, colAttr = geo.attributes.color;
       let ys = 0; for (let i = 0; i < pos.count; i++) ys += pos.getY(i); ys /= pos.count;
-      const shore = new Float32Array(pos.count * 2);
-      for (let i = 0; i < pos.count; i++) { pos.setY(i, ys); shore[i * 2] = colAttr ? colAttr.getX(i) : 0; shore[i * 2 + 1] = colAttr ? colAttr.getY(i) : 1; }
+      // B = 河道标记（苏州园林的河水另用一套颜色，由 scene.json 的 lake.canalMix 打开）
+      const shore = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        pos.setY(i, ys);
+        shore[i * 3] = colAttr ? colAttr.getX(i) : 0; shore[i * 3 + 1] = colAttr ? colAttr.getY(i) : 1; shore[i * 3 + 2] = colAttr ? colAttr.getZ(i) : 0;
+      }
       pos.needsUpdate = true;
-      geo.setAttribute('shore', new THREE.BufferAttribute(shore, 2));
+      geo.setAttribute('shore', new THREE.BufferAttribute(shore, 3));
       geo.deleteAttribute('color'); geo.deleteAttribute('normal'); geo.computeVertexNormals();
       const lake = new LakeSurface(geo, { level: ys, size: TIERS[tier].water, waterNormals, sunDirection: sunDir, sunColor: new THREE.Color(...meta.sun.color), sky: skyTex, params: meta.lake });
       lake.receiveShadow = true; lake.renderOrder = 2;

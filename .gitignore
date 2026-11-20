@@ -16,6 +16,9 @@ blender/output/shots/
 forbidden-city/output/forbidden_city/*.blend
 forbidden-city/output/forbidden_city/preview.png
 forbidden-city/output/forbidden_city/render_log.txt
+forbidden-city/output/forbidden_city/forbidden_city_v*.png
+forbidden-city/output/forbidden_city/compare_*.png
+forbidden-city/output/forbidden_city/export_*.txt
 
 assets/textures_cc0/_dl/
 

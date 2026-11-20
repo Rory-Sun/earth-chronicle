@@ -146,7 +146,7 @@ def tile_material(name, c1, c2, rough=0.3, coat=0.5):
     nt.links.new(col.outputs["Color"], bw.inputs["Color"])
     shade = map_range(nt, bw.outputs["Val"], 0.7, 1.3)
     tc = nt.nodes["TexCoordShared"]
-    nz = nt.nodes.new("ShaderNodeTexNoise"); nz.inputs["Scale"].default_value = 5.0; nz.inputs["Detail"].default_value = 4.0
+    nz = nt.nodes.new("ShaderNodeTexNoise"); nz.inputs["Scale"].default_value = 2.4; nz.inputs["Detail"].default_value = 4.0
     nt.links.new(tc.outputs["Object"], nz.inputs["Vector"])
     ramp = nt.nodes.new("ShaderNodeValToRGB")
     ramp.color_ramp.elements[0].position = 0.3; ramp.color_ramp.elements[0].color = (*c1, 1)
@@ -154,17 +154,43 @@ def tile_material(name, c1, c2, rough=0.3, coat=0.5):
     nt.links.new(nz.outputs["Fac"], ramp.inputs["Fac"])
     c = mul_color(nt, ramp.outputs["Color"], shade)
     c = mul_color(nt, c, ao.outputs["Color"], 0.6)
+    # 每座屋顶深浅略有不同（新旧、积灰），顺坡再加雨水冲出的暗痕：一色崭新的黄瓦像塑料模型
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    c = mul_color(nt, c, map_range(nt, geo.outputs["Random Per Island"], ROOF_VAR[0], ROOF_VAR[1]))
+    st = nt.nodes.new("ShaderNodeTexNoise"); st.inputs["Scale"].default_value = 1.0; st.inputs["Detail"].default_value = 3.0
+    smp = nt.nodes.new("ShaderNodeMapping"); smp.inputs["Scale"].default_value = (2.6, 0.22, 1.0)
+    nt.links.new(tc.outputs["UV"], smp.inputs["Vector"]); nt.links.new(smp.outputs["Vector"], st.inputs["Vector"])
+    c = mul_color(nt, c, map_range(nt, st.outputs["Fac"], ROOF_STREAK[0], ROOF_STREAK[1]))
     nt.links.new(c, pbs.inputs["Base Color"])
     nt.links.new(map_range(nt, rgh.outputs["Color"], rough * 0.6, rough * 1.5), pbs.inputs["Roughness"])
     tex_bump(nt, disp, 1.0, 0.1)
     return m
 
-GOLD = tile_material("GlazedGold", (1.0, 0.60, 0.07), (1.0, 0.80, 0.20), rough=0.25, coat=0.6)
+def arg2(name, default):
+    return tuple(float(v) for v in arg(name, default).split(","))
+ROOF_VAR = arg2("--roofvar", "0.82,1.08")          # 每座屋顶的明暗范围
+ROOF_STREAK = arg2("--roofstreak", "0.70,1.26")    # 顺坡雨痕的明暗范围（噪波集中在中段，实际幅度约一半）
+GOLD = tile_material("GlazedGold", (0.93, 0.55, 0.08), (1.0, 0.77, 0.20), rough=0.25, coat=0.6)
 GREEN_TILE = tile_material("GlazedGreen", (0.10, 0.32, 0.20), (0.16, 0.42, 0.26))
 BLACK_TILE = tile_material("GlazedBlack", (0.05, 0.07, 0.09), (0.09, 0.11, 0.14))
 GREY_TILE = tile_material("GreyTile", (0.25, 0.26, 0.28), (0.37, 0.38, 0.40), rough=0.7, coat=0.0)
 RED = principled("PalaceRedWall", (0.66, 0.12, 0.07), rough=0.8)
 noise_mix(RED, (0.58, 0.10, 0.06), (0.72, 0.15, 0.08), 3.0)
+nt = RED.node_tree
+_p = nt.nodes["Principled BSDF"]
+_src = next(l for l in nt.links if l.to_socket == _p.inputs["Base Color"]).from_socket
+_tc = nt.nodes.new("ShaderNodeTexCoord")
+_mp = nt.nodes.new("ShaderNodeMapping"); _mp.inputs["Scale"].default_value = (5.0, 5.0, 0.35)
+_sn = nt.nodes.new("ShaderNodeTexNoise"); _sn.inputs["Scale"].default_value = 1.0; _sn.inputs["Detail"].default_value = 3.0
+nt.links.new(_tc.outputs["Object"], _mp.inputs["Vector"]); nt.links.new(_mp.outputs["Vector"], _sn.inputs["Vector"])
+_col = mul_color(nt, _src, map_range(nt, _sn.outputs["Fac"], 0.62, 1.26))          # 竖向的雨痕
+_sx = nt.nodes.new("ShaderNodeSeparateXYZ"); nt.links.new(_tc.outputs["Object"], _sx.inputs["Vector"])
+_bm = nt.nodes.new("ShaderNodeMapRange"); _bm.clamp = True
+_bm.inputs["From Min"].default_value = 0.3; _bm.inputs["From Max"].default_value = 0.62
+_bm.inputs["To Min"].default_value = 0.66; _bm.inputs["To Max"].default_value = 1.0
+nt.links.new(_sx.outputs["Z"], _bm.inputs["Value"])
+_col = mul_color(nt, _col, _bm.outputs["Result"])                                  # 墙脚返潮发暗
+nt.links.new(_col, _p.inputs["Base Color"])
 BODY = principled("HallBody", (0.52, 0.08, 0.05), rough=0.75)
 COLUMN = principled("Column", (0.66, 0.11, 0.06), rough=0.55, coat=0.2)
 LATTICE = principled("DoorLattice", (0.45, 0.26, 0.07), rough=0.45, coat=0.2)
@@ -188,7 +214,6 @@ TRUNK = principled("Trunk", (0.22, 0.14, 0.08), rough=0.9)
 ROCK = principled("GardenRock", (0.38, 0.36, 0.32), rough=0.9, bevel=0.08)
 noise_mix(ROCK, (0.30, 0.28, 0.25), (0.48, 0.46, 0.42), 3.0, bump=0.8)
 FINIAL = principled("Finial", (1.0, 0.78, 0.25), rough=0.25, metal=1.0)
-WATER = principled("Water", (0.10, 0.26, 0.24), rough=0.035, spec=0.9, bevel=0)
 GRASS = principled("Grass", (0.33, 0.44, 0.17), rough=0.95, bevel=0)
 nt = GRASS.node_tree
 _c = tex_node(nt, "Grass004", "Color", 0.8, 'Object', noncolor=False)
@@ -205,18 +230,25 @@ DIRT = principled("Dirt", (0.40, 0.33, 0.22), rough=0.95)
 
 STONE = principled("StonePaving", (0.56, 0.53, 0.48), rough=0.9)
 nt = STONE.node_tree
-_c = tex_node(nt, "PavingStones128", "Color", 0.7, 'Object', noncolor=False)
-_r = tex_node(nt, "PavingStones128", "Roughness", 0.7, 'Object')
-_d = tex_node(nt, "PavingStones128", "Displacement", 0.7, 'Object')
-_a = tex_node(nt, "PavingStones128", "AmbientOcclusion", 0.7, 'Object')
+_SS = float(arg("--pave", 1.5))      # 原来 0.7：一块石板在图上六米见方，把整座城衬成了玩具
+_c = tex_node(nt, "PavingStones128", "Color", _SS, 'Object', noncolor=False)
+_r = tex_node(nt, "PavingStones128", "Roughness", _SS, 'Object')
+_d = tex_node(nt, "PavingStones128", "Displacement", _SS, 'Object')
+_a = tex_node(nt, "PavingStones128", "AmbientOcclusion", _SS, 'Object')
 tc = nt.nodes["TexCoordShared"]
-# 大块区域的随机灰阶色差
-vor = nt.nodes.new("ShaderNodeTexVoronoi")
-vor.inputs["Scale"].default_value = 0.45
-vor.inputs["Randomness"].default_value = 0.6
-nt.links.new(tc.outputs["Object"], vor.inputs["Vector"])
-vbw = nt.nodes.new("ShaderNodeRGBToBW"); nt.links.new(vor.outputs["Color"], vbw.inputs["Color"])
-_col = mul_color(nt, _c.outputs["Color"], map_range(nt, vbw.outputs["Val"], 0.85, 1.12))
+# 大片的深浅：几十米一片的新旧色差，再叠一层几米尺度的水渍（原来是泰森多边形的硬边色块）
+def _pn(scale, detail=3.0):
+    n = nt.nodes.new("ShaderNodeTexNoise")
+    n.inputs["Scale"].default_value = scale; n.inputs["Detail"].default_value = detail
+    nt.links.new(tc.outputs["Object"], n.inputs["Vector"])
+    return n.outputs["Fac"]
+# 贴图里相邻石板的色差很大，缩小后成了一片跳动的格子：先往平均灰色上收一半，再乘大片的深浅
+_flat = nt.nodes.new("ShaderNodeMix"); _flat.data_type = 'RGBA'; _flat.blend_type = 'MIX'
+_flat.inputs["Factor"].default_value = float(arg("--paveflat", 0.55))
+_flat.inputs[7].default_value = (0.50, 0.48, 0.44, 1)
+nt.links.new(_c.outputs["Color"], _flat.inputs[6])
+_col = mul_color(nt, _flat.outputs[2], map_range(nt, _pn(0.10), 0.60, 1.36))
+_col = mul_color(nt, _col, map_range(nt, _pn(0.75, 4.0), 0.82, 1.16))
 _col = mul_color(nt, _col, _a.outputs["Color"], 0.7)
 # 墙根 / 台基脚的接触阴影
 ao = nt.nodes.new("ShaderNodeAmbientOcclusion")
@@ -510,7 +542,13 @@ def pavilion(b, cx, cy, size, body_h, z0=FLOOR, double=True, roof_mat=GOLD, plat
     hall(b, cx, cy, size, size, body_h, double=double, plat_h=plat_h, plat_pad=0.25, pyramid=True,
          roof_h=size * 0.6, roof_mat=roof_mat, stair=False, z0=z0, rail=False)
 
+_WALL_N = [0]
 def wall(b, x0, y0, x1, y1, h=0.7, t=0.45, z0=FLOOR, cap=GOLD):
+    # 每段墙的厚度和高度各差几毫米：两段墙在转角相叠、或两个院子共用同一道墙时，面就不会完全重合
+    # （完全重合的面互相遮光，渲染成纯黑的方块）。差值按序号取，不动随机数。
+    k = _WALL_N[0]; _WALL_N[0] += 1
+    t = t + 0.002 * (k % 53)
+    h = h + 0.0015 * ((k * 17) % 61)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     w = abs(x1 - x0) + t if x0 != x1 else t
     d = abs(y1 - y0) + t if y0 != y1 else t
@@ -541,6 +579,89 @@ def mix_rgb(nt, a, b, fac=1.0, blend='MIX'):
         nt.links.new(fac, m.inputs["Factor"])
     nt.links.new(a, m.inputs[6]); nt.links.new(b, m.inputs[7])
     return m.outputs[2]
+
+# 筒子河和内金水河的水：与苏州园林的池水同一做法。水体色（平法线漫反射，不随波纹明暗，仍接收投影）之上
+# 叠加菲涅耳加权的镜面倒影，波纹只扰动倒影；近岸略透。原来是一个青色的 Principled 平面，像泳池。
+WATER = principled("PondWater", (0.085, 0.125, 0.085), rough=0.03, spec=0.85, bevel=0)   # Principled 只留给网页导出读颜色
+MOAT_BED = principled("MoatBed", (0.105, 0.115, 0.075), rough=0.95, bevel=0)
+RIVER_WEB = principled("JinShuiHe", (0.085, 0.125, 0.085), rough=0.08, spec=0.8, bevel=0)   # 只在网页导出时用
+W_NEAR = arg2("--wnear", "0.100,0.140,0.085")      # 水体色：近岸 / 河心 / 岸线
+W_DEEP = arg2("--wdeep", "0.052,0.088,0.060")
+W_SHORE = arg2("--wshore", "0.17,0.19,0.12")
+W_REFL = arg2("--wrefl", "0.22,0.85")              # 倒影权重：正视 / 掠视
+def _water_material():
+    nt = WATER.node_tree
+    out = nt.nodes["Material Output"]
+    for l in [l for l in nt.links if l.to_node == out]:
+        nt.links.remove(l)
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    def mr(sock, lo, hi, fmin=0.0, fmax=1.0):
+        n = nt.nodes.new("ShaderNodeMapRange"); n.clamp = True
+        n.inputs["From Min"].default_value = fmin; n.inputs["From Max"].default_value = fmax
+        n.inputs["To Min"].default_value = lo; n.inputs["To Max"].default_value = hi
+        nt.links.new(sock, n.inputs["Value"])
+        return n.outputs["Result"]
+    def mt(op, a, b):
+        n = nt.nodes.new("ShaderNodeMath"); n.operation = op
+        for i, v in enumerate((a, b)):
+            if isinstance(v, (int, float)):
+                n.inputs[i].default_value = v
+            else:
+                nt.links.new(v, n.inputs[i])
+        return n.outputs[0]
+    def nz(scale, detail=3.0, dist=0.0):
+        n = nt.nodes.new("ShaderNodeTexNoise")
+        n.inputs["Scale"].default_value = scale; n.inputs["Detail"].default_value = detail
+        n.inputs["Distortion"].default_value = dist
+        nt.links.new(tc.outputs["Object"], n.inputs["Vector"])
+        return n.outputs["Fac"]
+    def bump(height, strength, distance, prev=None):
+        n = nt.nodes.new("ShaderNodeBump")
+        n.inputs["Distance"].default_value = distance
+        if isinstance(strength, (int, float)):
+            n.inputs["Strength"].default_value = strength
+        else:
+            nt.links.new(strength, n.inputs["Strength"])
+        nt.links.new(height, n.inputs["Height"])
+        if prev is not None:
+            nt.links.new(prev, n.inputs["Normal"])
+        return n.outputs["Normal"]
+    def mixs(fac, a, b):
+        n = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(fac, n.inputs[0]); nt.links.new(a, n.inputs[1]); nt.links.new(b, n.inputs[2])
+        return n.outputs[0]
+    sa = nt.nodes.new("ShaderNodeAttribute"); sa.attribute_name = "shore"
+    sc = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(sa.outputs["Color"], sc.inputs["Color"])
+    sh, deep = sc.outputs[0], sc.outputs[1]
+    calm = mr(nz(0.30, 3.0, 0.6), 0.0, 1.0, 0.40, 0.58)          # 几十米尺度的平静 / 微皱斑块
+    ruf = mt('SUBTRACT', 1.0, calm)
+    nrm = bump(nz(9.0, 3.0, 0.3), mr(ruf, 0.02, 0.22), 0.02, prev=bump(nz(2.4, 3.0, 0.5), 0.05, 0.1))
+    bodyc = mix_rgb(nt, rgb(nt, W_NEAR), rgb(nt, W_DEEP), deep, 'MIX')
+    bodyc = mix_rgb(nt, bodyc, rgb(nt, W_SHORE), mr(sh, 0.0, 0.7), 'MIX')
+    bodyc = mul_color(nt, bodyc, mr(nz(0.9, 3.0, 0.6), 0.80, 1.20))
+    body = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    nt.links.new(bodyc, body.inputs["Color"])
+    gl = nt.nodes.new("ShaderNodeBsdfGlossy")
+    gl.inputs["Color"].default_value = (0.76, 0.90, 0.74, 1)
+    nt.links.new(mr(ruf, 0.010, 0.075), gl.inputs["Roughness"])
+    nt.links.new(nrm, gl.inputs["Normal"])
+    fr = nt.nodes.new("ShaderNodeFresnel")
+    fr.inputs["IOR"].default_value = 1.33
+    nt.links.new(nrm, fr.inputs["Normal"])
+    surf = mixs(mr(fr.outputs["Fac"], W_REFL[0], W_REFL[1], 0.02, 0.30), body.outputs[0], gl.outputs[0])
+    tr = nt.nodes.new("ShaderNodeBsdfTransparent")
+    tr.inputs["Color"].default_value = (0.74, 0.88, 0.76, 1)
+    shal = mixs(mr(sh, 0.12, 0.45, 0.30, 1.0), surf, tr.outputs[0])
+    lp = nt.nodes.new("ShaderNodeLightPath")
+    nt.links.new(mixs(lp.outputs["Is Shadow Ray"], shal, tr.outputs[0]), out.inputs["Surface"])
+_water_material()
+
+BRONZE = principled("Bronze", (0.21, 0.15, 0.08), rough=0.45, metal=0.75, bevel=0)
+CROWD = [principled(f"Crowd{i}", c, rough=0.85, bevel=0) for i, c in enumerate(
+    [(0.62, 0.12, 0.10), (0.80, 0.78, 0.72), (0.14, 0.22, 0.42), (0.10, 0.10, 0.11), (0.78, 0.60, 0.16),
+     (0.74, 0.40, 0.46), (0.42, 0.44, 0.46), (0.16, 0.38, 0.36), (0.88, 0.86, 0.82), (0.30, 0.18, 0.12)])]
+HAIR = principled("CrowdHair", (0.035, 0.03, 0.028), rough=0.8, bevel=0)
 
 VARIANTS = {}      # kind -> [(mesh, height, zmin)]
 TREE_H = {"tree": 1.5, "willow": 1.4, "pine": 1.7, "bush": 0.42, "ginkgo": 1.5, "maple": 1.4}
@@ -681,8 +802,12 @@ def compound(b, cx, cy, w, d, hall_w, hall_d, hall_h, roof_mat=GOLD, z0=FLOOR, s
     if trees and random.random() < 0.7:
         TREES.append((cx + random.uniform(-1.2, 1.2), cy - d * 0.3 + random.uniform(-0.3, 0.3), random.uniform(0.6, 0.8), z0))
 
+_COR_N = [0]
 def corridor(b, cx, cy, w, d, roof_mat=GOLD, z0=FLOOR, h=0.5):
-    hall(b, cx, cy, w, d, h, plat_h=0.12, plat_pad=0.2, roof_h=0.42 * min(w, d) + 0.2, roof_mat=roof_mat,
+    # 成排的廊庑首尾相接、屋面在同一个斜面上：相邻两座的高度、进深、台基各差一点，面就不会重合发黑
+    k = _COR_N[0]; _COR_N[0] += 1
+    h, w, d = h + 0.012 * (k % 3), w + 0.008 * (k % 2), d + 0.008 * (k % 2)
+    hall(b, cx, cy, w, d, h, plat_h=0.12 + 0.004 * (k % 4), plat_pad=0.2, roof_h=0.42 * min(w, d) + 0.2, roof_mat=roof_mat,
          stair=False, z0=z0, rail=False)
 
 def gate_tower(b, cx, cy, w, d, h_base, hall_w, hall_d, hall_h, double=True, z0=FLOOR):
@@ -864,7 +989,7 @@ def ground():
     x0, y0, x1, y1 = MOAT_IN
     box(b, (x0 + x1) / 2, (y0 + y1) / 2, 0.0, x1 - x0, y1 - y0, FLOOR, STONE)       # 城内石板台地
     X0, Y0, X1, Y1 = MOAT_OUT
-    box(b, (X0 + X1) / 2, (Y0 + Y1) / 2, 0.0, X1 - X0, Y1 - Y0, 0.14, WATER)       # 筒子河
+    box(b, (X0 + X1) / 2, (Y0 + Y1) / 2, 0.0, X1 - X0, Y1 - Y0, 0.05, MOAT_BED)    # 筒子河河床（水面见 water()）
     # 河外石岸
     for (a, bb, c, d) in [(X0 - 1.0, Y0 - 1.0, X1 + 1.0, Y0), (X0 - 1.0, Y1, X1 + 1.0, Y1 + 1.0),
                           (X0 - 1.0, Y0, X0, Y1), (X1, Y0, X1 + 1.0, Y1)]:
@@ -886,7 +1011,163 @@ def ground():
     # 东西环路
     for (cx, cy, w, d) in ((X1 + 2.6, 0, 1.2, Y1 - Y0 + 6), (X0 - 2.6, 0, 1.2, Y1 - Y0 + 6)):
         box(b, cx, cy, 0.0, w, d, 0.06, DIRT)
+    # 东华门、西华门外的石桥（原来两座城门对着河，没有桥）
+    for sx in (-1, 1):
+        ba, bb = x1 - 0.3, X1 + 0.8
+        box(b, sx * (ba + bb) / 2, -32.0, 0.0, bb - ba, 2.6, 0.36, MARBLE)
+        for yy in (-33.3, -30.7):
+            balustrade(b, [(min(sx * ba, sx * bb), yy), (max(sx * ba, sx * bb), yy)], 0.36, step=0.5, closed=False)
     return b.build()
+
+def smooth01(t):
+    t = max(0.0, min(1.0, t))
+    return t * t * (3 - 2 * t)
+
+def gold_river_y(x):
+    """内金水河的中线（弓形）。"""
+    return -35.5 - 3.0 * math.cos(math.pi * x / 30)
+
+def water():
+    """筒子河和内金水河的水面。顶点属性 shore：R = 近岸程度，G = 水深程度（材质和网页版水面都用它）。"""
+    w = B("Water")
+    x0, y0, x1, y1 = MOAT_IN
+    X0, Y0, X1, Y1 = MOAT_OUT
+    ZW = 0.14
+    verts, sh, faces = [], [], []
+    def bank_d(x, y):
+        do = min(x - X0, X1 - x, y - Y0, Y1 - y)          # 到外岸
+        di = max(x0 - x, x - x1, y0 - y, y - y1)          # 到内岸
+        return max(0.0, min(do, di))
+    def strip(ax, ay, bx, by):
+        nx, ny = max(1, int(round((bx - ax) / 0.5))), max(1, int(round((by - ay) / 0.5)))
+        base = len(verts)
+        for j in range(ny + 1):
+            for i in range(nx + 1):
+                x, y = ax + (bx - ax) * i / nx, ay + (by - ay) * j / ny
+                d = bank_d(x, y)
+                verts.append((x, y, ZW))
+                sh.append((1.0 - smooth01(d / 0.55), smooth01(d / 1.6)))
+        for j in range(ny):
+            for i in range(nx):
+                a = base + j * (nx + 1) + i
+                faces.append((a, a + 1, a + nx + 2, a + nx + 1))
+    strip(X0, Y0, X1, y0); strip(X0, y1, X1, Y1); strip(X0, y0, x0, y1); strip(x1, y0, X1, y1)
+    # 内金水河：河窄水浅，三排顶点
+    M = 48
+    rverts, rsh, rfaces = [], [], []
+    for i in range(M + 1):
+        x = -15 + 30 * i / M
+        yc = gold_river_y(x)
+        for (dy, s_, d_) in ((-1.1, 1.0, 0.0), (0.0, 0.1, 0.65), (1.1, 1.0, 0.0)):
+            rverts.append((x, yc + dy, FLOOR + 0.08))
+            rsh.append((s_, d_))
+    for i in range(M):
+        a = 3 * i
+        rfaces.append((a, a + 3, a + 4, a + 1)); rfaces.append((a + 1, a + 4, a + 5, a + 2))
+    if WEB:
+        # 网页版的水面是一个平面镜，只能有一个水位：内金水河比筒子河高，单独导出成普通的光滑材质（靠环境反射）
+        rb = B("GoldRiver")
+        rb.add(rverts, rfaces, RIVER_WEB)
+        rb.build()
+    else:
+        base = len(verts)
+        verts.extend(rverts); sh.extend(rsh)
+        faces.extend(tuple(i + base for i in f) for f in rfaces)
+    w.add(verts, faces, WATER)
+    ob = w.build()
+    attr = ob.data.attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
+    for k, (s_, d_) in enumerate(sh):
+        attr.data[k].color = (s_, d_, 0.0, 1.0)
+    try:
+        ob.data.attributes.active_color = attr
+    except Exception:
+        pass
+    print(f"[fc] water faces={len(faces)}")
+
+def court_life():
+    """广场和台基上的陈设与游人。空荡荡的石板地看不出尺度；人和铜缸给出比例，也让中轴线有了人气。
+    用自己的随机数，不影响树木的位置。小人按沙盘人偶做：一段身子一个头，比真实比例大一倍（建筑本身也放大了 1.8 倍）。"""
+    R = random.Random(2101)
+    b = B("CourtLife")
+    ZT, ZH = FLOOR + 3 * 0.45, FLOOR + 0.5
+    n_people = [0]
+    def person(x, y, z):
+        k = R.uniform(0.88, 1.12)
+        prism(b, x, y, z, 0.066 * k, 0.27 * k, CROWD[R.randrange(len(CROWD))], n=6)
+        # 从上往下看，头顶占了小人的一半：三成的人戴帽子（浅色或彩色），否则满场都是黑点
+        prism(b, x, y, z + 0.27 * k, 0.040 * k, 0.07 * k, CROWD[R.randrange(len(CROWD))] if R.random() < 0.32 else HAIR, n=6)
+        n_people[0] += 1
+    def vat(x, y, z, k=1.0):
+        box(b, x, y, z, 0.34 * k, 0.34 * k, 0.06 * k, MARBLE)
+        prism(b, x, y, z + 0.06 * k, 0.17 * k, 0.20 * k, BRONZE, n=10)
+    def lion(x, y, z):
+        box(b, x, y, z, 0.46, 0.60, 0.28, MARBLE)
+        box(b, x, y + 0.03, z + 0.28, 0.28, 0.38, 0.24, BRONZE)
+        prism(b, x, y - 0.13, z + 0.44, 0.12, 0.18, BRONZE, n=8)
+    def burner(x, y, z):
+        prism(b, x, y, z, 0.15, 0.10, MARBLE, n=8)
+        prism(b, x, y, z + 0.10, 0.11, 0.22, BRONZE, n=8)
+        prism(b, x, y, z + 0.32, 0.17, 0.045, BRONZE, n=8)
+        prism(b, x, y, z + 0.365, 0.075, 0.15, BRONZE, n=8)
+    def crowd(x0, y0, x1, y1, z, groups, rects=(), size=(2, 7), spread=0.45, axis=0.0, ok=None):
+        for _ in range(groups):
+            gx = max(x0, min(x1, R.gauss(0.0, axis))) if axis > 0 else R.uniform(x0, x1)   # axis > 0：往中轴线上聚
+            gy = R.uniform(y0, y1)
+            for _ in range(R.randint(*size)):
+                x, y = gx + R.gauss(0, spread), gy + R.gauss(0, spread)
+                if not (x0 <= x <= x1 and y0 <= y <= y1):
+                    continue
+                if any(a <= x <= c and bb <= y <= d for (a, bb, c, d) in rects):
+                    continue
+                if ok is not None and not ok(x, y):
+                    continue
+                person(x, y, z(x, y) if callable(z) else z)
+    # 午门外：桥南广场、御桥、午门前
+    crowd(-7.0, -65.3, 7.0, -62.3, 0.28, 9, axis=3.0)
+    crowd(-1.5, -61.2, 1.5, -57.6, 0.36, 4, spread=0.3)
+    crowd(-4.1, -57.0, 4.1, -50.6, FLOOR + 0.02, 10, axis=1.8)
+    # 太和门广场：内金水河两岸，过桥的人走在桥上
+    BRIDGES = (-7.5, -3.75, 0.0, 3.75, 7.5)
+    def on_bridge(x):
+        return any(abs(x - bx) < (0.5 if bx == 0 else 0.34) for bx in BRIDGES)
+    def sq_ok(x, y):
+        return abs(y - gold_river_y(x)) > 1.75 or on_bridge(x)
+    def sq_z(x, y):
+        dy = abs(y - gold_river_y(x))
+        return FLOOR + (0.48 if dy < 0.6 else 0.40) if dy <= 1.75 else FLOOR + 0.02
+    crowd(-15.0, -46.4, 15.0, -32.9, sq_z, 30, axis=5.0, ok=sq_ok)
+    # 太和殿广场
+    crowd(-17.0, -26.4, 17.0, -14.9, FLOOR + 0.02, 38, axis=6.5, rects=[(-2.2, -15.6, 2.2, -14.0)])
+    # 三台之上：太和殿前后、中和殿、保和殿四周
+    crowd(-12.8, -12.4, 12.8, -0.2, ZT, 14, rects=[(-6.3, -10.5, 6.3, -2.5)])
+    crowd(-7.8, 0.0, 7.8, 7.4, ZT, 5, rects=[(-2.7, 1.1, 2.7, 6.5)])
+    crowd(-12.3, 7.6, 12.3, 15.9, ZT, 8, rects=[(-5.0, 8.5, 5.0, 14.9)])
+    # 后三宫台基
+    crowd(-5.3, 19.7, 5.3, 36.3, ZH, 9, spread=0.35,
+          rects=[(-4.3, 20.9, 4.3, 26.1), (-2.0, 26.5, 2.0, 30.5), (-4.3, 30.7, 4.3, 35.7), (-5.5, 22.2, -3.0, 24.8), (3.0, 22.2, 5.5, 24.8)])
+    # 御花园
+    crowd(-13.0, 39.6, 13.0, 46.4, FLOOR, 11, spread=0.4,
+          rects=[(-3.6, 39.9, 3.6, 45.8), (-10.2, 39.8, -6.8, 43.2), (6.8, 39.8, 10.2, 43.2), (7.8, 43.2, 14.0, 47.0), (-14.0, 43.4, -10.0, 46.2)])
+    # 神武门外到景山，东西两侧的环路
+    crowd(-1.2, 50.2, 1.2, 56.0, lambda x, y: 0.36 if y < 53.6 else 0.08, 4, spread=0.3)
+    for sx in (-1, 1):
+        crowd(sx * 45.6 - 0.45, -55.0, sx * 45.6 + 0.45, 50.0, 0.06, 9, size=(1, 3), spread=0.3)
+        crowd(sx * 41.3 - 1.6, -32.9, sx * 41.3 + 1.6, -31.1, 0.36, 2, size=(1, 3), spread=0.3)
+    # 陈设：太和门前的铜狮，太和殿前的铜鼎，台基脚下和殿侧的铜缸
+    for sx in (-1, 1):
+        lion(sx * 3.5, -33.2, FLOOR)
+        for x in (2.7, 4.1, 5.5):
+            burner(sx * x, -11.5, ZT)
+        for x in (4.0, 6.6, 9.2, 11.8):
+            vat(sx * x, -14.6, FLOOR)
+        for y in (-8.6, -4.4):
+            vat(sx * 7.6, y, ZT)
+        vat(sx * 5.8, 10.2, ZT); vat(sx * 5.8, 13.2, ZT)
+        vat(sx * 2.9, 20.2, ZH, 0.85); vat(sx * 4.8, 28.5, ZH, 0.85)
+        for y in (-22.0, -17.5):
+            vat(sx * 16.4, y, FLOOR)
+    b.build()
+    print(f"[fc] court life: people={n_people[0]}")
 
 # ----------------------------------------------------------------------------- 城墙 / 城门 / 角楼
 def city_wall():
@@ -940,7 +1221,7 @@ def city_wall():
     for sx in (-1, 1):
         box(g, sx * 5.6, WS - 4.6, FLOOR, 2.4, 8.0, 0.2, GREY_TILE)
         box(g, sx * 5.6, WS - 4.6, FLOOR + 0.2, 2.4, 8.0, 1.3, RED)
-        box(g, sx * 5.6, WS - 4.6, FLOOR + 1.5, 2.6, 8.2, 0.14, GREY_TILE)
+        box(g, sx * 5.6, WS - 4.6, FLOOR + 1.5, 2.6, 8.2, 0.144, GREY_TILE)     # 比城台的顶高 4 毫米，两个顶面不重合
         corridor(g, sx * 5.6, WS - 4.4, 0.8, 2.8, z0=FLOOR + 1.64, h=0.4)
         pavilion(g, sx * 5.6, WS - 7.9, 1.5, 0.8, z0=FLOOR + 1.64, plat_h=0.1)
         pavilion(g, sx * 5.6, WS - 1.3, 1.5, 0.8, z0=FLOOR + 1.64, plat_h=0.1)
@@ -974,7 +1255,7 @@ def central_axis():
         bf.append((k + 2, k + 10, k + 12, k + 4)); bf.append((k + 3, k + 5, k + 13, k + 11))
         bf.append((k, k + 6, k + 14, k + 8)); bf.append((k + 1, k + 9, k + 15, k + 7))
     b.add(bv, bf, MARBLE)
-    b.add(rv, rf, WATER)
+    b.add(rv, rf, MOAT_BED)      # 河床；水面在 water() 里
     for x in (-7.5, -3.75, 0, 3.75, 7.5):
         yc = yc_of(x)
         wid = 1.3 if x == 0 else 0.95
@@ -996,8 +1277,9 @@ def central_axis():
         pad = 1.3 - 0.55 * tier
         z = FLOOR + TH * tier
         for (x0, y0, x1, y1) in blocks:
-            dy = 2 * pad if (y0 == -12.5 or y1 == 16.0) else 0.0
-            box(b, (x0 + x1) / 2, (y0 + y1) / 2, z, (x1 - x0) + 2 * pad, (y1 - y0) + dy, TH, MARBLE)
+            # 三块台面首尾相接、互不相叠（原来前后两块各往中间多伸出一截，顶面重合，渲染出一道黑线）
+            ya, yb = y0 - (pad if y0 == -12.5 else 0.0), y1 + (pad if y1 == 16.0 else 0.0)
+            box(b, (x0 + x1) / 2, (ya + yb) / 2, z, (x1 - x0) + 2 * pad, yb - ya, TH, MARBLE)
         p = pad + 0.02
         outline = [(-13 - p, -12.5 - p), (13 + p, -12.5 - p), (13 + p, 0), (8 + p, 0), (8 + p, 7.5), (12.5 + p, 7.5),
                    (12.5 + p, 16 + p), (-12.5 - p, 16 + p), (-12.5 - p, 7.5), (-8 - p, 7.5), (-8 - p, 0), (-13 - p, 0)]
@@ -1018,7 +1300,8 @@ def central_axis():
         corridor(b, sx * 15.0, 18.3, 8.0, 1.1)
     hall(b, 0, 18.3, 3.4, 1.5, 1.0, plat_h=0.45, plat_pad=0.5, roof_h=1.0)
     box(b, 0, 28.0, FLOOR, 11.0, 17.0, 0.5, MARBLE)
-    box(b, 0, 28.0, FLOOR, 4.6, 19.0, 0.5, MARBLE)
+    box(b, 0, 19.0, FLOOR, 4.6, 1.0, 0.5, MARBLE)       # 南北两头伸出的月台（分成两块，不和主台面相叠）
+    box(b, 0, 37.0, FLOOR, 4.6, 1.0, 0.5, MARBLE)
     balustrade(b, [(-5.5, 19.5), (-2.3, 19.5), (-2.3, 18.5), (2.3, 18.5), (2.3, 19.5), (5.5, 19.5), (5.5, 36.5), (2.3, 36.5),
                    (2.3, 37.5), (-2.3, 37.5), (-2.3, 36.5), (-5.5, 36.5)], FLOOR + 0.5, step=0.7,
                skip=lambda x, y: abs(x) < 1.0 and (abs(y - 18.5) < 0.05 or abs(y - 37.5) < 0.05))
@@ -1156,7 +1439,47 @@ def outside_greenery():
     b.build()
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 世界
+CAM = {}
+def fit_camera(cam, target, hx, hy, pitch, dist, fill=(0.94, 0.92)):
+    """保持方位和俯角不变，平移视线落点、调整距离，让整个沙盘（含切面的尖底和树梢）落在画面里并居中。
+    原来落点和距离是手调的：沙盘左侧和底部伸出了画面，上面三分之一却空着。"""
+    from bpy_extras.object_utils import world_to_camera_view
+    bpy.context.view_layer.update()
+    pts = []
+    for ob in COL.objects:
+        if ob.type != 'MESH' or ob.name.startswith("Backdrop"):
+            continue
+        mw = ob.matrix_world
+        if ob.name.split('.')[0] == "Island":
+            pts += [mw @ v.co for v in ob.data.vertices]          # 岛体用真实顶点（包围盒的底角远大于尖底）
+        else:
+            pts += [mw @ mathutils.Vector(c) for c in ob.bound_box]
+    target = mathutils.Vector(target)
+    rx, ry = scene.render.resolution_x, scene.render.resolution_y
+    for _ in range(10):
+        cam.location = (target.x + hx * dist * math.cos(pitch), target.y + hy * dist * math.cos(pitch),
+                        target.z + dist * math.sin(pitch))
+        cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()
+        bpy.context.view_layer.update()
+        uv = [world_to_camera_view(scene, cam, p) for p in pts]
+        u0, u1 = min(p.x for p in uv), max(p.x for p in uv)
+        v0, v1 = min(p.y for p in uv), max(p.y for p in uv)
+        m3 = cam.matrix_world.to_3x3()
+        W = dist * cam.data.sensor_width / cam.data.lens
+        H = W * ry / rx
+        target += (m3 @ mathutils.Vector((1, 0, 0))) * ((u0 + u1) / 2 - 0.5) * W \
+                + (m3 @ mathutils.Vector((0, 1, 0))) * ((v0 + v1) / 2 - 0.5) * H
+        dist *= max((u1 - u0) / fill[0], (v1 - v0) / fill[1])
+    cam.location = (target.x + hx * dist * math.cos(pitch), target.y + hy * dist * math.cos(pitch),
+                    target.z + dist * math.sin(pitch))
+    cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()
+    bpy.context.view_layer.update()
+    print(f"[fc] camera fit: target=({target.x:.2f}, {target.y:.2f}, {target.z:.2f}) dist={dist:.1f} "
+          f"u={u0:.3f}..{u1:.3f} v={v0:.3f}..{v1:.3f}")
+    return tuple(target), dist
+
 def setup_camera_lights():
+    scene.render.resolution_x, scene.render.resolution_y = 2048, 1792
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.lens = 48
     cam_data.sensor_width = 36
@@ -1172,12 +1495,15 @@ def setup_camera_lights():
     direction = mathutils.Vector(target) - cam.location
     cam.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
     scene.camera = cam
+    if "--nofit" not in argv:
+        target, dist = fit_camera(cam, target, hx, hy, pitch, dist)
+    CAM.update(target=[round(v, 2) for v in target], dist=round(dist, 1))
     focus = bpy.data.objects.new("Focus", None)
     focus.location = (0, -6.0, 2.5)
     COL.objects.link(focus)
     cam_data.dof.use_dof = True
     cam_data.dof.focus_object = focus
-    cam_data.dof.aperture_fstop = 1.0
+    cam_data.dof.aperture_fstop = float(arg("--fstop", 1.6))    # 原来 1.0：近处和远处的屋顶糊成一片，看着像低分辨率
 
     sun_data = bpy.data.lights.new("Sun", 'SUN')
     sun_data.energy = 2.5
@@ -1285,13 +1611,35 @@ t0 = time.time()
 make_variants()
 island()
 ground()
+water()
 city_wall()
 central_axis()
 wings()
 jingshan()
 outside_greenery()
+court_life()
 for (x, y, s, z0) in TREES:
     plant(tree_kind(x, y, z0), x, y, s * 1.8, z=z0)   # 扫描树木按高度归一化，比原来的球体树冠瘦，放大一些才读得出
+# 筒子河外岸的一排垂柳（河岸和环路之间）。放在所有种植之后，位置用自己的随机数，原有树木不受影响
+_R = random.Random(2102)
+_X0, _Y0, _X1, _Y1 = MOAT_OUT
+_OFF = 1.55
+_n = 0
+for (ax, ay, bx, by) in ((_X0 - _OFF, _Y0 - _OFF, _X1 + _OFF, _Y0 - _OFF), (_X1 + _OFF, _Y0 - _OFF, _X1 + _OFF, _Y1 + _OFF),
+                         (_X1 + _OFF, _Y1 + _OFF, _X0 - _OFF, _Y1 + _OFF), (_X0 - _OFF, _Y1 + _OFF, _X0 - _OFF, _Y0 - _OFF)):
+    L = math.hypot(bx - ax, by - ay)
+    t = _R.uniform(0.8, 1.6)
+    while t < L - 0.8:
+        x, y = ax + (bx - ax) * t / L, ay + (by - ay) * t / L
+        t += _R.uniform(2.1, 3.3)
+        if (abs(x) < 3.4 and (y < _Y0 or y > _Y1)) or (abs(y + 32.0) < 2.6 and abs(x) > _X1):
+            continue                                   # 桥头留空
+        if _R.random() < 0.12:
+            continue                                   # 偶尔缺一棵
+        plant("willow" if _R.random() < 0.8 else "tree", x + _R.uniform(-0.2, 0.2), y + _R.uniform(-0.2, 0.2),
+              _R.uniform(0.85, 1.15) * 1.8, z=0.0)
+        _n += 1
+print(f"[fc] moat willows: {_n}")
 setup_camera_lights()
 print(f"[fc] scene built in {time.time() - t0:.1f}s, objects={len(COL.objects)}, trees={len(TREES)}")
 if "--export-glb" in argv:
@@ -1309,10 +1657,13 @@ if "--export-glb" in argv:
         return None
     de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop"}, _vcol, uv_scale=1.0, ao_objects=(), extra={
         "title": "北京故宫", "unit_m": 10,
-        "camera": {"target": [0, 0, -8], "az": 33, "dist": 212, "pitch": 37, "lens": 48, "min_dist": 60, "max_dist": 420},
+        "camera": {"target": CAM["target"], "az": 33, "dist": CAM["dist"], "pitch": 37, "lens": 48, "min_dist": 60, "max_dist": 460},
         "sun": {"euler_deg": [58, 0, 312], "color": [1.0, 0.91, 0.76], "strength": 2.5},
         "backdrop": [[0.90, 0.85, 0.72], [0.94, 0.90, 0.79]],
-        "water": ["Water"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.90, 0.87, 0.78],
+        "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.90, 0.87, 0.78],
+        "lake": {"pscale": 4.0, "ripple": 0.12, "glitter": 0.0, "clear": 0.12, "reflRange": [0.17, 0.80], "distortion": 0.008,
+                 "colDeep": list(W_DEEP), "colNear": list(W_NEAR), "colShore": list(W_SHORE)},
+        "mat": {"StonePaving": {"repeat": 1.5}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,

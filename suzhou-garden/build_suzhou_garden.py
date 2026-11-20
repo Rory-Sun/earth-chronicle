@@ -476,7 +476,11 @@ def _math(op, a, b=None):
 _sa = nt.nodes.new("ShaderNodeAttribute"); _sa.attribute_name = "shore"
 _sc = nt.nodes.new("ShaderNodeSeparateColor")
 nt.links.new(_sa.outputs["Color"], _sc.inputs["Color"])
-_sh, _deep = _sc.outputs[0], _sc.outputs[1]
+_sh, _deep, _canal = _sc.outputs[0], _sc.outputs[1], _sc.outputs[2]
+def arg3(name, default):
+    return tuple(float(v) for v in arg(name, default).split(","))
+WGLOSS = arg3("--wgloss", "0.70,0.92,0.68")          # 倒影的色调（原来是 0.78, 0.97, 0.84，配上 0.36 的倒影强度，水面发蓝，像泳池）
+WCANAL = float(arg("--wcanal", 1.0))                 # 河水和池水分开的程度（0 = 和池水一样）
 _wp = noise(nt, 0.16, 3.0, distortion=0.6)                       # 几米尺度的平静 / 微皱斑块
 _calm = _mrc(_wp.outputs["Fac"], 0.0, 1.0, 0.40, 0.58)
 _ruf = _math('SUBTRACT', 1.0, _calm)
@@ -488,24 +492,29 @@ nt.links.new(_mrc(_ruf, 0.015, 0.20), _b2.inputs["Strength"])
 _nrm = _b2.outputs["Normal"]
 _deepc = mix_rgb(nt, rgb(nt, (0.105, 0.185, 0.090)), rgb(nt, (0.048, 0.110, 0.062)), _deep, 'MIX')
 _bodyc = mix_rgb(nt, _deepc, rgb(nt, (0.19, 0.23, 0.13)), _mrc(_sh, 0.0, 0.7), 'MIX')
+# 河水：城里的河是浑的，灰绿带黄，不像园池那样碧绿
+_cdeep = mix_rgb(nt, rgb(nt, (0.150, 0.170, 0.105)), rgb(nt, (0.095, 0.115, 0.075)), _deep, 'MIX')
+_cbody = mix_rgb(nt, _cdeep, rgb(nt, (0.23, 0.23, 0.15)), _mrc(_sh, 0.0, 0.7), 'MIX')
+_cmask = _math('MULTIPLY', _canal, WCANAL)
+_bodyc = mix_rgb(nt, _bodyc, _cbody, _cmask, 'MIX')
 _bodyc = mul_color(nt, _bodyc, map_range(nt, noise(nt, 0.35, 3.0, distortion=0.6).outputs["Fac"], 0.82, 1.18))
 _body = nt.nodes.new("ShaderNodeBsdfDiffuse")
 nt.links.new(_bodyc, _body.inputs["Color"])
 _gl = nt.nodes.new("ShaderNodeBsdfGlossy")
-_gl.inputs["Color"].default_value = (0.78, 0.97, 0.84, 1)
+_gl.inputs["Color"].default_value = (*WGLOSS, 1)
 nt.links.new(_mrc(_ruf, 0.008, 0.07), _gl.inputs["Roughness"])
 nt.links.new(_nrm, _gl.inputs["Normal"])
 _fr = nt.nodes.new("ShaderNodeFresnel")
 _fr.inputs["IOR"].default_value = 1.33
 nt.links.new(_nrm, _fr.inputs["Normal"])
-_REFL = (float(arg("--refl0", 0.36)), float(arg("--refl1", 0.85)))
+_REFL = (float(arg("--refl0", 0.22)), float(arg("--refl1", 0.85)))
 _refl = _mrc(_fr.outputs["Fac"], _REFL[0], _REFL[1], 0.02, 0.30)
 _surf = nt.nodes.new("ShaderNodeMixShader")
 nt.links.new(_refl, _surf.inputs[0]); nt.links.new(_body.outputs[0], _surf.inputs[1]); nt.links.new(_gl.outputs[0], _surf.inputs[2])
 _tr = nt.nodes.new("ShaderNodeBsdfTransparent")
 _tr.inputs["Color"].default_value = (0.74, 0.88, 0.76, 1)
 _shal = nt.nodes.new("ShaderNodeMixShader")
-nt.links.new(_mrc(_sh, 0.22, 0.62, 0.25, 1.0), _shal.inputs[0])
+nt.links.new(_math('MULTIPLY', _mrc(_sh, 0.22, 0.62, 0.25, 1.0), _math('SUBTRACT', 1.0, _math('MULTIPLY', _cmask, 0.75))), _shal.inputs[0])
 nt.links.new(_surf.outputs[0], _shal.inputs[1]); nt.links.new(_tr.outputs[0], _shal.inputs[2])
 _lp = nt.nodes.new("ShaderNodeLightPath")
 _mix = nt.nodes.new("ShaderNodeMixShader")
@@ -872,7 +881,7 @@ def pond_water():
             x, y = x0 + i * step, y0 + j * step
             sd = pond_sd(x, y)
             verts.append((x, y, 0.0))
-            sh.append((sd, 1.0 - smooth01(-sd / 1.0), smooth01(-sd / 4.5)))
+            sh.append((sd, 1.0 - smooth01(-sd / 1.0), smooth01(-sd / 4.5), 0.0))
     faces = []
     for j in range(ny - 1):
         for i in range(nx - 1):
@@ -891,7 +900,7 @@ def pond_water():
             x = icx - xm + 2 * xm * i / 80
             d = canal_d(x, y)
             verts.append((x, y, 0.0))
-            sh.append((-d, 1.0 - smooth01(d / 0.8), smooth01(d / 2.4)))
+            sh.append((-d, 1.0 - smooth01(d / 0.8), smooth01(d / 2.4), 1.0))     # 第四项 = 1：河道（材质里换成河水的颜色）
     for j in range(6):
         for i in range(80):
             a = base + j * 81 + i
@@ -899,8 +908,8 @@ def pond_water():
     w.add(verts, faces, WATER)
     ob = w.build()
     attr = ob.data.attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
-    for k, (_, s, dp) in enumerate(sh):
-        attr.data[k].color = (s, dp, 0.0, 1.0)
+    for k, (_, s, dp, cn) in enumerate(sh):
+        attr.data[k].color = (s, dp, cn, 1.0)
     try:
         ob.data.attributes.active_color = attr
     except Exception:
@@ -2368,6 +2377,239 @@ def canal_scene():
         row_house("Riverside", hx, -40.15 - hd_ / 2, hw_, hd_, hh, seed=311 + i, **kw)
     arch_bridge("CanalBridge", (12.0, CANAL[1] + 0.9), (12.0, CANAL[0] - 0.9), w=2.4, rise=1.35)
 
+# ----------------------------------------------------------------------------- 生活气息：摊位、茶桌、路灯、车、人
+SKIN = principled("PiFu", (0.70, 0.50, 0.38), rough=0.7, bevel=0)
+HAIR = principled("TouFa", (0.035, 0.030, 0.030), rough=0.6, bevel=0)
+LANTERN = principled("DengLong", (0.60, 0.10, 0.07), rough=0.6, bevel=0)
+LAMP_PAPER = principled("DengZhi", (0.90, 0.78, 0.52), rough=0.7, bevel=0)
+UMBRELLA = [principled("YouZhiSan", (0.60, 0.15, 0.10), rough=0.5, coat=0.3, bevel=0),
+            principled("YouZhiSanHuang", (0.76, 0.56, 0.20), rough=0.5, coat=0.3, bevel=0)]
+PRODUCE = [principled("CaiLv", (0.24, 0.42, 0.15), rough=0.7, bevel=0), principled("GuoHong", (0.66, 0.18, 0.11), rough=0.6, bevel=0),
+           principled("GuoHuang", (0.78, 0.58, 0.16), rough=0.6, bevel=0), principled("BaiMian", (0.84, 0.82, 0.76), rough=0.8, bevel=0)]
+GARB = CLOTH + [principled("HuiBu", (0.34, 0.35, 0.36), rough=0.85, bevel=0), principled("QingBu", (0.15, 0.25, 0.28), rough=0.85, bevel=0),
+                principled("ZheBu", (0.50, 0.29, 0.19), rough=0.85, bevel=0), principled("HeiBu", (0.06, 0.06, 0.07), rough=0.85, bevel=0)]
+
+def figure(b, x, y, ang, z=None, pose='stand', top=0, bottom=6, hat=None, gown=False):
+    """沙盘里的小人，身高约 1.65 米，不做五官。ang = 面朝的方向（弧度，0 是正东）。
+    pose: stand 站 / walk 走 / sit 坐（坐在 0.46 高的凳子上）/ squat 蹲。top、bottom 是 GARB 里上衣和裤子的下标。
+    gown=True 穿长衫（不分腿）。hat: 'li' 斗笠；('umb', k) 撑油纸伞。"""
+    z = (GZ + 0.03) if z is None else z
+    F = Fr(x, y, ang + math.pi / 2)                              # 局部 −y 是前
+    mt, mb = GARB[top], GARB[bottom]
+    hh = {'stand': 0.80, 'walk': 0.78, 'sit': 0.48, 'squat': 0.30}[pose]
+    if gown and pose in ('stand', 'walk'):
+        X, Y = F.p(0, 0)
+        cone(b, X, Y, z + 0.06, 0.21, 0.15, hh - 0.04, mt, n=8, uv=False)
+        for sg in (-1, 1):
+            X, Y = F.p(sg * 0.08, -0.03)
+            cone(b, X, Y, z, 0.06, 0.06, 0.08, GARB[6], n=6, uv=False)
+    elif pose == 'stand':
+        for sg in (-1, 1):
+            X, Y = F.p(sg * 0.085, 0)
+            cone(b, X, Y, z, 0.065, 0.085, hh, mb, n=6, uv=False)
+    elif pose == 'walk':
+        for sg in (-1, 1):
+            rod(b, F.p(sg * 0.085, 0.0, z + hh), F.p(sg * 0.085, -sg * 0.22, z + 0.02), 0.068, mb)
+    elif pose == 'sit':
+        for sg in (-1, 1):
+            rod(b, F.p(sg * 0.09, 0.02, z + hh - 0.04), F.p(sg * 0.10, -0.40, z + hh - 0.04), 0.07, mb)
+            rod(b, F.p(sg * 0.10, -0.40, z + hh - 0.02), F.p(sg * 0.10, -0.42, z + 0.02), 0.06, mb)
+    else:
+        for sg in (-1, 1):
+            rod(b, F.p(sg * 0.10, 0.04, z + hh - 0.06), F.p(sg * 0.13, -0.28, z + 0.44), 0.07, mb)
+            rod(b, F.p(sg * 0.13, -0.28, z + 0.46), F.p(sg * 0.12, -0.20, z + 0.02), 0.06, mb)
+    lean = -0.10 if pose == 'squat' else 0.0                     # 蹲着的人身子前倾
+    X, Y = F.p(0, lean * 0.5)
+    cone(b, X, Y, z + hh - 0.02, 0.145, 0.175, 0.56, mt, n=8, uv=False)          # 上身
+    cone(b, X, Y, z + hh + 0.54, 0.175, 0.06, 0.07, mt, n=8, uv=False)           # 肩
+    zs = z + hh + 0.53
+    umb = isinstance(hat, tuple)
+    for sg in (-1, 1):                                                           # 胳膊
+        if umb and sg == 1:
+            rod(b, F.p(0.19, lean, zs), F.p(0.20, -0.20, zs - 0.16), 0.045, mt)
+        elif pose == 'walk':
+            rod(b, F.p(sg * 0.20, lean, zs), F.p(sg * 0.22, sg * 0.16, zs - 0.50), 0.045, mt)
+        elif pose in ('sit', 'squat'):
+            rod(b, F.p(sg * 0.20, lean, zs), F.p(sg * 0.16, -0.30, zs - 0.30), 0.045, mt)
+        else:
+            rod(b, F.p(sg * 0.20, lean, zs), F.p(sg * 0.23, -0.04, zs - 0.52), 0.045, mt)
+    zh = z + hh + 0.72
+    X, Y = F.p(0, lean)
+    v, f = icosphere(X, Y, zh, 0.105, sub=1, squash=1.0, jit=0.0)
+    b.add(v, f, SKIN)
+    X2, Y2 = F.p(0, lean + 0.035)                                                # 头发：一个往后上方错开一点的球，盖住后脑和头顶
+    v, f = icosphere(X2, Y2, zh + 0.03, 0.108, sub=1, squash=0.92, jit=0.0)
+    b.add(v, f, HAIR)
+    if hat == 'li':
+        cone(b, X, Y, zh + 0.07, 0.30, 0.02, 0.15, BASKET, n=12, uv=False)
+    elif umb:
+        hx_, hy_ = F.p(0.20, -0.20)
+        tx_, ty_ = F.p(0.06, -0.04)
+        rod(b, (hx_, hy_, zs - 0.16), (tx_, ty_, zh + 0.52), 0.014, BAMBOO_CULM)
+        cone(b, tx_, ty_, zh + 0.34, 0.64, 0.04, 0.20, UMBRELLA[hat[1]], n=14, uv=False)
+        cone(b, tx_, ty_, zh + 0.54, 0.035, 0.01, 0.07, BAMBOO_CULM, n=6, uv=False)
+
+def wheel(b, c, ax, r, t, mat, n=12, spokes=4):
+    """立着的车轮：圆心 c，轮轴方向 ax（水平单位向量）。轮圈是一圈短木条，再加几根辐条。"""
+    ux, uy = -ax[1], ax[0]                                       # 轮面内的水平方向
+    pts = [(c[0] + ux * r * math.cos(2 * math.pi * k / n), c[1] + uy * r * math.cos(2 * math.pi * k / n), c[2] + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    for k in range(n):
+        rod(b, pts[k], pts[(k + 1) % n], t, mat)
+    for k in range(spokes):
+        a = math.pi * k / spokes
+        d = (ux * math.cos(a), uy * math.cos(a), math.sin(a))
+        rod(b, tuple(c[i] - d[i] * r for i in range(3)), tuple(c[i] + d[i] * r for i in range(3)), t * 0.5, mat)
+
+def stall(b, x, y, ang, cloth, rs, lantern=True):
+    """街边的摊位：一张木桌，竹筐里码着菜和果子，四根竹竿撑一块布棚（前低后高），棚角挂红灯笼。局部 −y 是朝街的一面。"""
+    F = Fr(x, y, ang)
+    z = GZ + 0.03
+    F.box(b, 0, 0, z + 0.72, 1.9, 0.82, 0.05, WOOD)
+    for sx in (-0.86, 0.86):
+        for sy in (-0.33, 0.33):
+            F.box(b, sx, sy, z, 0.06, 0.06, 0.72, WOOD)
+    for k in range(4):
+        X, Y = F.p(-0.69 + 0.46 * k, rs.uniform(-0.12, 0.12))
+        cone(b, X, Y, z + 0.77, 0.15, 0.20, 0.15, BASKET, n=10, uv=False)
+        cone(b, X, Y, z + 0.90, 0.185, 0.09, 0.09, rs.choice(PRODUCE), n=10, uv=False)
+    for k in range(2):                                           # 桌前地上的两只大筐
+        X, Y = F.p(-0.5 + 1.0 * k + rs.uniform(-0.1, 0.1), -0.72)
+        cone(b, X, Y, z, 0.20, 0.27, 0.34, BASKET, n=10, uv=False)
+        cone(b, X, Y, z + 0.32, 0.25, 0.12, 0.10, rs.choice(PRODUCE), n=10, uv=False)
+    for (sx, sy, h) in ((-1.08, -0.62, 1.95), (1.08, -0.62, 1.95), (-1.08, 0.50, 2.34), (1.08, 0.50, 2.34)):
+        rod(b, F.p(sx, sy, z), F.p(sx, sy + 0.001, z + h), 0.03, BAMBOO_CULM)
+    slope_slab(b, F, -1.22, 1.22, 0.62, z + 2.38, -0.80, z + 1.93, 0.03, cloth)
+    if lantern:
+        for sx in (-1.0, 1.0):
+            X, Y = F.p(sx, -0.74)
+            rod(b, (X, Y, z + 1.66), (X, Y + 0.001, z + 1.92), 0.008, LATTICE)
+            cone(b, X, Y, z + 1.42, 0.07, 0.115, 0.08, LANTERN, n=8, uv=False)
+            prism(b, X, Y, z + 1.50, 0.115, 0.10, LANTERN, n=8)
+            cone(b, X, Y, z + 1.60, 0.115, 0.06, 0.07, LANTERN, n=8, uv=False)
+
+def tea_table(b, x, y, ang):
+    """茶桌：一张方桌、四只圆凳，桌上一把茶壶几只茶碗。"""
+    F = Fr(x, y, ang)
+    z = GZ + 0.03
+    F.box(b, 0, 0, z + 0.66, 0.86, 0.86, 0.05, WOOD)
+    for sx in (-0.36, 0.36):
+        for sy in (-0.36, 0.36):
+            F.box(b, sx, sy, z, 0.06, 0.06, 0.66, WOOD)
+    for (sx, sy) in ((0, -0.78), (0, 0.78), (-0.78, 0), (0.78, 0)):
+        X, Y = F.p(sx, sy)
+        prism(b, X, Y, z, 0.16, 0.44, WOOD, n=10)
+    X, Y = F.p(0.05, 0.02)
+    cone(b, X, Y, z + 0.71, 0.07, 0.05, 0.11, POT, n=8, uv=False)
+    for (sx, sy) in ((0.22, -0.18), (-0.2, 0.2), (-0.24, -0.16)):
+        X, Y = F.p(sx, sy)
+        cone(b, X, Y, z + 0.71, 0.025, 0.04, 0.04, PRODUCE[3], n=6, uv=False)
+
+def lamp_post(b, x, y):
+    """河边的路灯：一根黑漆木柱，挑出一只纸灯。"""
+    z = GZ + 0.03
+    prism(b, x, y, z, 0.12, 0.16, GRANITE, n=8)
+    prism(b, x, y, z + 0.16, 0.05, 2.75, LATTICE, n=8)
+    rod(b, (x, y, z + 2.80), (x, y - 0.42, z + 2.86), 0.03, LATTICE)
+    cone(b, x, y - 0.42, z + 2.76, 0.20, 0.03, 0.12, RIDGE, n=6, uv=False)
+    box(b, x, y - 0.42, z + 2.42, 0.22, 0.22, 0.34, LAMP_PAPER)
+    box(b, x, y - 0.42, z + 2.38, 0.26, 0.26, 0.04, LATTICE)
+
+def hand_cart(b, x, y, ang, rs):
+    """板车：两只木轮、一块车板、两根车把，车上几只麻袋和木箱。"""
+    F = Fr(x, y, ang)
+    z = GZ + 0.03
+    F.box(b, 0, 0, z + 0.50, 0.9, 1.7, 0.06, WOOD)
+    ax = (F.c, F.s)
+    for sg in (-1, 1):
+        X, Y = F.p(sg * 0.52, 0.1)
+        wheel(b, (X, Y, z + 0.40), ax, 0.40, 0.035, TRUNK)
+        rod(b, F.p(sg * 0.38, -0.85, z + 0.53), F.p(sg * 0.34, -1.9, z + 0.62), 0.03, WOOD)
+    for (sx, sy, r) in ((-0.15, 0.45, 0.30), (0.2, 0.0, 0.28), (-0.1, -0.4, 0.26)):
+        X, Y = F.p(sx, sy)
+        v, f = icosphere(X, Y, z + 0.56 + r * 0.5, r, sub=1, squash=0.55, jit=0.0)
+        b.add(v, f, BASKET)
+    F.box(b, 0.18, 0.55, z + 0.56, 0.36, 0.36, 0.30, WOOD)
+
+def bicycle(b, x, y, ang):
+    """自行车：两只轮子、三角车架、车把和车座。局部 x 是车身方向。"""
+    F = Fr(x, y, ang)
+    z = GZ + 0.03
+    ax = (-F.s, F.c)
+    for xx in (-0.52, 0.52):
+        X, Y = F.p(xx, 0)
+        wheel(b, (X, Y, z + 0.33), ax, 0.33, 0.016, HAIR, n=12, spokes=3)
+    seat, bb, head = (-0.22, 0, z + 0.86), (-0.05, 0, z + 0.36), (0.40, 0, z + 0.86)
+    for (a, c) in ((seat, bb), (bb, head), (seat, head), ((-0.52, 0, z + 0.33), bb), ((-0.52, 0, z + 0.33), seat), (head, (0.52, 0, z + 0.33))):
+        rod(b, F.p(*a), F.p(*c), 0.016, GARB[6])
+    rod(b, F.p(0.40, -0.24, z + 0.96), F.p(0.40, 0.24, z + 0.96), 0.014, GARB[6])
+    rod(b, F.p(*head), F.p(0.40, 0, z + 0.96), 0.014, GARB[6])
+    F.box(b, -0.24, 0, z + 0.86, 0.26, 0.12, 0.05, TRUNK)
+    rod(b, F.p(-0.3, 0.0, z + 0.36), F.p(-0.36, -0.2, z), 0.012, GARB[6])       # 脚撑
+
+def street_life():
+    """给街巷和园子添生活气息。用自己的随机数状态，放在所有布置之后，不扰动别处；这里的东西不登记避让范围。"""
+    st = random.getstate(); random.seed(4107)
+    rs = random.Random(4107)
+    b = B("StreetLife")
+    yw = -28.55                                                  # 靠园墙一侧
+    # ---- 北岸石板路：三个摊位（靠着园墙，朝河）
+    for (x, cloth) in ((-25.5, CLOTH[0]), (-10.2, CLOTH[1]), (6.4, CLOTH[2]), (19.6, CLOTH[0])):
+        stall(b, x, yw, 0.0, cloth, rs)
+    figure(b, 19.8, yw + 0.72, -math.pi / 2, pose='stand', top=5, bottom=6)
+    figure(b, 20.4, yw - 1.45, math.pi / 2 + 0.2, pose='stand', top=2, bottom=4)
+    # 住宅大门口说话的两个人
+    figure(b, 27.4, -29.3, 0.5, pose='stand', top=1, bottom=0, gown=True)
+    figure(b, 28.3, -28.9, math.pi + 0.6, pose='stand', top=4, bottom=6)
+    figure(b, -25.7, yw + 0.72, -math.pi / 2, pose='stand', top=4, bottom=6)                 # 摊主（在桌后，面朝街）
+    figure(b, -24.7, yw - 1.55, math.pi / 2 + 0.3, pose='stand', top=1, bottom=0, hat='li')  # 买菜的
+    figure(b, -10.0, yw + 0.72, -math.pi / 2, pose='stand', top=0, bottom=6)
+    figure(b, -10.9, yw - 1.5, math.pi / 2 - 0.2, pose='stand', top=5, bottom=3, gown=True)
+    figure(b, 6.7, yw + 0.72, -math.pi / 2, pose='stand', top=3, bottom=6)
+    # ---- 柳树下的茶桌，两个人对坐
+    tea_table(b, -17.7, -30.5, 0.25)
+    F = Fr(-17.7, -30.5, 0.25)
+    X, Y = F.p(0, 0.78); figure(b, X, Y, 0.25 - math.pi / 2, pose='sit', top=2, bottom=6)
+    X, Y = F.p(0, -0.78); figure(b, X, Y, 0.25 + math.pi / 2, pose='sit', top=4, bottom=0)
+    # ---- 河边的路灯
+    for x in (-26.8, -12.2, 8.4, 27.4):
+        if isl_rho(x, -32.05)[0] < 0.97:
+            lamp_post(b, x, -32.05)
+    # ---- 板车、自行车
+    hand_cart(b, 2.2, -29.6, 0.35, rs)
+    figure(b, 1.7, -31.2, 0.35 + math.pi / 2, pose='walk', top=3, bottom=6, hat='li')         # 拉车的
+    bicycle(b, -20.8, -28.05, 0.0)
+    bicycle(b, 16.2, -28.05, math.pi)
+    # ---- 街上走的人
+    figure(b, 20.4, -30.1, math.pi + 0.1, pose='walk', top=1, bottom=4, gown=True)
+    figure(b, 21.2, -30.6, math.pi + 0.05, pose='walk', top=5, bottom=6, hat=('umb', 1))
+    figure(b, -32.0, -29.8, 0.05, pose='walk', top=0, bottom=3)
+    # ---- 河埠头上蹲着洗衣的人，脚边一只木盆
+    yst = CANAL[1] - 0.26 - 0.32 * 2
+    zst = GZ - 0.03 - 0.115 * 3
+    figure(b, -8.3, yst, -math.pi / 2, z=zst, pose='squat', top=2, bottom=6)
+    cone(b, -7.5, yst - 0.02, zst, 0.20, 0.25, 0.16, WOOD, n=10, uv=False)
+    cone(b, -7.5, yst - 0.02, zst + 0.12, 0.22, 0.10, 0.07, CLOTH[1], n=10, uv=False)
+    # ---- 船夫：站在第一条乌篷船的船尾，戴斗笠
+    Fb = Fr(-6.6, CANAL[1] - 2.3, 0.05)
+    X, Y = Fb.p(-2.05, 0.0)
+    figure(b, X, Y, 0.05, z=0.45, pose='stand', top=3, bottom=6, hat='li')
+    # ---- 拱桥上撑伞过河的人
+    def bridge_z(y):                                             # 河上石拱桥的桥面高度（见 arch_bridge）
+        u = (CANAL[1] + 0.9 - y) / (CANAL[1] - CANAL[0] + 1.8)
+        return GZ - 0.02 + 1.35 * max(0.0, 1 - (2 * u - 1) ** 2) ** 0.9 + 0.06
+    figure(b, 11.8, -35.2, math.pi / 2, z=bridge_z(-35.2), pose='walk', top=1, bottom=0, gown=True, hat=('umb', 0))
+    figure(b, 12.35, -36.9, math.pi / 2, z=bridge_z(-36.9), pose='walk', top=4, bottom=6)
+    # ---- 对岸小巷里一个挑着筐的人
+    figure(b, -21.6, -39.3, 0.0, pose='walk', top=6, bottom=4, hat='li')
+    # ---- 园里的游客：曲桥上两位，赏石的两位
+    zb = GZ - 0.02
+    figure(b, 5.2, -4.4, math.pi / 2, z=zb, pose='walk', top=1, bottom=0, gown=True)
+    figure(b, 5.25, -3.3, -math.pi / 2 + 0.3, z=zb, pose='stand', top=5, bottom=3, gown=True, hat=('umb', 1))
+    figure(b, 3.3, -20.6, -0.5, pose='stand', top=0, bottom=6, gown=True)
+    figure(b, 3.9, -22.9, 0.6, pose='stand', top=2, bottom=4)
+    b.build()
+    random.setstate(st)
+
 # ----------------------------------------------------------------------------- 场景布置
 X0, X1, Y0, Y1 = -34.0, 34.0, -27.0, 27.0     # 园墙范围
 XP = 23.0                                     # 住宅与花园之间的界墙
@@ -2628,6 +2870,7 @@ def build_scene():
             tuft(b, x, y, sz_)
         nt_ += 1
     b.build()
+    street_life()                                # 摊位、茶桌、路灯、车、人
     print(f"[sz] plants={N_PLANTS} (bushes {nb_}), tufts={nt_}, tile rows={N_ROWS}")
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 背景
@@ -2680,7 +2923,7 @@ def setup_camera_lights():
         wlp = wnt.nodes.new("ShaderNodeLightPath")
         wst = wnt.nodes.new("ShaderNodeMapRange")
         wst.inputs["To Min"].default_value = sky
-        wst.inputs["To Max"].default_value = float(arg("--skygloss", 0.42))    # 倒影里的天空略亮（只对镜面光线）
+        wst.inputs["To Max"].default_value = float(arg("--skygloss", 0.30))    # 倒影里的天空略亮（只对镜面光线）
         wnt.links.new(wlp.outputs["Is Glossy Ray"], wst.inputs["Value"])
         wnt.links.new(wst.outputs["Result"], bg.inputs["Strength"])
         print(f"[sz] hdri sun u={u} rot={rot:.1f}")
@@ -2844,7 +3087,7 @@ if WEB:
         "backdrop": [[0.86, 0.88, 0.86], [0.95, 0.955, 0.945]],
         "water": ["PondWater"], "bounds": list(ISL), "shadow_half": 68, "shadow_bias": 0.05, "fog": [0.90, 0.93, 0.93],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
-        "lake": {"pscale": 4.0, "ripple": 0.10, "glitter": 0.0, "clear": 0.22, "reflRange": [0.26, 0.80], "distortion": 0.007,
+        "lake": {"pscale": 4.0, "ripple": 0.10, "glitter": 0.0, "clear": 0.22, "reflRange": [0.17, 0.80], "distortion": 0.007,
                  "colDeep": [0.048, 0.110, 0.062], "colNear": [0.105, 0.185, 0.090], "colShore": [0.19, 0.23, 0.13]},
         "mat": {"EarthCut": {"repeat": 0.30}, "DaiWa": {"repeat": 0.55},
                 "FenQiang": {"weather": {"rain": 2.0, "damp": 1.6, "ground": GZ}},

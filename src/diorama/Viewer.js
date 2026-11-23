@@ -424,7 +424,8 @@ export async function startDiorama(id, ui) {
   const waterNormals = makeWaterNormals();
   const waters = [];
   for (const wm of waterMeshes) {
-    if (wm.material.name === 'LakeWater' || wm.material.name === 'PondWater') {
+    // 黄鹤楼的江面（RiverWater）在 scene.json 带 lake 字段时也走这条路
+    if (wm.material.name === 'LakeWater' || wm.material.name === 'PondWater' || (wm.material.name === 'RiverWater' && meta.lake)) {
       // 西湖湖面：水体色 + 镜面倒影 + 条带风痕（见 LakeSurface.js）；顶点色 R = 近岸程度，G = 水深
       const geo = wm.geometry.clone(); wm.updateWorldMatrix(true, false); geo.applyMatrix4(wm.matrixWorld);
       const pos = geo.attributes.position, colAttr = geo.attributes.color;

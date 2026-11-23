@@ -313,9 +313,6 @@ WATER = principled("RiverWater", (0.31, 0.33, 0.19), rough=0.035, spec=0.6, beve
 POND = principled("PondGreen", (0.07, 0.16, 0.12), rough=0.04, spec=0.7, bevel=0)      # 园池的清水（江水是浑黄的）
 nt = WATER.node_tree
 _p = nt.nodes["Principled BSDF"]
-if "Transmission Weight" in _p.inputs:
-    _p.inputs["Transmission Weight"].default_value = 0.06    # 泥沙多的江水几乎不透；原来 0.55，船影会穿到江底，像玻璃盖着沙滩
-_p.inputs["IOR"].default_value = 1.33
 # 水色：顺流方向深浅不一的泥沙条带（细的叠在宽的上面），近岸水浅处偏黄；"depth" 是江面网格上的逐顶点属性（离岸多远）
 def _streak(sx, sy):
     rot = nt.nodes.new("ShaderNodeVectorRotate"); rot.rotation_type = 'Z_AXIS'
@@ -335,39 +332,57 @@ _sr = ramp(nt, [(0.36, (0.245, 0.285, 0.170)), (0.50, (0.310, 0.330, 0.190)), (0
 nt.links.new(_sfac, _sr.inputs["Fac"])
 _at = nt.nodes.new("ShaderNodeAttribute"); _at.attribute_name = "depth"
 _shore = map_range(nt, _at.outputs["Fac"], 0.55, 0.0, 0.0, 8.0)
-nt.links.new(mix_rgb(nt, _sr.outputs["Color"], rgb(nt, (0.46, 0.41, 0.24)), _shore, 'MIX'), _p.inputs["Base Color"])
+_bodyc = mix_rgb(nt, _sr.outputs["Color"], rgb(nt, (0.46, 0.41, 0.24)), _shore, 'MIX')
+_bodyc = mul_color(nt, _bodyc, rgb(nt, arg3("--rbody", "1.0,1.0,1.0")))
+nt.links.new(_bodyc, _p.inputs["Base Color"])        # Principled 只留给网页导出读颜色
+# 水面：和西湖、苏州园林同一做法。水体色用平法线的漫反射（不随波纹明暗，仍接收桥和船的投影），
+# 上面叠加菲涅耳加权的镜面倒影，波纹只扰动倒影；顺流的风痕决定哪里平静如镜、哪里被吹皱。
+# 原来整个江面是带凹凸的 Principled：波纹像刻在泥地上的浮雕，天空几乎映不出来，一整片均匀的土黄，像泥滩。
+_out = nt.nodes["Material Output"]
+for _l in [l for l in nt.links if l.to_node == _out]:
+    nt.links.remove(_l)
+def _mrc(sock, lo, hi, fmin=0.0, fmax=1.0):
+    q = map_range(nt, sock, lo, hi, fmin, fmax); q.node.clamp = True
+    return q
+_calm = _mrc(_streak(0.030, 0.105), 0.0, 1.0, 0.44, 0.60)          # 顺流方向拉长的风痕
+_rf = nt.nodes.new("ShaderNodeMath"); _rf.operation = 'SUBTRACT'
+_rf.inputs[0].default_value = 1.0; nt.links.new(_calm, _rf.inputs[1])
+_ruf = _rf.outputs[0]
 _w1 = noise(nt, 0.9, 5.0, distortion=0.4)
-_b1 = bump_node(nt, _w1.outputs["Fac"], 0.16, 0.25)
-_w2 = noise(nt, 7.0, 3.0)
-_b2 = bump_node(nt, _w2.outputs["Fac"], 0.05, 0.05, prev_normal=_b1.outputs["Normal"])
-_wave = nt.nodes.new("ShaderNodeTexWave")
-_wave.wave_type = 'BANDS'; _wave.bands_direction = 'DIAGONAL'
-_wave.inputs["Scale"].default_value = 0.3
-_wave.inputs["Distortion"].default_value = 7.0
-_wave.inputs["Detail"].default_value = 2.0
-nt.links.new(texcoord(nt).outputs["Object"], _wave.inputs["Vector"])
-_b3 = bump_node(nt, _wave.outputs["Fac"], 0.10, 0.15, prev_normal=_b2.outputs["Normal"])
-nt.links.new(_b3.outputs["Normal"], _p.inputs["Normal"])
-_lp = nt.nodes.new("ShaderNodeLightPath")
-_tr = nt.nodes.new("ShaderNodeBsdfTransparent")
-_tr.inputs["Color"].default_value = (0.85, 0.95, 0.92, 1)
-_mix = nt.nodes.new("ShaderNodeMixShader")
-nt.links.new(_lp.outputs["Is Shadow Ray"], _mix.inputs[0])
-nt.links.new(_p.outputs["BSDF"], _mix.inputs[1])
-nt.links.new(_tr.outputs["BSDF"], _mix.inputs[2])
-nt.links.new(_mix.outputs["Shader"], nt.nodes["Material Output"].inputs["Surface"])
+_b1 = bump_node(nt, _w1.outputs["Fac"], 0.07, 0.25)
+_w2 = noise(nt, 5.0, 3.0)
+_b2 = bump_node(nt, _w2.outputs["Fac"], 0.1, 0.05, prev_normal=_b1.outputs["Normal"])
+nt.links.new(_mrc(_ruf, 0.03, 0.34), _b2.inputs["Strength"])
+_nrm = _b2.outputs["Normal"]
+_body = nt.nodes.new("ShaderNodeBsdfDiffuse")
+nt.links.new(_bodyc, _body.inputs["Color"])
+_gl = nt.nodes.new("ShaderNodeBsdfGlossy")
+_gl.inputs["Color"].default_value = (*arg3("--rgloss", "0.95,0.93,0.86"), 1)
+nt.links.new(_mrc(_ruf, 0.014, 0.11), _gl.inputs["Roughness"])
+nt.links.new(_nrm, _gl.inputs["Normal"])
+_fr = nt.nodes.new("ShaderNodeFresnel")
+_fr.inputs["IOR"].default_value = 1.33
+nt.links.new(_nrm, _fr.inputs["Normal"])
+_RREFL = (float(arg("--rrefl0", 0.20)), float(arg("--rrefl1", 0.78)))      # 倒影权重：正视 / 掠视
+_surf = nt.nodes.new("ShaderNodeMixShader")
+nt.links.new(_mrc(_fr.outputs["Fac"], _RREFL[0], _RREFL[1], 0.02, 0.30), _surf.inputs[0])
+nt.links.new(_body.outputs[0], _surf.inputs[1]); nt.links.new(_gl.outputs[0], _surf.inputs[2])
+nt.links.new(_surf.outputs[0], _out.inputs["Surface"])
 
 # 地形切面：Rock051 层状岩 + 高度分层染色 + 裂缝
 EARTH = principled("EarthCut", (0.40, 0.29, 0.19), rough=0.95, bevel=0)
 nt = EARTH.node_tree
 _p = nt.nodes["Principled BSDF"]
-_c = tex_node(nt, "Rock051", "Color", 0.14, 'Object', noncolor=False)
-_r = tex_node(nt, "Rock051", "Roughness", 0.14, 'Object')
-_d = tex_node(nt, "Rock051", "Displacement", 0.14, 'Object')
+# 切面的纹理：岩石贴图 0.14 → 0.26（原来一张贴图铺七个单位，石纹被放大成糊的色块）；
+# 分层的波纹扭曲 4.0 → 0.8、层厚减半：原来扭曲太大，在切面的每个折面上都成了人字形的折线，不像沉积层
+_CUT = arg3("--cut", "0.26,0.8,0.8")
+_c = tex_node(nt, "Rock051", "Color", _CUT[0], 'Object', noncolor=False)
+_r = tex_node(nt, "Rock051", "Roughness", _CUT[0], 'Object')
+_d = tex_node(nt, "Rock051", "Displacement", _CUT[0], 'Object')
 _wv = nt.nodes.new("ShaderNodeTexWave")
 _wv.wave_type = 'BANDS'; _wv.bands_direction = 'Z'
-_wv.inputs["Scale"].default_value = 0.4
-_wv.inputs["Distortion"].default_value = 4.0
+_wv.inputs["Scale"].default_value = _CUT[1]
+_wv.inputs["Distortion"].default_value = _CUT[2]
 _wv.inputs["Detail"].default_value = 3.0
 nt.links.new(texcoord(nt).outputs["Object"], _wv.inputs["Vector"])
 _er = ramp(nt, [(0.15, (1.7, 1.45, 1.1)), (0.5, (2.6, 2.3, 1.8)), (0.85, (3.2, 2.9, 2.4))])
@@ -857,6 +872,16 @@ def island():
     _dat = wob.data.attributes.new("depth", 'FLOAT', 'POINT')       # 离岸多远（江水材质用它把近岸的水调黄）
     for i, vtx in enumerate(wob.data.vertices):
         _dat.data[i].value = lake_depth(vtx.co.x, vtx.co.y)
+    # 网页版的江面（src/diorama/LakeSurface.js）读顶点色：R = 近岸程度，G = 水深程度。
+    # R 最大只到 0.45：那个着色器在 R 更大时会让近岸变透、起白沫，浑浊的江水不要
+    _sh = wob.data.attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
+    for i, vtx in enumerate(wob.data.vertices):
+        d = lake_depth(vtx.co.x, vtx.co.y)
+        _sh.data[i].color = (0.45 * (1.0 - smooth01(d / 4.0)), smooth01(d / 12.0), 0.0, 1.0)
+    try:
+        wob.data.attributes.active_color = _sh
+    except Exception:
+        pass
     print(f"[yc] island grid faces={len(faces)} in {time.time() - t0:.1f}s")
 
 
@@ -1955,17 +1980,19 @@ def wakes(boats, piers, flow):
             ex, ey = (xb - xa) / ll, (yb - ya) / ll
             px, py = -ey, ex
             v = [(xa - px * wa, ya - py * wa, z), (xb - px * wb, yb - py * wb, z), (xb + px * wb, yb + py * wb, z), (xa + px * wa, ya + py * wa, z)]
+            if any(isl_rho(q[0], q[1])[0] > 0.985 for q in v):
+                continue                                         # 尾迹不伸出沙盘
             b.add(v, [(0, 1, 2, 3)], FOAM, uvs=[[(ua, 0.0), (ub, 0.0), (ub, 1.0), (ua, 1.0)]])
     M = 10
     for (x, y, ang, L, W) in boats:
         hx, hy = math.cos(ang), math.sin(ang)
-        strip([(x - hx * (L * 0.40 + t * 2.6 * L), y - hy * (L * 0.40 + t * 2.6 * L), W * (0.26 + 0.55 * t), 0.12 + 0.88 * t)
+        strip([(x - hx * (L * 0.40 + t * 3.0 * L), y - hy * (L * 0.40 + t * 3.0 * L), W * (0.34 + 0.80 * t), 0.12 + 0.88 * t)
                for t in (i / M for i in range(M + 1))])
         for sd in (-1, 1):                                       # 船头两侧的八字波
             a = ang + math.pi + sd * math.radians(19.0)
             ax, ay = math.cos(a), math.sin(a)
             bxs, bys = x + hx * L * 0.36, y + hy * L * 0.36
-            strip([(bxs + ax * t * 2.8 * L, bys + ay * t * 2.8 * L, 0.07 + 0.30 * t, 0.05 + 0.95 * t) for t in (i / M for i in range(M + 1))], z=0.024)
+            strip([(bxs + ax * t * 3.0 * L, bys + ay * t * 3.0 * L, 0.13 + 0.50 * t, 0.05 + 0.95 * t) for t in (i / M for i in range(M + 1))], z=0.024)
     fx, fy = flow
     for (x, y) in piers:
         strip([(x + fx * (1.3 + t * 6.5), y + fy * (1.3 + t * 6.5), 0.42 + 0.55 * t, 0.5 + 0.5 * t) for t in (i / 6 for i in range(7))], z=0.016)
@@ -3716,7 +3743,8 @@ def build_scene():
             run = None
             for i in range(m + 2):
                 tt = min(1.0, i / m)
-                dry = i <= m and lake_depth(ax + (bx_ - ax) * tt, ay + (by_ - ay) * tt) < -3.0
+                dry = (i <= m and lake_depth(ax + (bx_ - ax) * tt, ay + (by_ - ay) * tt) < -3.0
+                       and isl_rho(ax + (bx_ - ax) * tt, ay + (by_ - ay) * tt)[0] < 0.975)      # 也不伸出沙盘边缘（东北角原来悬出去一截）
                 if dry and run is None:
                     run = tt
                 elif not dry and run is not None:
@@ -3787,6 +3815,12 @@ def build_scene():
         x, y, dx, dy = P_r(s)
         nx, ny = -dy, dx
         px, py = x + nx * off, y + ny * off
+        # 江口的船不能压在沙盘边缘上：太靠外的沿河道往里挪（原来画面裁掉了这一段，看不出来）
+        while isl_rho(px, py)[0] > 0.88:
+            s += 6.0 if s < L_r / 2 else -6.0
+            x, y, dx, dy = P_r(s)
+            nx, ny = -dy, dx
+            px, py = x + nx * off, y + ny * off
         ang = math.atan2(dy, dx) + (math.pi if flip else 0) + random.uniform(-0.08, 0.08)
         if kind == 'barge':
             barge(px, py, ang); wake_boats.append((px, py, ang, 6.5, 1.8))
@@ -3843,6 +3877,46 @@ def build_scene():
 
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 雾 / 背景
+CAM = {}
+def fit_camera(cam, target, hx, hy, pitch, dist, fill=(0.95, 0.93)):
+    """保持方位和俯角不变，平移视线落点、调整距离，让整个沙盘（含切面的尖底和楼顶）落在画面里并居中。
+    原来落点和距离是手调的：沙盘左、右、下三边都伸出了画面。和故宫的 fit_camera 同一做法，这里顶点多，用 numpy 投影。"""
+    import numpy as np
+    bpy.context.view_layer.update()
+    chunks = []
+    for ob in COL.objects:
+        if ob.type != 'MESH' or ob.name.split('.')[0] in ("Backdrop", "Haze", "RiverMist"):
+            continue
+        if ob.name.split('.')[0] == "Island":
+            co = np.empty(len(ob.data.vertices) * 3)
+            ob.data.vertices.foreach_get("co", co)               # 岛体用真实顶点（包围盒的底角远大于尖底）
+            chunks.append(co.reshape(-1, 3))
+        else:
+            mw = ob.matrix_world
+            chunks.append(np.array([tuple(mw @ mathutils.Vector(c)) for c in ob.bound_box]))
+    pts = np.vstack(chunks)
+    target = mathutils.Vector(target)
+    k = cam.data.lens / cam.data.sensor_width
+    asp = 2048 / 1792
+    for _ in range(12):
+        loc = mathutils.Vector((target.x + hx * dist * math.cos(pitch), target.y + hy * dist * math.cos(pitch),
+                                target.z + dist * math.sin(pitch)))
+        m3 = (target - loc).to_track_quat('-Z', 'Y').to_matrix()
+        q = (pts - np.array(loc)) @ np.array(m3)                # 相机坐标：x 右，y 上，-z 前
+        u = 0.5 + k * q[:, 0] / -q[:, 2]
+        v = 0.5 + k * asp * q[:, 1] / -q[:, 2]
+        u0, u1, v0, v1 = float(u.min()), float(u.max()), float(v.min()), float(v.max())
+        W = dist / k
+        H = W / asp
+        target += m3.col[0] * ((u0 + u1) / 2 - 0.5) * W + m3.col[1] * ((v0 + v1) / 2 - 0.5) * H
+        dist *= max((u1 - u0) / fill[0], (v1 - v0) / fill[1])
+    cam.location = (target.x + hx * dist * math.cos(pitch), target.y + hy * dist * math.cos(pitch),
+                    target.z + dist * math.sin(pitch))
+    cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()
+    print(f"[yc] camera fit: target=({target.x:.2f}, {target.y:.2f}, {target.z:.2f}) dist={dist:.1f} "
+          f"u={u0:.3f}..{u1:.3f} v={v0:.3f}..{v1:.3f}")
+    return tuple(target), dist
+
 def setup_camera_lights():
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.lens = 45
@@ -3859,6 +3933,9 @@ def setup_camera_lights():
     direction = mathutils.Vector(target) - cam.location
     cam.rotation_euler = direction.to_track_quat('-Z', 'Y').to_euler()
     scene.camera = cam
+    if "--nofit" not in argv:
+        target, dist = fit_camera(cam, target, hx, hy, pitch, dist)
+    CAM.update(target=[round(v, 2) for v in target], dist=round(dist, 1))
     focus = bpy.data.objects.new("Focus", None)
     focus.location = (0.0, -6.0, 0.5)
     COL.objects.link(focus)
@@ -4070,11 +4147,15 @@ if WEB:
         return tuple(c[i] + (bank[i] - c[i]) * kb for i in range(3))
     de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "RiverMist"}, _vcol, uv_scale=1.0, extra={
         "title": "武汉黄鹤楼", "unit_m": 12,
-        "camera": {"target": [-4, -9, 0], "az": 36, "dist": 232, "pitch": 36, "lens": 45, "min_dist": 50, "max_dist": 520},
+        "camera": {"target": CAM["target"], "az": 36, "dist": CAM["dist"], "pitch": 36, "lens": 45, "min_dist": 50, "max_dist": 600},
         "sun": {"euler_deg": [90 - SUN_EL, 0, 318], "color": [SUN_COL[0], round(SUN_COL[1] - 0.01, 3), round(SUN_COL[2] - 0.02, 3)],
                 "strength": round(3.6 * SUN_ENERGY / 3.8, 2)},
         "backdrop": [[0.90, 0.85, 0.72], [0.94, 0.90, 0.79]],
         "water": ["RiverWater"], "bounds": list(ISL), "shadow_half": 115, "fog": [0.92, 0.88, 0.78],
+        # 有 lake 字段时，网页版的江面用 LakeSurface（水体色 + 倒影 + 风痕），不再是 three.js 自带的 Water
+        # 水色比成图材质里的深四成、天空倒影压弱（skyGain）：照搬成图的数值，网页上江面是一片发白的奶油色
+        "lake": {"pscale": 1.0, "ripple": 0.22, "glitter": 0.0, "clear": 0.0, "reflRange": [0.14, 0.60], "distortion": 0.018, "skyGain": 0.42,
+                 "colDeep": [0.150, 0.172, 0.104], "colNear": [0.180, 0.195, 0.112], "colShore": [0.27, 0.245, 0.145]},
         "hdri": "belfast_sunset_puresky_1k.hdr",
         # 网页版的窗玻璃压暗：玻璃本身是很浅的蓝灰，成图里靠反射天空显深，网页里贴在白墙上看不出窗格
         "mat": {"Glass": {"metalness": 0.3, "roughness": 0.25, "envMapIntensity": 0.6, "tint": [0.3, 0.34, 0.4]}},

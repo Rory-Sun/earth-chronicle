@@ -2397,12 +2397,20 @@ def figure(b, x, y, ang, z=None, pose='stand', top=0, bottom=6, hat=None, gown=F
     F = Fr(x, y, ang + math.pi / 2)                              # 局部 −y 是前
     mt, mb = GARB[top], GARB[bottom]
     hh = {'stand': 0.80, 'walk': 0.78, 'sit': 0.48, 'squat': 0.30}[pose]
-    if gown and pose in ('stand', 'walk'):
+    robe = gown and pose in ('stand', 'walk')
+    if robe:
+        # 长衫：下摆撒开、腰里收住、系一条腰带，轮廓是上下宽中间细的，不再是一根直筒
+        fwd = -0.05 if pose == 'walk' else 0.0                   # 走着的人下摆往前荡一点
+        X, Y = F.p(0, fwd)
+        cone(b, X, Y, z + 0.05, 0.275, 0.215, 0.27, mt, n=10, uv=False)
+        X1_, Y1_ = F.p(0, fwd * 0.4)
+        cone(b, X1_, Y1_, z + 0.32, 0.215, 0.125, hh - 0.32, mt, n=10, uv=False)
+        sash = GARB[1] if top in (0, 4, 6) else GARB[6]          # 腰带：深衣配浅带，浅衣配深带
         X, Y = F.p(0, 0)
-        cone(b, X, Y, z + 0.06, 0.21, 0.15, hh - 0.04, mt, n=8, uv=False)
-        for sg in (-1, 1):
-            X, Y = F.p(sg * 0.08, -0.03)
-            cone(b, X, Y, z, 0.06, 0.06, 0.08, GARB[6], n=6, uv=False)
+        cone(b, X, Y, z + hh - 0.035, 0.137, 0.147, 0.075, sash, n=10, uv=False)
+        F.box(b, 0.07, -0.17, z + hh - 0.30, 0.055, 0.03, 0.29, sash)    # 垂下来的带头
+        for sg in (-1, 1):                                        # 下摆前露出的鞋尖
+            F.box(b, sg * 0.085, fwd - 0.27 - (0.05 if (pose == 'walk' and sg > 0) else 0.0), z, 0.085, 0.13, 0.06, GARB[6])
     elif pose == 'stand':
         for sg in (-1, 1):
             X, Y = F.p(sg * 0.085, 0)
@@ -2420,13 +2428,27 @@ def figure(b, x, y, ang, z=None, pose='stand', top=0, bottom=6, hat=None, gown=F
             rod(b, F.p(sg * 0.13, -0.28, z + 0.46), F.p(sg * 0.12, -0.20, z + 0.02), 0.06, mb)
     lean = -0.10 if pose == 'squat' else 0.0                     # 蹲着的人身子前倾
     X, Y = F.p(0, lean * 0.5)
-    cone(b, X, Y, z + hh - 0.02, 0.145, 0.175, 0.56, mt, n=8, uv=False)          # 上身
-    cone(b, X, Y, z + hh + 0.54, 0.175, 0.06, 0.07, mt, n=8, uv=False)           # 肩
+    if robe:
+        cone(b, X, Y, z + hh + 0.03, 0.128, 0.19, 0.51, mt, n=10, uv=False)      # 长衫的上身：腰细肩宽
+        cone(b, X, Y, z + hh + 0.54, 0.19, 0.065, 0.07, mt, n=10, uv=False)
+        if top != 1:
+            cone(b, X, Y, z + hh + 0.60, 0.075, 0.062, 0.035, GARB[1], n=8, uv=False)   # 一圈白领口
+    else:
+        cone(b, X, Y, z + hh - 0.02, 0.145, 0.175, 0.56, mt, n=8, uv=False)      # 上身
+        cone(b, X, Y, z + hh + 0.54, 0.175, 0.06, 0.07, mt, n=8, uv=False)       # 肩
     zs = z + hh + 0.53
     umb = isinstance(hat, tuple)
     for sg in (-1, 1):                                                           # 胳膊
         if umb and sg == 1:
             rod(b, F.p(0.19, lean, zs), F.p(0.20, -0.20, zs - 0.16), 0.045, mt)
+        elif robe:                                                               # 长衫的袖子：上窄下宽的大袖，袖口露出手
+            sw = sg * 0.15 if pose == 'walk' else -0.05
+            el = F.p(sg * 0.235, sw * 0.45, zs - 0.26)
+            cf = F.p(sg * 0.245, sw, zs - 0.50)
+            rod(b, F.p(sg * 0.20, 0.0, zs), el, 0.052, mt)
+            rod(b, el, cf, 0.078, mt)
+            hx_, hy_ = F.p(sg * 0.245, sw * 1.08)
+            cone(b, hx_, hy_, zs - 0.585, 0.03, 0.04, 0.085, SKIN, n=6, uv=False)
         elif pose == 'walk':
             rod(b, F.p(sg * 0.20, lean, zs), F.p(sg * 0.22, sg * 0.16, zs - 0.50), 0.045, mt)
         elif pose in ('sit', 'squat'):
@@ -2608,6 +2630,209 @@ def street_life():
     figure(b, 3.3, -20.6, -0.5, pose='stand', top=0, bottom=6, gown=True)
     figure(b, 3.9, -22.9, 0.6, pose='stand', top=2, bottom=4)
     b.build()
+    random.setstate(st)
+
+# ----------------------------------------------------------------------------- 东墙外的巷弄
+SOIL = principled("NiTu", (0.15, 0.115, 0.08), rough=0.95, bevel=0)               # 花池、菜畦里的土
+DRY_EARTH = principled("GanTu", (0.40, 0.33, 0.23), rough=0.95, bevel=0)           # 菜地里踩实的干土（比苔地亮，背阴里也分得出来）
+VEG = principled("CaiYe", (0.30, 0.50, 0.17), rough=0.75, bevel=0)                 # 菜叶
+
+def clear_plants(x0, y0, x1, y1):
+    """把一块地上已经种下的树、灌木、竹丛拿掉：成图删物体，网页版删实例记录。
+    事后删而不是事先避让，不占用随机数，别处的布置一棵都不会动。"""
+    kinds = set(TREE_H) | set(EXTRA)
+    n = 0
+    if WEB:
+        left = [p for p in PLANTS if not (x0 <= p[2] <= x1 and y0 <= p[3] <= y1)]
+        n += len(PLANTS) - len(left); PLANTS[:] = left
+        for name, lst in INST.items():
+            if any(k in name for k in EXTRA):
+                left = [q for q in lst if not (x0 <= q[0] <= x1 and y0 <= q[1] <= y1)]
+                n += len(lst) - len(left); lst[:] = left
+    else:
+        for ob in list(COL.objects):
+            if ob.name.split('.')[0] in kinds and x0 <= ob.location.x <= x1 and y0 <= ob.location.y <= y1:
+                bpy.data.objects.remove(ob); n += 1
+    return n
+
+def east_lane():
+    """东墙外的巷弄。园墙到沙盘边只有 5.7 米（北头收窄到 2.5 米），原来是一条空草带。
+    现在贴着园墙是一条 2.3 米宽的石板巷（墙脚明沟、中间一路长条石），巷子东侧从南到北依次是：
+    巷口的树池和石凳、一座马头墙民居、它的小院（晾衣、水缸、柴垛）、井台小场地（对着园子的边门）、
+    一高一低两座民居、竹丛花池、一小块菜畦；巷子在东北角被沙盘边切断，拐向北面邻家的方向。
+    相机在东南：巷东的房子只做一层，挡住的只是巷子本身，墙里的住宅和庭院都还看得见。
+    用自己的随机数状态，放在所有布置之后。"""
+    st = random.getstate(); random.seed(5309)
+    n_clear = clear_plants(X1 + 0.25, Y0 - 0.6, 41.0, 30.5) + clear_plants(31.2, Y1 + 0.3, 41.0, 30.5)
+    b = B("EastLane")
+    WX = X1 + 0.14                                 # 园墙外皮
+    GX0, GX1 = WX + 0.02, WX + 0.30                # 墙脚的明沟
+    FX = 36.45                                     # 巷子东侧的房屋、院墙线
+    zl = GZ + 0.03                                 # 巷面，与南面街巷同高
+    YS = -27.62                                    # 巷口：接南面街巷的北缘
+    ix0, iy0, ix1, iy1 = ISL
+    icy, ihw, ihd, en = (iy0 + iy1) / 2, (ix1 - ix0) / 2, (iy1 - iy0) / 2, 2.0 / E_SUP
+    def rim(y, k=0.985):                           # 沙盘轮廓（缩进一点）在这一纬度的东端
+        return ihw * max(0.0, k ** en - abs((y - icy) / ihd) ** en) ** (1.0 / en)
+
+    # ---- 巷面：半米一条的石板；巷口和井台两段铺到沙盘边，其余只铺到房屋线；北头按沙盘轮廓裁掉
+    for k in range(130):
+        ya, yb = YS + 0.5 * k, YS + 0.5 * (k + 1)
+        wide = yb <= -21.1 or (ya >= -5.63 and yb <= 3.4)
+        xe = min(39.0 if wide else FX, rim(ya), rim(yb))
+        xa = GX1 if ya < Y1 + 0.3 else 31.6        # 过了墙角，巷子拐到北墙背后
+        if xe - xa < 0.5:
+            break
+        box(b, (xa + xe) / 2, (ya + yb) / 2, GZ - 0.3, xe - xa, 0.5, 0.33, STREET)
+    box(b, (GX0 + GX1) / 2, (YS + Y1 + 0.14) / 2, GZ - 0.3, GX1 - GX0, Y1 + 0.14 - YS, 0.306, GREYBRICK)   # 明沟（比巷面低，颜色深）
+    for yc in (-26.9, -4.7, 21.9):                                                  # 沟上的几块盖板
+        box(b, (GX0 + GX1) / 2 + 0.02, yc, GZ - 0.1, GX1 - GX0 + 0.06, ru(0.5, 0.8), 0.136, GRANITE)
+    y = YS + 0.12
+    while y < 26.2:                                                                # 巷心一路长条石，略高出两边，长短不一
+        ln = ru(0.8, 1.5)
+        if rim(y + ln) < 36.25:
+            break
+        box(b, 35.52 + ru(-0.03, 0.03), y + ln / 2, GZ - 0.1, ru(0.80, 0.92), ln - 0.04, 0.142 + ru(0.0, 0.008), SLAB)
+        y += ln
+
+    def tree_pit(x, y, s):                                                         # 石砌树池里一棵小树
+        prism(b, x, y, GZ - 0.05, 0.80, 0.31, GRANITE, n=8, phase=math.pi / 8)
+        prism(b, x, y, GZ, 0.64, 0.285, SOIL, n=8, phase=math.pi / 8)
+        plant("willow", x, y, s, z=GZ + 0.27)
+    def bench(x, y, ang):
+        Fb = Fr(x, y, ang)
+        Fb.box(b, 0, 0, GZ + 0.36, 1.3, 0.36, 0.09, GRANITE)
+        for sg in (-1, 1):
+            Fb.box(b, sg * 0.45, 0, GZ - 0.05, 0.16, 0.30, 0.41, GRANITE)
+    def vat(x, y, r=0.40):
+        cone(b, x, y, GZ + 0.03, r * 0.65, r, r * 1.55, GREYBRICK, n=12, uv=False)
+        disc(b, x, y, GZ + 0.03 + r * 1.45, r * 0.87, WATER_VAT, n=12)
+    def wall_bed(ya, yb):                                                          # 墙脚的砖砌花池（在明沟外侧）
+        xc, w = (GX1 + 34.98) / 2, 34.98 - GX1
+        box(b, xc, (ya + yb) / 2, GZ - 0.1, w, yb - ya, 0.22, GREYBRICK)
+        box(b, xc, (ya + yb) / 2, GZ, w - 0.18, yb - ya - 0.18, 0.135, SOIL)
+
+    # ---- 巷口：两根挡车石、路灯、墙脚花池里的芭蕉，对面树池和石凳
+    prism(b, 35.05, YS + 0.28, zl, 0.13, 0.50, GRANITE, n=6)
+    prism(b, 36.12, YS + 0.20, zl, 0.12, 0.44, GRANITE, n=6, phase=0.4)
+    lamp_post(b, 34.80, -26.35)
+    wall_bed(-25.5, -22.5)
+    inst("banana", 34.74, -24.25, 0.72, z=GZ + 0.13)
+    inst("shrub", 34.72, -23.05, 0.5, z=GZ + 0.13)
+    inst("shrub", 34.70, -25.1, 0.42, z=GZ + 0.13)
+    tree_pit(38.0, -24.6, 0.95)
+    bench(37.35, -26.3, math.pi / 2)                                               # 石凳放在树的南面：放在北面会被树冠挡住
+    figure(b, 37.4, -26.3, math.pi, pose='sit', top=3, bottom=6)                   # 石凳上歇脚的
+    figure(b, 36.3, -26.75, 0.4, pose='stand', top=5, bottom=3, hat='li')          # 站着同他说话的
+
+    # ---- 马头墙民居（窗朝东，对着沙盘外）和它北面的小院
+    row_house("EastHouse", 37.9, -17.0, 8.2, 2.9, 3.0, ang=math.pi / 2, gable='step', shutters=True)
+    hY, tY, z0w = 1.75, 0.22, GZ - 0.3
+    xw, gy = FX + tY / 2, -9.6
+    def ywall(p0, p1, h=hY):
+        wall_piece(b, p0, p1, z0w, h + 0.3, h + 0.3, tY, WHITE_WALL)
+        wall_cap(b, p0, p1, z0w + h + 0.3, z0w + h + 0.3, tY)
+    ywall((xw, -12.86), (xw, gy - 0.62))
+    ywall((xw, gy + 0.62), (xw, -5.87))
+    ywall((FX, -5.75), (39.2, -5.75))
+    for sg in (-1, 1):                                                             # 院门：石门框、高出院墙的小门头、一扇掩着一扇开着
+        box(b, xw, gy + sg * 0.53, z0w, 0.26, 0.18, 2.25, GRANITE)
+    wall_piece(b, (xw, gy - 0.74), (xw, gy + 0.74), GZ + 1.93, 0.24, 0.24, tY - 0.04, WHITE_WALL)
+    wall_cap(b, (xw, gy - 0.80), (xw, gy + 0.80), GZ + 2.17, GZ + 2.17, tY - 0.04)
+    box(b, xw, gy, GZ - 0.1, 0.34, 0.88, 0.17, GRANITE)
+    box(b, xw, gy - 0.22, GZ + 0.07, 0.05, 0.44, 1.84, WOOD)
+    rbox(b, xw + 0.21, gy + 0.44 - 0.07, GZ + 0.07, 0.44, 0.05, 1.84, WOOD, -0.33)
+    box(b, (36.68 + 39.2) / 2, (-12.84 - 5.87) / 2, GZ - 0.2, 39.2 - 36.68, 12.84 - 5.87, 0.245, PAVE)   # 院里的砖地
+    for x in (37.25, 39.0):                                                        # 晾衣竿（东西向，布面朝南）
+        rod(b, (x, -7.6, GZ - 0.1), (x, -7.599, GZ + 2.05), 0.028, BAMBOO_CULM)
+    rod(b, (37.05, -7.6, GZ + 1.98), (39.2, -7.6, GZ + 1.98), 0.022, BAMBOO_CULM)
+    xx = 37.42
+    while xx < 38.4:
+        wc, hc = ru(0.4, 0.7), ru(0.7, 1.1)
+        box(b, xx + wc / 2, -7.6, GZ + 1.97 - hc, wc, 0.025, hc, random.choice(CLOTH))
+        xx += wc + ru(0.08, 0.22)
+    vat(37.12, -6.5)
+    for r in range(4):                                                             # 靠北院墙的柴垛
+        for c in range(5 - r % 2):
+            xq = 38.1 + 0.22 * c + 0.11 * (r % 2)
+            zq = GZ + 0.06 + 0.19 * r
+            rod(b, (xq, -5.98, zq), (xq + ru(-0.02, 0.02), -5.98 - ru(0.75, 0.9), zq), 0.085, TRUNK)
+    potted(b, 36.98, -8.55, s=1.1); potted(b, 37.02, -8.02, s=0.85)
+
+    # ---- 井台小场地：园墙上开一道边门（板门、瓦顶门罩、门前阶石），对面一口公井、一棵树
+    Fd = Fr(X1, -1.2, math.pi / 2)                                                 # 局部 −y 朝东
+    _hdoor(b, Fd, 0.0, -0.14, awning=True)
+    potted(b, 34.60, -2.45, s=1.15); potted(b, 34.56, 0.0, s=0.9); potted(b, 34.62, 0.5, s=1.2)
+    bicycle(b, 34.74, 2.2, math.pi / 2 + 0.07)
+    wx_, wy_ = 37.9, -2.3
+    box(b, wx_, wy_, GZ - 0.1, 2.5, 2.3, 0.19, SLAB)                               # 井台
+    prism(b, wx_, wy_, GZ + 0.09, 0.52, 0.55, GRANITE, n=6)                        # 井栏
+    prism(b, wx_, wy_, GZ + 0.60, 0.34, 0.055, GLASS_DARK, n=6)
+    cone(b, wx_ + 0.75, wy_ - 0.55, GZ + 0.09, 0.13, 0.16, 0.24, WOOD, n=10, uv=False)        # 吊桶
+    cone(b, 37.0, -3.2, GZ + 0.09, 0.24, 0.29, 0.17, WOOD, n=10, uv=False)                    # 井台上洗衣的木盆
+    cone(b, 37.0, -3.2, GZ + 0.22, 0.26, 0.12, 0.07, CLOTH[1], n=10, uv=False)
+    figure(b, 36.38, -3.2, 0.0, pose='squat', top=2, bottom=6)
+    tree_pit(38.35, 1.75, 0.85)
+    bench(37.0, 0.25, math.pi / 2)
+    lamp_post(b, 36.72, 3.2)
+    figure(b, 35.45, -3.5, math.pi / 2, pose='walk', top=4, bottom=6, gown=True)   # 沿巷往北走的长衫先生
+
+    # ---- 一高一低两座民居
+    row_house("EastHouse", 37.9, 7.15, 7.4, 2.9, 3.7, ang=math.pi / 2)
+    row_house("EastHouse", 37.95, 12.65, 3.3, 2.4, 2.6, ang=math.pi / 2, shutters=True)
+
+    # ---- 竹丛花池（紧挨着矮屋的山墙：那一段地面本来就被屋子挡住，竹子高，露得出来）
+    box(b, 37.6, 16.1, GZ - 0.1, 2.0, 2.7, 0.30, GREYBRICK)
+    box(b, 37.6, 16.1, GZ, 2.0 - 0.24, 2.7 - 0.24, 0.215, SOIL)
+    inst("bamboo", 37.3, 15.6, 0.92, z=GZ + 0.2)                                   # 只种一丛：再多就把北面的菜畦全挡住了
+    inst("shrub", 38.0, 16.9, 0.55, z=GZ + 0.2)
+    vat(36.98, 17.85, 0.34)
+
+    # ---- 菜畦：顺着巷子的三垄（东边两垄被沙盘边切短），中间一垄搭了豆架；靠巷子一道矮竹篱
+    yq = 18.1
+    while yq < 23.65:                                                              # 菜地的底：一条条踩实的干土，东边按沙盘轮廓裁
+        xb = min(38.95, rim(yq, 0.99) - 0.12, rim(yq + 0.25, 0.99) - 0.12)
+        if xb - 36.72 > 0.4:
+            box(b, (36.72 + xb) / 2, yq + 0.125, GZ - 0.1, xb - 36.72, 0.25, 0.135, DRY_EARTH)
+        yq += 0.25
+    for i, xr in enumerate((37.12, 37.78, 38.42)):
+        ya, yb = 18.45, 18.45
+        while yb < 23.4 and rim(yb + 0.25, 0.99) - 0.15 >= xr + 0.25:
+            yb += 0.25
+        if yb - ya < 1.0:
+            continue
+        box(b, xr, (ya + yb) / 2, GZ - 0.05, 0.50, yb - ya, 0.19 + 0.004 * i, SOIL)
+        if i == 1:                                                                 # 豆架：成对斜插的竹竿，顶上一根横竿
+            yq = ya + 0.15
+            while yq < yb - 0.1:
+                for sg in (-1, 1):
+                    rod(b, (xr + sg * 0.22, yq, GZ + 0.1), (xr + sg * 0.02, yq + 0.001, GZ + 1.25), 0.012, BAMBOO_CULM)
+                v, f = icosphere(xr, yq + ru(-0.05, 0.05), GZ + ru(0.55, 0.8), ru(0.16, 0.22), sub=1, squash=1.5, jit=0.15)
+                b.add(v, f, PRODUCE[0])
+                yq += ru(0.32, 0.42)
+            rod(b, (xr, ya + 0.1, GZ + 1.2), (xr, yb - 0.05, GZ + 1.2), 0.012, BAMBOO_CULM)
+        else:
+            yq = ya + 0.15 + ru(0.0, 0.15)
+            while yq < yb - 0.12:
+                if random.random() < 0.88:                                         # 偶尔缺一棵
+                    v, f = icosphere(xr + ru(-0.05, 0.05), yq, GZ + 0.24, ru(0.17, 0.23), sub=1, squash=0.65, jit=0.12)
+                    b.add(v, f, VEG if i == 0 else PRODUCE[0])
+                yq += ru(0.40, 0.52)
+    yq = 18.2
+    while yq < 23.5:                                                               # 竹篱
+        rod(b, (36.66, yq, GZ), (36.66 + ru(-0.02, 0.02), yq + 0.001, GZ + ru(0.62, 0.74)), 0.02, BASKET)
+        yq += ru(0.24, 0.34)
+    for zf in (0.28, 0.55):
+        rod(b, (36.66, 18.15, GZ + zf), (36.66, 23.55, GZ + zf), 0.016, BASKET)
+    figure(b, 37.45, 20.6, math.pi / 2 + 0.3, pose='squat', top=6, bottom=4, hat='li')   # 蹲在垄间侍弄菜的
+    wall_bed(22.6, 25.4)
+    inst("shrub", 34.72, 23.2, 0.5, z=GZ + 0.13)
+    inst("shrub", 34.70, 24.7, 0.42, z=GZ + 0.13)
+    figure(b, 35.6, 25.7, -math.pi / 2, pose='walk', top=0, bottom=6, hat=('umb', 0))   # 撑伞往南走的
+
+    b.build()
+    print(f"[sz] east lane: cleared {n_clear} plants on the strip; rim x at y=-27/0/20/24/27 = "
+          + "/".join(f"{rim(yy, 1.0):.2f}" for yy in (-27, 0, 20, 24, 27)))
     random.setstate(st)
 
 # ----------------------------------------------------------------------------- 场景布置
@@ -2871,6 +3096,7 @@ def build_scene():
         nt_ += 1
     b.build()
     street_life()                                # 摊位、茶桌、路灯、车、人
+    east_lane()                                  # 东墙外的巷弄
     print(f"[sz] plants={N_PLANTS} (bushes {nb_}), tufts={nt_}, tile rows={N_ROWS}")
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 背景

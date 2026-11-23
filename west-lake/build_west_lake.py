@@ -250,6 +250,18 @@ CONCRETE = principled("Concrete", (0.62, 0.62, 0.60), rough=0.85)
 GLASS = principled("Glass", (0.30, 0.40, 0.50), rough=0.15, metal=0.6, spec=0.8)
 FACADE = noise_mix(principled("Facade", (0.60, 0.58, 0.54), rough=0.75), (0.54, 0.52, 0.48), (0.67, 0.65, 0.60), 6.0)
 FACADE2 = principled("Facade2", (0.64, 0.58, 0.47), rough=0.75)
+# 湖滨后面的现代楼房：是背景，颜色压低（灰米、暖白、蓝灰、褐色面砖），低角度的晨光下不烧白；窗玻璃要够深，窗格才读得出来
+T_BEIGE = noise_mix(principled("TowerBeige", (0.50, 0.46, 0.39), rough=0.8, bevel=0), (0.45, 0.41, 0.35), (0.55, 0.51, 0.44), 5.0)
+T_WARM = noise_mix(principled("TowerWarm", (0.60, 0.57, 0.51), rough=0.8, bevel=0), (0.55, 0.52, 0.46), (0.65, 0.62, 0.56), 5.0)
+T_GREY = principled("TowerGrey", (0.40, 0.43, 0.46), rough=0.65, bevel=0)
+T_BRICK = noise_mix(principled("TowerBrick", (0.46, 0.35, 0.28), rough=0.85, bevel=0), (0.41, 0.31, 0.25), (0.51, 0.40, 0.32), 8.0)
+T_FRAME = principled("TowerFrame", (0.50, 0.52, 0.54), rough=0.5, bevel=0)
+T_ROOF = principled("TowerRoof", (0.19, 0.19, 0.18), rough=0.95, bevel=0)
+T_PLANT = principled("TowerPlant", (0.40, 0.40, 0.38), rough=0.8, bevel=0)
+BALCONY = principled("Balcony", (0.64, 0.62, 0.57), rough=0.8, bevel=0)
+WIN_GLASS = principled("WindowGlass", (0.05, 0.08, 0.11), rough=0.12, spec=0.7, bevel=0)
+CURTAIN_B = principled("CurtainBlue", (0.13, 0.22, 0.30), rough=0.14, metal=0.55, spec=0.8, bevel=0)
+CURTAIN_G = principled("CurtainGreen", (0.14, 0.24, 0.25), rough=0.14, metal=0.55, spec=0.8, bevel=0)
 
 LEAF = leaf_material("Leaf", (0.13, 0.33, 0.12), (0.30, 0.48, 0.18), sss=0)
 WILLOW = leaf_material("WillowLeaf", (0.38, 0.55, 0.19), (0.58, 0.70, 0.30), sss=0)
@@ -704,33 +716,143 @@ def smin(a, b, k=7.0):
 def dang(a, b):
     return (a - b + math.pi) % (2 * math.pi) - math.pi
 
-LC = (2.0, -4.0)   # 湖心（外轮廓极坐标原点）
-def lake_r(a):
-    """湖岸轮廓：超椭圆 + 谐波起伏；北岸（北山路）、南岸、东岸（湖滨）用软截断拉直。"""
-    c, s = math.cos(a), math.sin(a)
-    p = 2.6
-    r = 1.0 / (((abs(c) / 58.0) ** p + (abs(s) / 60.0) ** p) ** (1.0 / p))
-    r *= 1 + 0.05 * math.sin(2 * a + 0.6) + 0.04 * math.sin(3 * a + 1.9) + 0.025 * math.sin(5 * a + 0.3) \
-         + 0.012 * math.sin(9 * a + 2.2) + 0.008 * math.sin(17 * a + 1.0)
-    if s > 0.2:
-        r = smin(r, 61.0 / s)
-    if s < -0.2:
-        r = smin(r, 59.0 / (-s))
-    if c > 0.2:
-        r = smin(r, 55.0 / c)
-    return r
+LC = (2.0, -4.0)   # 湖心（只用来定“朝湖心”的方向）
+# 湖岸控制点（逆时针，自东岸湖滨起）。岸线 = 过这些点的闭合样条 + 一层小尺度噪波；不再是“超椭圆 + 三面拉直”的圆角方形。
+# 凡是贴岸的东西（地形、驳岸、环湖路、垂柳、码头、水面的 shore 属性）都从这条线和它的距离场推出来。
+SHORE_CTRL = [
+    (55.5, -6.0), (55.6, 4.0), (54.8, 14.0), (52.8, 23.0), (49.6, 31.5), (45.6, 39.5), (41.6, 46.5), (38.0, 52.0),   # 湖滨：中段较直，向北斜收
+    (35.6, 55.6),                                                                                                    # 断桥（白堤东端）
+    (32.5, 59.0), (27.0, 62.0), (18.0, 63.6), (8.0, 62.6), (-2.0, 60.4), (-12.0, 60.8), (-21.0, 59.4),               # 北里湖北岸（北山路）
+    (-26.5, 57.6), (-29.9, 56.9), (-36.2, 55.9),                                                                     # 西泠桥北堍、苏堤北端
+    (-42.0, 57.2), (-47.5, 55.6), (-52.0, 51.5), (-53.2, 45.0),                                                      # 岳湖
+    (-51.6, 39.5), (-48.6, 33.0),                                                                                    # 曲院风荷岬
+    (-51.8, 28.6), (-58.0, 26.4), (-63.5, 22.6), (-65.2, 17.0), (-63.0, 11.0), (-58.5, 6.0), (-54.0, 1.0),           # 茅家埠（大湾，山脚入水）
+    (-50.0, -5.5), (-48.0, -12.0), (-49.2, -18.5), (-53.0, -23.0),                                                   # 丁家山岬
+    (-58.0, -26.0), (-62.5, -29.5), (-60.0, -34.0), (-55.0, -37.0),                                                  # 浴鹄湾（小湾）
+    (-52.5, -43.0), (-49.0, -50.0), (-43.8, -56.0),                                                                  # 花港
+    (-37.3, -60.6),                                                                                                  # 苏堤南端
+    (-31.5, -63.4), (-25.0, -63.2),                                                                                  # 小南湖
+    (-18.0, -59.6), (-11.0, -58.6),                                                                                  # 南岸小岬
+    (-4.0, -61.4), (3.0, -63.6), (10.0, -63.2), (15.5, -60.6),                                                       # 净慈寺前的湾
+    (20.0, -56.2), (25.5, -52.6), (31.0, -53.0), (35.0, -56.2),                                                      # 夕照山岬（雷峰塔）
+    (36.9, -59.6), (38.2, -63.4), (39.3, -66.6), (41.6, -66.9), (42.7, -63.0), (43.5, -59.0),                        # 长桥下的小港汊
+    (43.9, -53.5), (45.3, -46.5), (48.4, -38.5), (51.8, -30.0), (54.3, -21.0), (55.3, -13.0)]                        # 柳浪闻莺：向南斜收
+
+def _shore_polygon(step=0.3):
+    """闭合的向心 Catmull-Rom 样条 → 按弧长 0.3 重采样 → 沿法线加小起伏（湖滨是人工岸，压到三成）。返回逆时针点列。"""
+    n = len(SHORE_CTRL)
+    dense = []
+    for i in range(n):
+        p0, p1, p2, p3 = (SHORE_CTRL[(i + k - 1) % n] for k in range(4))
+        t0 = 0.0
+        t1 = t0 + math.hypot(p1[0] - p0[0], p1[1] - p0[1]) ** 0.5
+        t2 = t1 + math.hypot(p2[0] - p1[0], p2[1] - p1[1]) ** 0.5
+        t3 = t2 + math.hypot(p3[0] - p2[0], p3[1] - p2[1]) ** 0.5
+        for q in range(24):
+            t = t1 + (t2 - t1) * q / 24
+            pt = []
+            for c in (0, 1):
+                a1 = (t1 - t) / (t1 - t0) * p0[c] + (t - t0) / (t1 - t0) * p1[c]
+                a2 = (t2 - t) / (t2 - t1) * p1[c] + (t - t1) / (t2 - t1) * p2[c]
+                a3 = (t3 - t) / (t3 - t2) * p2[c] + (t - t2) / (t3 - t2) * p3[c]
+                b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2
+                b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3
+                pt.append((t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2)
+            dense.append((pt[0], pt[1]))
+    def resample(pts):
+        m = len(pts)
+        seg = [math.hypot(pts[(i + 1) % m][0] - pts[i][0], pts[(i + 1) % m][1] - pts[i][1]) for i in range(m)]
+        total = sum(seg)
+        cnt = int(round(total / step))
+        out, i, acc = [], 0, 0.0
+        for k in range(cnt):
+            s = total * k / cnt
+            while acc + seg[i] < s:
+                acc += seg[i]; i += 1
+            t = (s - acc) / seg[i]
+            a, b2 = pts[i], pts[(i + 1) % m]
+            out.append((a[0] + (b2[0] - a[0]) * t, a[1] + (b2[1] - a[1]) * t))
+        return out
+    pts = resample(dense)
+    m = len(pts)
+    out = []
+    for i in range(m):
+        (xa, ya), (xb, yb) = pts[i - 1], pts[(i + 1) % m]
+        L = math.hypot(xb - xa, yb - ya)
+        nx, ny = (yb - ya) / L, -(xb - xa) / L           # 逆时针点列的外法线（指向岸上）
+        x, y = pts[i]
+        east = smooth01((x - 44.0) / 8.0)
+        w = 2.0 * (fbm(x * 0.13 + 3.1, y * 0.13 + 5.7, 3) - 0.5) * (1.0 - 0.7 * east)
+        out.append((x + nx * w, y + ny * w))
+    return resample(out)
+
+SHORE = _shore_polygon()                                   # [(x, y)]，逆时针，点距约 0.3
+def _shore_normals():
+    m, out = len(SHORE), []
+    for i in range(m):
+        (xa, ya), (xb, yb) = SHORE[i - 2], SHORE[(i + 2) % m]
+        L = math.hypot(xb - xa, yb - ya)
+        out.append(((yb - ya) / L, -(xb - xa) / L))
+    return out
+SHORE_N = _shore_normals()                                 # 外法线（指向岸上）
+
+def shore_walk(step, jitter=0.0):
+    """沿岸线按弧长 step 取点：(x, y, nx, ny)，n 指向岸上；切线方向 = (-ny, nx)（逆时针前进）。"""
+    m, k, out = len(SHORE), 0.0, []
+    while k < m:
+        i = int(k) % m
+        out.append((SHORE[i][0], SHORE[i][1], SHORE_N[i][0], SHORE_N[i][1]))
+        k += step / 0.3 * (1.0 + (random.uniform(-jitter, jitter) if jitter else 0.0))
+    return out
+
+def shore_near(x, y):
+    """离 (x, y) 最近的岸线点：(sx, sy, nx, ny)。"""
+    i = min(range(len(SHORE)), key=lambda q: (SHORE[q][0] - x) ** 2 + (SHORE[q][1] - y) ** 2)
+    return SHORE[i][0], SHORE[i][1], SHORE_N[i][0], SHORE_N[i][1]
+
+# 到岸线的有符号距离场（0.5 单位网格，双线性取值）：湖内为正。港汊、岬角两侧都是真实距离，
+# 岸线过渡带、浅水带和“离岸多远才能盖房种树”的判断因此处处等宽。
+_SDF_X0, _SDF_Y0, _SDF_S = -100.0, -88.0, 0.5
+def _lake_sdf():
+    import numpy as np
+    t0 = time.time()
+    P = np.array(SHORE, dtype=np.float32)
+    Q = np.roll(P, -1, axis=0)
+    ax, ay = P[:, 0][None, :], P[:, 1][None, :]
+    by = Q[:, 1][None, :]
+    vx, vy = Q[:, 0][None, :] - ax, by - ay
+    L2 = vx * vx + vy * vy
+    vy_safe = np.where(np.abs(vy) < 1e-12, 1e-12, vy)
+    gx = (_SDF_X0 + _SDF_S * np.arange(int(180 / _SDF_S) + 1)).astype(np.float32)
+    gy = (_SDF_Y0 + _SDF_S * np.arange(int(174 / _SDF_S) + 1)).astype(np.float32)
+    px = gx[:, None]
+    rows = []
+    for py in gy:
+        t = np.clip(((px - ax) * vx + (py - ay) * vy) / L2, 0.0, 1.0)
+        d = np.sqrt(((px - ax - vx * t) ** 2 + (py - ay - vy * t) ** 2).min(axis=1))
+        cross = ((ay > py) != (by > py)) & (px < ax + vx * (py - ay) / vy_safe)
+        inside = (cross.sum(axis=1) % 2) == 1
+        rows.append(np.where(inside, d, -d).tolist())
+    print(f"[wl] shore polygon {len(SHORE)} pts, sdf {len(gx)}x{len(gy)} in {time.time() - t0:.1f}s")
+    return rows, len(gx), len(gy)
+_SDF, _SDF_NX, _SDF_NY = _lake_sdf()
 
 def lake_depth(x, y):
-    """>0 在湖内（近似到岸距离），<0 在岸上。"""
-    dx, dy = x - LC[0], y - LC[1]
-    return lake_r(math.atan2(dy, dx)) - math.hypot(dx, dy)
+    """>0 在湖内（到岸线的距离），<0 在岸上。"""
+    fx, fy = (x - _SDF_X0) / _SDF_S, (y - _SDF_Y0) / _SDF_S
+    if fx < 0 or fy < 0 or fx >= _SDF_NX - 1 or fy >= _SDF_NY - 1:
+        return -40.0
+    i, j = int(fx), int(fy)
+    u, v = fx - i, fy - j
+    r0, r1 = _SDF[j], _SDF[j + 1]
+    return (r0[i] * (1 - u) + r0[i + 1] * u) * (1 - v) + (r1[i] * (1 - u) + r1[i + 1] * u) * v
 
 # 山体：(cx, cy, H, rx, ry)
 # 山体：(cx, cy, H, rx, ry, rot)，旋转椭圆叠成连绵山脊
 HILLS = [(-76, 6, 20, 18, 40, 0.15), (-70, -46, 15, 22, 15, 0.5), (-68, 50, 15, 20, 14, -0.4),
-         (-86, -68, 11, 20, 16, 0.0), (-84, 70, 12, 22, 15, 0.0), (-63, -20, 8, 12, 13, 0.3),
-         (-61, 26, 7, 10, 12, 0.0), (-90, 28, 16, 14, 30, 0.0),
-         (28, -66, 5.5, 11, 7, 0.0), (-8, -80, 13, 34, 12, 0.1), (-46, -74, 10, 22, 12, 0.3), (50, -78, 8, 18, 10, 0.0),
+         (-86, -68, 11, 20, 16, 0.0), (-84, 70, 12, 22, 15, 0.0), (-61, -17, 7.5, 11, 12.5, 0.3),
+         (-65, 36, 6, 9, 7, 0.0), (-90, 28, 16, 14, 30, 0.0),
+         (27.5, -61.5, 5.5, 9.5, 8.0, 0.0), (-8, -80, 13, 34, 12, 0.1), (-46, -74, 10, 22, 12, 0.3), (50, -78, 8, 18, 10, 0.0),
          (16, 74, 7, 15, 6, 0.0), (-14, 78, 9, 24, 8, 0.0), (-44, 79, 12, 24, 11, 0.2), (42, 79, 6, 16, 8, 0.0)]
 
 def hill_h(x, y):
@@ -753,6 +875,8 @@ def island_z(x, y):
     e = ((x + 19) / 15.5) ** 2 + ((y - 46) / 6.3) ** 2
     if e < 1:
         return 0.34 + 3.4 * max(0.0, 1 - e * 1.15) ** 1.3 * (0.8 + 0.4 * fbm(x * 0.3, y * 0.3, 3)), 'land'
+    if ((x + 0.5) / 6.5) ** 2 + ((y - 43.4) / 3.8) ** 2 < 1:      # 孤山东南角的滩地：楼外楼、文澜阁、平湖秋月原来立在水里
+        return 0.34 + 0.04 * fbm(x, y, 2), 'land'
     dx, dy = x + 10, y + 24
     r = math.hypot(dx, dy)
     if r < 10.8:
@@ -773,7 +897,7 @@ def terrain(x, y):
             return isl
     bed = -0.12 - 1.4 * smooth01(d / 7.0) + 0.15 * (fbm(x * 0.15, y * 0.15, 3) - 0.5)
     land = 0.30 + 0.22 * fbm(x * 0.08 + 1, y * 0.08 + 5, 3) * smooth01(-d / 5.0)
-    land += hill_h(x, y) * smooth01(-d / 4.0)
+    land += hill_h(x, y) * smooth01(-d / 9.0)   # 山脚到岸边放缓（原来 4）：湾底切进山脚时不再是一面寸草不生的陡崖
     if d > 1.0:
         return bed, 'water'
     if d < -1.0:
@@ -883,6 +1007,7 @@ def shore_dist(x, y):
     d = lake_depth(x, y)
     e = ((x + 19) / 15.5) ** 2 + ((y - 46) / 6.3) ** 2
     d = min(d, (math.sqrt(e) - 1.0) * 9.0)
+    d = min(d, (math.sqrt(((x + 0.5) / 6.5) ** 2 + ((y - 43.4) / 3.8) ** 2) - 1.0) * 4.8)
     r = math.hypot(x + 10, y + 24)
     d = min(d, r - 10.8 if r > 9.85 else 8.9 - r)
     d = min(d, math.hypot(x - 6, y + 2) - 2.7, math.hypot(x + 6, y - 12) - 2.4)
@@ -894,16 +1019,24 @@ def lake_water():
     """湖水网格（1 单位），顶点属性 shore：0 开阔水面 → 1 岸线，材质用它做浅水带与白沫。"""
     t0 = time.time()
     w = B("Water")
-    x0, y0, x1, y1, step = -66, -70, 66, 64, 1.0
+    x0, y0, x1, y1, step = -72, -74, 62, 70, 1.0
     nx, ny = int((x1 - x0) / step) + 1, int((y1 - y0) / step) + 1
-    verts, sh = [], []
-    for j in range(ny):
-        for i in range(nx):
-            x, y = x0 + i * step, y0 + j * step
+    grid = [[(x0 + i * step, y0 + j * step) for i in range(nx)] for j in range(ny)]
+    wet = [[lake_depth(x, y) > -1.6 for (x, y) in row] for row in grid]
+    # 只保留湖内和岸边一圈的格子：原来是一整块矩形，东南角伸出了岛缘，在崖壁上露出一小片淡蓝色
+    idx, verts, sh, faces = {}, [], [], []
+    def vid(i, j):
+        if (i, j) not in idx:
+            x, y = grid[j][i]
+            idx[(i, j)] = len(verts)
             verts.append((x, y, 0.0))
             sd = shore_dist(x, y)
             sh.append((1.0 - smooth01(sd / 2.6), smooth01(sd / 14.0)))
-    faces = [(j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i) for j in range(ny - 1) for i in range(nx - 1)]
+        return idx[(i, j)]
+    for j in range(ny - 1):
+        for i in range(nx - 1):
+            if wet[j][i] or wet[j][i + 1] or wet[j + 1][i] or wet[j + 1][i + 1]:
+                faces.append((vid(i, j), vid(i + 1, j), vid(i + 1, j + 1), vid(i, j + 1)))
     w.add(verts, faces, WATER)
     ob = w.build()
     attr = ob.data.color_attributes.new(name="shore", type='FLOAT_COLOR', domain='POINT')
@@ -1379,9 +1512,12 @@ def house(x, y, w, d, h, ang, wall=WHITE_WALL, roof=DARK_TILE, flat=False, floor
     if flat:
         fh = 0.55
         H = floors * fh
+        if wall is WHITE_WALL:
+            wall = T_WARM                               # 平顶楼不用粉墙的白：太阳一照就是一个白盒子
         box(b, 0, 0, z0 + 0.08, w, d, H, wall)
         for k in range(floors):
-            box(b, 0, 0, z0 + 0.08 + k * fh + 0.16, w + 0.03, d + 0.03, 0.2, GLASS)
+            box(b, 0, 0, z0 + 0.08 + k * fh + 0.16, w + 0.03, d + 0.03, 0.22, WIN_GLASS)
+        _face_cols(b, 0, 0, w, d, wall, 0.55, 0.18, 0.03, z0 + 0.08, z0 + 0.08 + H, True)   # 窗间墙：把窗带分成一格格的窗
         box(b, 0, 0, z0 + 0.08 + H, w + 0.08, d + 0.08, 0.06, FLAT_ROOF)
         for (sx, sy, ww, dd) in ((0, -1, w + 0.08, 0.06), (0, 1, w + 0.08, 0.06), (-1, 0, 0.06, d + 0.08), (1, 0, 0.06, d + 0.08)):
             box(b, sx * (w / 2 + 0.01), sy * (d / 2 + 0.01), z0 + 0.14 + H, ww, dd, 0.05, CONCRETE)   # 女儿墙
@@ -1429,56 +1565,184 @@ def stone_lantern(b, x, y):
     cone(b, x, y, 1.1, 0.5, 0.1, 0.4, GRANITE, n=8, uv=False)
     prism(b, x, y, 1.45, 0.06, 0.3, GRANITE, n=6)
 
-def tower_block(b, cx, cy, w, d, floors, ang=0.0, glassy=False, z0=None):
-    """现代楼房：逐层窗带（玻璃 + 外墙），顶部女儿墙与设备间。"""
-    if z0 is None:
-        z0 = max(ground(cx + sx * w / 2, cy + sy * d / 2) for sx in (-1, 1) for sy in (-1, 1)) - 0.1
-    fh = 0.6
-    rbox(b, cx, cy, z0 - 0.3, w + 0.8, d + 0.8, 0.35, CONCRETE, ang)
-    wall = pick([(FACADE, 0.5), (FACADE2, 0.25), (FACADE3, 0.25)])
-    if random.random() < 0.3:   # 裙楼
-        rbox(b, cx, cy, z0, w + 1.2, d + 1.0, 2 * fh, wall, ang)
-        rbox(b, cx, cy, z0 + 2 * fh, w + 1.3, d + 1.1, 0.1, CONCRETE, ang)
-    if glassy:
-        rbox(b, cx, cy, z0, w, d, floors * fh, GLASS, ang)
-        for k in range(floors):
-            rbox(b, cx, cy, z0 + k * fh + fh - 0.08, w + 0.06, d + 0.06, 0.08, CONCRETE, ang)
-    else:
-        rbox(b, cx, cy, z0, w, d, floors * fh, wall, ang)
-        for k in range(floors):
-            rbox(b, cx, cy, z0 + k * fh + 0.18, w + 0.05, d + 0.05, 0.26, GLASS, ang)
-    zt = z0 + floors * fh
-    rbox(b, cx, cy, zt, w + 0.1, d + 0.1, 0.12, CONCRETE, ang)
-    rbox(b, cx, cy, zt + 0.12, w - 0.1, d - 0.1, 0.02, FLAT_ROOF, ang)
-    rbox(b, cx + w * 0.2, cy, zt + 0.12, w * 0.3, d * 0.4, 0.5, CONCRETE, ang)
-    keep(cx, cy, max(w, d) * 0.8)
+def _face_cols(b, cx, cy, w, d, mat, step, width, out, zb, zt, edge):
+    """沿四个立面排一列列竖条（窗间墙、竖向窗带、幕墙竖梃）：width 宽、凸出 out。
+    edge=True 时两端各贴一根（略微收进墙角，免得和侧面共面）；否则居中等分。"""
+    for (ln, along_x) in ((w, True), (d, False)):
+        n = max(2, int(round(ln / step)) + (1 if edge else 0))
+        for k in range(n):
+            if edge:
+                u = -ln / 2 + 0.02 + width / 2 + (ln - 0.04 - width) * k / (n - 1)
+            else:
+                u = -ln / 2 + ln * (k + 0.5) / n
+            for sg in (-1, 1):
+                if along_x:
+                    box(b, cx + u, cy + sg * d / 2, zb, width, 2 * out, zt - zb, mat)
+                else:
+                    box(b, cx + sg * w / 2, cy + u, zb, 2 * out, width, zt - zb, mat)
 
-def city(x0s, y0s, x1s, y1s, floors=(4, 11), glassy=0.35, bw=12.0, bd=10.0, street=2.4, density=0.9):
-    """现代城区：沥青街道网格 + 每个街区一块铺装地块 + 1~3 栋楼 + 行道树。"""
+def _tower_roof(b, cx, cy, zt, w, d, rim, rs, n_box):
+    """平屋顶：屋面、四周女儿墙（四段对接，不在墙角重叠）、几个高矮不一的设备间。"""
+    box(b, cx, cy, zt, w + 0.04, d + 0.04, 0.05, T_ROOF)
+    t_, h_ = 0.07, 0.15
+    for sg in (-1, 1):
+        box(b, cx, cy + sg * (d / 2 + 0.04 - t_ / 2), zt, w + 0.08, t_, h_, rim)
+        box(b, cx + sg * (w / 2 + 0.04 - t_ / 2), cy, zt, t_, d + 0.08 - 2 * t_, h_, rim)
+    for j in range(n_box):
+        mw, md = rs.uniform(0.4, min(1.0, w * 0.32)), rs.uniform(0.35, min(0.8, d * 0.4))
+        mx = cx + rs.uniform(-1, 1) * (w / 2 - mw / 2 - 0.22)
+        my = cy + rs.uniform(-1, 1) * max(0.0, d / 2 - md / 2 - 0.22)
+        box(b, mx, my, zt + 0.05, mw, md, 0.22 + 0.11 * j, T_PLANT if j % 2 == 0 else T_GREY)
+
+T_FH = 0.5   # 高楼层高
+def tower_glass(b, cx, cy, w, d, nf, z0, rs):
+    """玻璃幕墙写字楼：蓝灰/灰绿玻璃，每层一道楼板线，竖梃；高的顶上有收进的机房层和天线。"""
+    H = nf * T_FH
+    zt = z0 + H
+    gm = CURTAIN_B if rs.random() < 0.6 else CURTAIN_G
+    frame = T_FRAME if rs.random() < 0.6 else T_GREY
+    box(b, cx, cy, z0, w, d, H, gm)
+    for k in range(1, nf + 1):
+        box(b, cx, cy, z0 + k * T_FH - 0.06, w + 0.03, d + 0.03, 0.06, frame)
+    _face_cols(b, cx, cy, w, d, frame, 0.62, 0.06, 0.03, z0, zt, True)
+    if nf >= 8:
+        _tower_roof(b, cx, cy, zt, w, d, frame, rs, 0)
+        box(b, cx, cy, zt + 0.05, w * 0.56, d * 0.56, 0.5, gm)
+        box(b, cx, cy, zt + 0.55, w * 0.56 + 0.06, d * 0.56 + 0.06, 0.05, frame)
+        prism(b, cx + w * 0.1, cy, zt + 0.6, 0.03, rs.uniform(0.7, 1.3), T_FRAME, n=6)
+    else:
+        _tower_roof(b, cx, cy, zt, w, d, frame, rs, 2)
+
+def tower_slab(b, cx, cy, w, d, nf, z0, rs, wall):
+    """住宅板楼：横向窗带被窗间墙分成一格格的窗，朝南一面逐层挂阳台，屋顶有设备间和水箱。"""
+    H = nf * T_FH
+    zt = z0 + H
+    box(b, cx, cy, z0, w, d, H, wall)
+    for k in range(nf):
+        box(b, cx, cy, z0 + k * T_FH + 0.13, w + 0.03, d + 0.03, T_FH * 0.46, WIN_GLASS)
+    _face_cols(b, cx, cy, w, d, wall, 0.58, 0.2, 0.035, z0, zt, True)
+    nb = max(2, int(w / 1.1))
+    for j in range(nb):
+        x = cx - w / 2 + (j + 0.5) * w / nb
+        for k in range(1, nf):
+            box(b, x, cy - d / 2 - 0.08, z0 + k * T_FH - 0.04, w / nb * 0.6, 0.16, 0.16, BALCONY)
+    _tower_roof(b, cx, cy, zt, w, d, wall, rs, 2)
+    prism(b, cx + rs.uniform(-0.3, 0.3) * w, cy + d * 0.12, zt + 0.05, 0.16, 0.26, T_PLANT, n=8)   # 水箱
+
+def tower_strip(b, cx, cy, w, d, nf, z0, rs, wall):
+    """塔楼：竖向窗带，楼板线横着压过去；顶上两层收进。"""
+    H = nf * T_FH
+    zt = z0 + H
+    box(b, cx, cy, z0, w, d, H, wall)
+    _face_cols(b, cx, cy, w, d, WIN_GLASS, 0.66, 0.34, 0.02, z0 + 0.35, zt - 0.15, False)
+    for k in range(1, nf):
+        box(b, cx, cy, z0 + k * T_FH - 0.04, w + 0.07, d + 0.07, 0.045, wall)
+    _tower_roof(b, cx, cy, zt, w, d, wall, rs, 0)
+    cw, cd, chh = w - 0.8, d - 0.8, 2 * T_FH * 0.9
+    box(b, cx, cy, zt + 0.05, cw, cd, chh, wall)
+    box(b, cx, cy, zt + 0.05 + 0.12, cw + 0.03, cd + 0.03, T_FH * 0.42, WIN_GLASS)
+    box(b, cx, cy, zt + 0.05 + T_FH * 0.9 + 0.12, cw + 0.03, cd + 0.03, T_FH * 0.42, WIN_GLASS)
+    box(b, cx, cy, zt + 0.05 + chh, cw + 0.08, cd + 0.08, 0.06, T_ROOF)
+
+def tower_podium(b, cx, cy, w, d, z0, glassy):
+    """裙楼：两层，通长的玻璃橱窗带，平顶。"""
+    ph = 0.8
+    box(b, cx, cy, z0, w, d, ph, T_GREY if glassy else T_WARM)
+    box(b, cx, cy, z0 + 0.07, w + 0.04, d + 0.04, 0.27, WIN_GLASS)
+    box(b, cx, cy, z0 + 0.47, w + 0.04, d + 0.04, 0.2, WIN_GLASS)
+    box(b, cx, cy, z0 + ph, w + 0.07, d + 0.07, 0.05, T_ROOF)
+
+def lowrise(b, cx, cy, w, d, nf, z0, rs):
+    """多层楼：三到五层，窗带加窗间墙；一半是杭州常见的“平改坡”瓦顶，一半平顶。"""
+    wall = rs.choice((T_WARM, T_WARM, T_BEIGE, T_BRICK, FACADE2, T_GREY))
+    fh = 0.4
+    H = nf * fh
+    box(b, cx, cy, z0, w, d, H, wall)
+    for k in range(nf):
+        box(b, cx, cy, z0 + k * fh + 0.11, w + 0.03, d + 0.03, fh * 0.42, WIN_GLASS)
+    _face_cols(b, cx, cy, w, d, wall, 0.56, 0.2, 0.03, z0, z0 + H, True)
+    if rs.random() < 0.5:
+        hip_roof(b, cx, cy, z0 + H, w + 0.28, d + 0.28, 0.3, GREY_TILE2 if rs.random() < 0.5 else DARK_TILE, ridge=0.78, curl=0.02, ridge_beam=False)
+    else:
+        _tower_roof(b, cx, cy, z0 + H, w, d, wall, rs, 1)
+
+def city(x0s, y0s, x1s, y1s, floors=(5, 9), bw=5.0, bd=9.0, street=1.8, density=0.92):
+    """湖滨老城后面的现代城区（一列街区）：沥青街道 + 铺装地块，街区分三种——
+    行列式住宅（两三排带阳台的板楼）、写字楼（玻璃幕墙塔楼 + 裙楼 + 多层楼）、混合（竖窗带塔楼 + 多层楼 + 绿地），
+    街边一圈行道树。楼的大小、层数、颜色都用按街区位置定种子的独立随机数，不动全局随机数（种树除外）。"""
     b = B("City")
+    n_blk = n_tw = n_low = n_tree = 0
     x = x0s
     while x + bw < x1s:
         y = y0s
         while y + bd < y1s:
             cx, cy = x + bw / 2, y + bd / 2
+            rs = random.Random(int(round(cx * 131 + cy * 977)) + 7)
             rim = max(isl_rho(cx + sx * (bw + street) / 2, cy + sy * (bd + street) / 2)[0] for sx in (-1, 1) for sy in (-1, 1))
-            if (lake_depth(cx, cy) < -6 and ground(cx, cy) < 2.0 and not blocked(cx, cy)
-                    and rim < 0.985 and random.random() < density):
+            ok = rs.random() < density
+            if lake_depth(cx, cy) < -6 and ground(cx, cy) < 2.0 and not blocked(cx, cy) and rim < 0.985 and ok:
                 gz = max(ground(cx + sx * bw / 2, cy + sy * bd / 2) for sx in (-1, 1) for sy in (-1, 1))
                 box(b, cx, cy, gz - 0.35, bw + street, bd + street, 0.4, ASPHALT)
                 box(b, cx, cy, gz + 0.05, bw - 0.8, bd - 0.8, 0.06, STONE)
                 keep(cx, cy, max(bw, bd) * 0.75)
-                for i in range(random.randint(1, 3)):
-                    w, d = random.uniform(2.4, min(4.4, bw - 1.6)), random.uniform(2.2, 3.4)
-                    bx = cx + random.uniform(-bw / 2 + w / 2 + 0.6, bw / 2 - w / 2 - 0.6)
-                    by = cy + random.uniform(-bd / 2 + d / 2 + 0.6, bd / 2 - d / 2 - 0.6)
-                    # 同一街区的几栋楼位置可能重叠：各错开 3 厘米高差，层数相同时屋顶和底座才不会共面（渲染出来是黑块）
-                    tower_block(b, bx, by, w, d, random.randint(*floors), 0.0, glassy=random.random() < glassy, z0=gz + 0.11 + 0.03 * i)
-                for i in range(2):
-                    plant("ginkgo" if random.random() < 0.5 else "tree", cx + random.uniform(-bw / 2, bw / 2), cy + random.uniform(-bd / 2, bd / 2), random.uniform(1.0, 1.4), z=gz + 0.1)
+                z0 = gz + 0.11
+                lx, ly = bw / 2 - 0.55, bd / 2 - 0.6               # 地块内可建范围（半宽、半深）
+                kind = ("res", "office", "mix", "res", "mix", "office", "res")[n_blk % 7]
+                nfl = lambda lo, hi: rs.randint(lo, hi)
+                if kind == "res":
+                    rows = 3 if rs.random() < 0.65 else 2
+                    wall = rs.choice((T_BEIGE, T_WARM, T_WARM, T_BRICK))
+                    w, d = min(2 * lx, rs.uniform(3.0, 3.5)), rs.uniform(1.5, 1.8)
+                    fl = nfl(floors[0], floors[1] - 2)
+                    pitch = 2 * ly / rows
+                    for i in range(rows):
+                        ty = cy - ly + pitch * (i + 0.5) + rs.uniform(-0.12, 0.12)
+                        tx = cx + rs.uniform(-1, 1) * max(0.0, lx - w / 2)
+                        tower_slab(b, tx, ty, w, d, fl + rs.choice((0, 0, 1, -1)), z0, rs, wall)
+                        n_tw += 1
+                        if i > 0:                                  # 楼间绿地（一条草坪）
+                            box(b, cx, cy - ly + pitch * i, z0, 2 * lx - 0.6, 0.42, 0.04, LAWN)
+                elif kind == "office":
+                    sg = 1 if rs.random() < 0.5 else -1
+                    w, d = rs.uniform(2.6, 3.1), rs.uniform(2.4, 3.0)
+                    tx, ty = cx + rs.uniform(-0.2, 0.2), cy + sg * (ly - d / 2 - 0.5)
+                    pw, pd = min(2 * lx, w + rs.uniform(0.5, 0.9)), d + 0.9
+                    tower_podium(b, cx, cy + sg * (ly - pd / 2), pw, pd, z0, True)
+                    tower_glass(b, tx, ty, w, d, nfl(floors[0] + 2, floors[1] + 1), z0, rs)
+                    n_tw += 1
+                    w2, d2 = rs.uniform(2.8, 3.4), rs.uniform(1.5, 1.8)
+                    lowrise(b, cx + rs.uniform(-0.2, 0.2), cy - sg * (ly - d2 / 2), w2, d2, nfl(3, 5), z0, rs)
+                    n_low += 1
+                    box(b, cx, cy - sg * (ly - d2 - 1.0), z0, 2 * lx - 0.8, 0.9, 0.04, LAWN)
+                else:
+                    sg = 1 if rs.random() < 0.5 else -1
+                    wall = rs.choice((T_WARM, T_GREY, T_BEIGE))
+                    w, d = rs.uniform(2.4, 2.9), rs.uniform(2.2, 2.7)
+                    tower_strip(b, cx + rs.uniform(-0.3, 0.3), cy + sg * (ly - d / 2 - 0.2), w, d, nfl(floors[0] + 1, floors[1]), z0, rs, wall)
+                    n_tw += 1
+                    d2 = rs.uniform(1.5, 1.8)
+                    lowrise(b, cx + rs.uniform(-0.2, 0.2), cy - sg * (ly - d2 / 2), rs.uniform(2.8, 3.4), d2, nfl(3, 5), z0, rs)
+                    n_low += 1
+                    u0, u1 = -(ly - d2) + 0.55, (ly - 0.2 - d) - 0.55     # 两栋楼之间的空当（沿 sg 方向）
+                    if u1 - u0 >= 2.3:
+                        d3 = 1.5
+                        lowrise(b, cx + rs.uniform(-0.3, 0.3), cy + sg * (u0 + d3 / 2), rs.uniform(2.6, 3.2), d3, nfl(3, 4), z0, rs)
+                        n_low += 1
+                        u0 += d3 + 0.45
+                    if u1 - u0 >= 0.4:
+                        box(b, cx, cy + sg * (u0 + u1) / 2, z0, 2 * lx - 0.8, u1 - u0, 0.04, LAWN)
+                # 行道树：街区东西两侧的人行道各一排，南北两头各两棵
+                spots = [(cx + sx * (bw / 2 + 0.12), cy - bd / 2 + bd * (k + 0.5) / 5 + rs.uniform(-0.2, 0.2)) for sx in (-1, 1) for k in range(5)]
+                spots += [(cx + sx * 1.2, cy + sy * (bd / 2 + 0.12)) for sx in (-1, 1) for sy in (-1, 1)]
+                for (tx, ty) in spots:
+                    kd, ss = rs.random(), rs.uniform(0.85, 1.15)
+                    if plant("ginkgo" if kd < 0.35 else "tree", tx, ty, ss, z=gz + 0.04) is not None or WEB:
+                        n_tree += 1
+                n_blk += 1
             y += bd + street
         x += bw + street
     b.build()
+    print(f"[wl] city: blocks={n_blk}, towers={n_tw}, lowrise={n_low}, street trees={n_tree}")
 
 def pick(pairs):
     r = random.random()
@@ -1667,26 +1931,37 @@ def shore_park():
     """环湖公园带：北山路/南山路/杨公堤方向的环湖道路（遇建筑外移）、湖滨路、路上车辆、
     沿路花坛、几处广场与通向湖边的小径。"""
     b = B("ShorePark")
-    a, n_seg = 0.0, 0
-    while a < 2 * math.pi:
-        r = lake_r(a)
-        da = 1.25 / (r + 5)
+    n_seg = 0
+    keep0 = list(KEEP)                                  # 只让建筑挡路；路自己和花坛的禁区不算
+    def built(x, y):
+        return any(math.hypot(x - kx, y - ky) < kr * 0.85 for (kx, ky, kr) in keep0)
+    last, placed = None, []
+    for (sx_, sy_, nx, ny) in shore_walk(0.3):
         for off in (5.2, 6.6, 8.0):
-            x, y = LC[0] + (r + off) * math.cos(a), LC[1] + (r + off) * math.sin(a)
+            x, y = sx_ + nx * off, sy_ + ny * off
             if x > 56.5:
                 break                                   # 东岸由湖滨路承担
-            if ground(x, y) > 1.4 or isl_rho(x, y)[0] > 0.93 or blocked_r(x, y, 0.85):
+            if lake_depth(x, y) > -(off - 0.6):         # 岬角背后法线会聚、港汊对岸太近：这一档不放
                 continue
-            r2 = lake_r(a + da)
-            ang = math.atan2((r2 + off) * math.sin(a + da) - (r + off) * math.sin(a), (r2 + off) * math.cos(a + da) - (r + off) * math.cos(a))
-            road_seg(b, x, y, ang)
-            n_seg += 1
-            if random.random() < 0.09 and off == 5.2:     # 路侧花坛（湖一侧）
-                fx, fy = LC[0] + (r + 4.1) * math.cos(a), LC[1] + (r + 4.1) * math.sin(a)
-                if not blocked_r(fx, fy, 0.9) and ground(fx, fy) < 1.2:
-                    flower_bed(b, fx, fy, random.uniform(1.2, 2.0), random.uniform(0.5, 0.8), ang)
+            if ground(x, y) > 1.4 or isl_rho(x, y)[0] > 0.93 or built(x, y):
+                continue
+            if last is not None and math.hypot(x - last[0], y - last[1]) < 1.25:
+                break
+            if any(math.hypot(x - qx, y - qy) < 1.1 for (qx, qy) in placed[:-4]):
+                break                                   # 已经有路经过这里（岬角两侧的路在背后汇合）
+            if last is not None and math.hypot(x - last[0], y - last[1]) < 2.6:
+                # 一段路 = 上一个点到这个点，首尾相接，湾里法线发散时也不留缝
+                mx, my, d = (x + last[0]) / 2, (y + last[1]) / 2, math.hypot(x - last[0], y - last[1])
+                ang = math.atan2(y - last[1], x - last[0])
+                road_seg(b, mx, my, ang, L=d + 0.04)
+                n_seg += 1
+                if random.random() < 0.09 and off == 5.2:     # 路侧花坛（湖一侧）
+                    fx, fy = sx_ + nx * 4.1, sy_ + ny * 4.1
+                    if not built(fx, fy) and ground(fx, fy) < 1.2 and lake_depth(fx, fy) < -3.0:
+                        flower_bed(b, fx, fy, random.uniform(1.2, 2.0), random.uniform(0.5, 0.8), ang)
+            last = (x, y)
+            placed.append(last)
             break
-        a += da
     y = -58.0
     while y < 58.0:                                     # 湖滨路（东岸，南北向）
         if not blocked_r(59.3, y, 0.6):
@@ -1711,8 +1986,8 @@ def shore_park():
             n_car += 1
     # 广场 + 小径 + 花坛
     n_plaza = 0
-    for (px, py) in ((36.0, 61.5), (52.0, -47.5), (30.5, -59.5), (-24.0, -57.0), (-52.0, 44.0), (57.0, 22.0), (57.0, -26.0),
-                     (14.0, 63.5), (-12.0, 63.5), (-46.0, 10.0), (-48.0, -22.0), (10.0, -61.0), (46.0, 54.0), (-36.0, -58.0)):
+    for (px, py) in ((38.5, 62.5), (51.0, -48.5), (-12.5, -62.8), (-50.5, 59.0), (57.0, 22.0), (57.0, -26.0), (48.0, 43.0),
+                     (18.5, 66.8), (-17.5, 64.8), (-56.0, 32.6), (-51.0, -10.0), (42.5, 51.5)):
         if blocked_r(px, py, 0.8) or ground(px, py) > 1.3 or isl_rho(px, py)[0] > 0.93:
             continue
         gz = ground(px, py)
@@ -1723,7 +1998,8 @@ def shore_park():
         for i in range(4):
             plant("bush", px + random.uniform(-2.6, 2.6), py + random.choice((-1, 1)) * random.uniform(1.6, 2.0), random.uniform(0.7, 1.0), z=gz + 0.05)
         # 小径：广场 → 湖边
-        dx, dy = LC[0] - px, LC[1] - py
+        sx_, sy_, _, _ = shore_near(px, py)
+        dx, dy = sx_ - px, sy_ - py
         L = math.hypot(dx, dy); dx, dy = dx / L, dy / L
         s = 1.8
         while s < 60:
@@ -1740,23 +2016,18 @@ def shore_park():
 def embankment():
     """沿湖石砌驳岸：顺岸线的花岗岩条石；山脚与部分岸段留作自然岸，缺口处补芦苇。"""
     b = B("Embankment")
-    a, n_curb, n_reed = 0.0, 0, 0
-    while a < 2 * math.pi:
-        r = lake_r(a)
-        da = 1.2 / r
-        x, y = LC[0] + (r + 0.35) * math.cos(a), LC[1] + (r + 0.35) * math.sin(a)
-        r2 = lake_r(a + da)
-        ang = math.atan2((r2 + 0.35) * math.sin(a + da) - (r + 0.35) * math.sin(a), (r2 + 0.35) * math.cos(a + da) - (r + 0.35) * math.cos(a))
-        natural = ground(LC[0] + (r + 3.0) * math.cos(a), LC[1] + (r + 3.0) * math.sin(a)) > 1.6
-        gap = fbm(math.cos(a) * 5 + 1, math.sin(a) * 5 + 3, 2) > 0.60
+    n_curb, n_reed = 0, 0
+    for (sx_, sy_, nx, ny) in shore_walk(1.2):
+        x, y = sx_ + nx * 0.35, sy_ + ny * 0.35
+        ang = math.atan2(nx, -ny)                        # 岸线切向
+        natural = ground(sx_ + nx * 3.0, sy_ + ny * 3.0) > 1.6
+        gap = fbm(sx_ * 0.085 + 1, sy_ * 0.085 + 3, 2) > 0.60
         if not blocked(x, y) and not natural and not gap:
             rbox(b, x, y, -0.35 + random.uniform(-0.03, 0.03), 1.25, 0.5, 0.66, GRANITE, ang)
             n_curb += 1
         elif (gap or natural) and not blocked(x, y) and random.random() < 0.3:
-            rx, ry = LC[0] + (r - 0.2) * math.cos(a), LC[1] + (r - 0.2) * math.sin(a)
-            reeds(rx, ry, random.randint(22, 40), r=random.uniform(0.7, 1.1))
+            reeds(sx_ - nx * 0.2, sy_ - ny * 0.2, random.randint(22, 40), r=random.uniform(0.7, 1.1))
             n_reed += 1
-        a += da
     b.build()
     print(f"[wl] embankment segments={n_curb}, reed patches={n_reed}")
 
@@ -1766,17 +2037,16 @@ def build_scene():
     island()
 
     # ---- 苏堤（六桥）与白堤（锦带桥、断桥）
-    causeway("SuDi", [(-37.0, -59.5), (-38.5, -30.0), (-39.0, 0.0), (-38.0, 25.0), (-36.5, 51.0)], 2.6,
-             [(s, s + 5.5, 0.9) for s in (12, 30, 48, 66, 84, 100)])
-    causeway("BaiDi", [(-4.0, 47.2), (10.0, 50.0), (24.0, 52.8), (33.0, 55.4)], 2.3,
+    causeway("SuDi", [(-37.3, -61.4), (-38.5, -30.0), (-39.0, 0.0), (-38.0, 25.0), (-36.2, 56.6)], 2.6,
+             [(s, s + 5.5, 0.9) for s in (14, 32, 50, 68, 86, 103)])
+    causeway("BaiDi", [(-4.0, 47.2), (10.0, 50.0), (24.0, 52.8), (35.8, 56.3)], 2.3,
              [(13.0, 17.5, 0.8), (30.0, 35.5, 1.15)], peach=True, tree_step=2.8)
-    # 西泠桥：孤山西端 → 北岸
+    # 西泠桥：孤山西北角 → 北岸（跨过北里湖西口；原来和苏堤北端一样埋在岸上）
     b = B("XilingBridge")
-    arch_bridge(b, (-33.5, 47.5), (-39.5, 50.5), 2.0, 0.36, 0.9)
-    dike(b, polyline([(-39.5, 50.5), (-43.0, 52.5)])[0], 0.0, 4.0, 2.2, 0.36)
+    arch_bridge(b, (-29.5, 49.9), (-29.9, 57.4), 2.0, 0.36, 0.9)
     b.build()
-    keep(-36.5, 49, 4)
-    SHORE_LINES.append(([(-33.5, 47.5), (-43.0, 52.5)], 1.1))
+    keep(-29.7, 53.6, 4)
+    SHORE_LINES.append(([(-29.5, 49.9), (-29.9, 57.4)], 1.0))
     lake_water()
 
     # ---- 孤山：楼外楼、平湖秋月、西泠印社、文澜阁、中山公园
@@ -1838,47 +2108,52 @@ def build_scene():
 
     # ---- 南岸：雷峰塔（夕照山）、净慈寺、长桥
     b = B("SouthShore")
-    zl = ground(28.0, -66.0)
-    pagoda(b, 28.0, -66.0, zl, 5, 2.4, 1.1, shrink=0.9, eave=0.6)
-    hall_jn(b, -20.0, -62.0, 3.2, 1.8, 0.9)
-    hall_jn(b, 0.0, -63.0, 3.6, 2.0, 1.0, double=True)
-    pavilion_jn(b, 18.0, -61.5, 1.1, 0.85, n=6)
-    compound(b, 10.0, -70.0, 9.0, 9.0, YELLOW_WALL, nh=3)                     # 净慈寺（黄墙）
-    arch_bridge(b, (40.0, -58.5), (46.0, -60.5), 1.6, 0.34, 0.6)              # 长桥
-    pavilion_jn(b, 36.5, -58.0, 1.2, 0.9, n=6)
-    hall_jn(b, -24.0, -60.5, 3.0, 1.8, 0.9)                                  # 花港观鱼一带
-    pavilion_jn(b, -46.0, -50.0, 1.2, 0.9, n=6)
-    hall_jn(b, -50.0, -46.0, 2.8, 1.6, 0.9)
+    zl = ground(27.5, -62.0) - 0.5                                            # 雷峰塔：夕照山伸进湖里成了岬角，塔跟着山往湖边挪
+    prism(b, 27.5, -62.0, zl - 3.2, 3.6, 2.7, GRANITE, n=8)                   # 山顶不平，塔基下再垫一层石台
+    pagoda(b, 27.5, -62.0, zl, 5, 2.4, 1.1, shrink=0.9, eave=0.6)
+    hall_jn(b, -19.5, -64.0, 3.2, 1.8, 0.9)
+    hall_jn(b, -3.5, -65.8, 3.6, 2.0, 1.0, double=True)
+    pavilion_jn(b, 18.0, -62.6, 1.1, 0.85, n=6)
+    compound(b, 10.0, -70.5, 9.0, 9.0, YELLOW_WALL, nh=3)                     # 净慈寺（黄墙）
+    arch_bridge(b, (36.2, -59.3), (44.2, -58.6), 1.6, 0.34, 0.7)              # 长桥：横跨东南角的小港汊口
+    SHORE_LINES.append(([(36.2, -59.3), (44.2, -58.6)], 0.8))
+    keep(40.2, -59.0, 4.6)
+    pavilion_jn(b, 47.0, -57.6, 1.2, 0.9, n=6)
+    hall_jn(b, -24.5, -66.0, 3.0, 1.8, 0.9)                                  # 花港观鱼一带
+    pavilion_jn(b, -46.5, -54.7, 1.2, 0.9, n=6)
+    hall_jn(b, -50.8, -51.6, 2.8, 1.6, 0.9)
     b.build()
 
     # ---- 北岸：保俶塔（宝石山）、岳王庙、曲院风荷、断桥残雪
     b = B("NorthShore")
     zb = ground(16.0, 76.5)
     pagoda(b, 16.0, 76.5, zb, 7, 0.9, 0.8, shrink=0.93, body=GREYBRICK, roof=DARK_TILE, eave=0.38, slim=True)
-    hall_jn(b, 26.0, 58.5, 3.0, 1.8, 0.9)
-    hall_jn(b, -40.0, 56.0, 3.2, 1.8, 1.0, double=True)
-    compound(b, -44.0, 63.0, 7.0, 7.0, RED_WALL, nh=2)                        # 岳王庙（红墙）
-    pavilion_jn(b, -50.0, 34.0, 1.3, 0.95, n=6, double=True)                  # 曲院风荷
-    hall_jn(b, -54.0, 38.5, 3.0, 1.6, 0.9)
+    hall_jn(b, 27.5, 65.4, 3.0, 1.8, 0.9)
+    hall_jn(b, -34.6, 60.6, 3.2, 1.8, 1.0, double=True)
+    compound(b, -44.0, 64.0, 7.0, 7.0, RED_WALL, nh=2)                        # 岳王庙（红墙）
+    pavilion_jn(b, -49.6, 33.8, 1.3, 0.95, n=6, double=True)                  # 曲院风荷
+    hall_jn(b, -53.2, 36.9, 3.0, 1.6, 0.9)
     zigzag(b, [(-50.0, 31.6), (-50.0, 29.0), (-47.5, 29.0), (-47.5, 26.0), (-45.0, 26.0), (-45.0, 23.0)])
-    pavilion_jn(b, 36.0, 57.5, 1.1, 0.85, n=4)                                # 断桥残雪
-    hall_jn(b, 10.0, 59.0, 3.2, 1.8, 0.9)
-    hall_jn(b, -10.0, 59.5, 2.8, 1.6, 0.9)
-    hall_jn(b, -28.0, 58.5, 3.0, 1.8, 1.0, double=True)
+    pavilion_jn(b, 37.2, 58.6, 1.1, 0.85, n=4)                                # 断桥残雪
+    hall_jn(b, 10.0, 66.0, 3.2, 1.8, 0.9)
+    hall_jn(b, -10.5, 64.0, 2.8, 1.6, 0.9)
+    hall_jn(b, -25.5, 63.2, 3.0, 1.8, 1.0, double=True)
     b.build()
     lotus_patch(-50.0, 30.0, 7.5, 320)
     lotus_patch(-46.0, 18.0, 4.0, 90)
-    lotus_patch(-49.0, 43.0, 3.5, 70)
-    lotus_patch(-49.0, -10.0, 4.0, 90)
+    lotus_patch(-49.0, 44.5, 3.5, 70)
+    lotus_patch(-45.0, -12.0, 3.2, 60)
+    lotus_patch(-57.5, 15.5, 4.5, 110)                                        # 茅家埠湾里的一片
     lotus_patch(-46.0, -40.0, 3.2, 60)
     lotus_patch(-30.0, -52.0, 3.5, 70)
+    lotus_patch(-16.0, 55.5, 3.0, 55)                                         # 北里湖
 
     # ---- 东岸（湖滨）：集贤亭、柳浪闻莺、钱王祠、沿湖步道、城里的粉墙黛瓦
     b = B("EastShore")
     prism(b, 54.0, -6.0, -0.6, 2.4, 1.0, GRANITE, n=8)
     box(b, 55.8, -6.0, -0.4, 2.6, 0.9, 0.8, GRANITE)
     pavilion_jn(b, 54.0, -6.0, 1.5, 1.05, n=6, z0=0.4, double=True)          # 集贤亭
-    pavilion_jn(b, 52.5, -40.0, 1.3, 0.95, n=6, double=True)                  # 柳浪闻莺
+    pavilion_jn(b, 49.2, -41.4, 1.3, 0.95, n=6, double=True)                  # 柳浪闻莺
     compound(b, 63.0, -32.0, 7.0, 6.0, WHITE_WALL, nh=2)                      # 钱王祠
     hall_jn(b, 61.5, 12.0, 4.0, 2.2, 1.2, double=True, stair=True)
     hall_jn(b, 61.0, 30.0, 3.2, 1.8, 1.0)
@@ -1892,7 +2167,7 @@ def build_scene():
         s += 1.5
     b.build()
     town(60.5, -62, 68.6, 62, bw=6.6, bd=9.0, street=2.0, density=0.95, flat_x=64.0)   # 湖滨老城（一列街区）
-    city(68.8, -36, 76.0, 36, floors=(3, 8), bw=5.0, bd=9.0, street=1.8, density=0.92)   # 其后的现代城区（岛缘内）
+    city(68.8, -36, 76.0, 36, floors=(5, 9), bw=5.0, bd=9.0, street=1.8, density=0.92)   # 其后的现代城区（岛缘内）
     for i in range(160):
         x, y = random.uniform(60, 76), random.uniform(-72, 72)
         if lake_depth(x, y) < -2 and ground(x, y) < 1.5 and not blocked(x, y):
@@ -1901,7 +2176,8 @@ def build_scene():
     # ---- 驳岸与芦苇（曲院风荷、花港一带再补几丛）、环湖公园带
     embankment()
     shore_park()
-    for (x, y) in ((-43.0, 28.0), (-44.5, 14.0), (-41.0, 36.0), (-48.0, -8.0), (-44.0, -38.0), (-28.0, -51.0), (-31.5, 44.5)):
+    for (x, y) in ((-43.0, 28.0), (-44.5, 14.0), (-41.0, 36.0), (-46.6, -11.0), (-44.0, -38.0), (-28.0, -51.0), (-31.5, 44.5),
+                   (-63.5, 18.5), (-61.0, -30.0), (-20.0, 58.0), (12.0, 60.8), (40.3, -64.0)):
         if not blocked(x, y):
             reeds(x, y, random.randint(28, 44), r=1.2)
 
@@ -1916,8 +2192,8 @@ def build_scene():
     # ---- 游船群：湖滨码头、岳湖码头、花港码头；湖滨与苏堤附近散落的手划船
     dock(55.6, 4.0, math.pi, 8)                 # 湖滨（向西伸入湖中）
     dock(55.4, -22.0, math.pi, 6)
-    dock(8.0, 56.6, -math.pi / 2, 6)            # 北里湖 / 北山路
-    dock(-30.0, -62.4, math.pi / 2, 6)          # 花港观鱼
+    dock(4.0, 61.9, -math.pi / 2, 6)            # 北里湖 / 北山路
+    dock(-29.0, -63.6, math.pi / 2, 6)          # 花港观鱼（小南湖）
     for i in range(14):
         x, y = random.uniform(42.0, 53.0), random.uniform(-36.0, 20.0)
         if lake_depth(x, y) > 2.5 and shore_dist(x, y) > 1.5 and not blocked_r(x, y, 1.0):
@@ -1926,23 +2202,24 @@ def build_scene():
         x, y = random.uniform(-34.0, -26.0), random.uniform(-20.0, 20.0)
         if lake_depth(x, y) > 2.5 and shore_dist(x, y) > 1.5:
             boat(x, y, random.uniform(0, 6.28), random.uniform(1.3, 1.6), 0.6, False)
-    for (x, y, a) in ((44.0, 36.0, 1.1), (30.0, -30.0, 2.6), (-8.0, 30.0, 0.4)):   # 再来几艘行驶中的画舫
+    for (x, y, a) in ((-12.0, 56.0, 0.3), (23.0, 59.3, 2.9), (-58.0, 12.0, 1.2), (-60.0, 19.5, 2.2), (-55.5, -30.5, 0.5), (-6.0, -57.0, 2.0)):
+        if lake_depth(x, y) > 2.0 and shore_dist(x, y) > 1.2:
+            boat(x, y, a, 1.5, 0.6, False)
+    for (x, y, a) in ((40.0, 34.0, 1.1), (30.0, -30.0, 2.6), (-8.0, 30.0, 0.4), (12.0, 56.5, 3.3)):   # 再来几艘行驶中的画舫
         boat(x, y, a, 4.2, 1.6, True)
         wake(x, y, a, 4.2, 1.6, True)
 
     # ---- 沿湖垂柳
-    n = 170
-    for i in range(n):
-        a = 2 * math.pi * i / n + random.uniform(-0.01, 0.01)
-        r = lake_r(a) + random.uniform(0.9, 1.6)
-        x, y = LC[0] + r * math.cos(a), LC[1] + r * math.sin(a)
-        if blocked(x, y) or ground(x, y) > 1.3:
+    for (sx_, sy_, nx, ny) in shore_walk(2.25, jitter=0.3):
+        r = random.uniform(0.9, 1.6)
+        x, y = sx_ + nx * r, sy_ + ny * r
+        if blocked(x, y) or ground(x, y) > 1.3 or lake_depth(x, y) > -0.6:
             continue
         plant("willow" if random.random() < 0.75 else "tree", x, y, random.uniform(1.5, 2.0))
         if random.random() < 0.5:
             r2 = r + random.uniform(2.0, 4.0)
-            x2, y2 = LC[0] + r2 * math.cos(a), LC[1] + r2 * math.sin(a)
-            if not blocked(x2, y2) and ground(x2, y2) < 2.5:
+            x2, y2 = sx_ + nx * r2, sy_ + ny * r2
+            if not blocked(x2, y2) and ground(x2, y2) < 2.5 and lake_depth(x2, y2) < -1.5:
                 plant("tree" if random.random() < 0.6 else "pine", x2, y2, random.uniform(1.3, 1.7))
 
     # ---- 山林（实例化松树/阔叶树）：斑块密度、坡向树种、成片秋色、林窗岩石
@@ -1963,11 +2240,12 @@ def build_scene():
                     slope = math.hypot(zx, zy) / 1.2
                     # 密度：大斑块空地（林窗、草坡）+ 中尺度起伏 + 高处稀疏；朝南坡阔叶多，朝北坡松林密
                     clearing = smooth01((fbm(xx * 0.045 + 7, yy * 0.045 + 3, 3) - 0.60) / 0.12)
+                    clearing *= 1.0 - smooth01((slope - 0.9) / 0.9)   # 林窗只留在缓坡上：陡坡朝着太阳的空地是一块刺眼的白
                     dens = (0.95 - 0.8 * clearing) * (0.8 + 0.4 * (fbm(xx * 0.12 + 2, yy * 0.12 + 4, 3) - 0.5))
                     if z > 14:
                         dens *= max(0.35, 1.0 - (z - 14) / 12.0)
                     south = zy < 0   # 地面向南降低 = 南坡
-                    if slope < 3.4 and random.random() < (dens if slope < 2.2 else dens * 0.6):
+                    if slope < 3.4 and random.random() < (dens if slope < 2.2 else dens * 0.92):
                         aut = fbm(xx * 0.08 + 11, yy * 0.08 + 5, 3)
                         p_maple = 0.04 + 0.5 * smooth01((aut - 0.52) / 0.2)
                         p_gink = 0.03 + 0.4 * smooth01((fbm(xx * 0.07 + 23, yy * 0.07 + 17, 3) - 0.55) / 0.2)
@@ -1980,7 +2258,7 @@ def build_scene():
                             p_pine = 0.35 if south else 0.75
                             p_pine += 0.2 if z > 8 else 0.0
                             kind = "pine" if random.random() < p_pine else "tree"
-                        sz = random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85) * (0.8 + 0.2 * (1 - clearing)) * (1.0 if slope < 2.2 else 0.75)
+                        sz = random.uniform(1.0, 1.6) * (1.0 if z < 10 else 0.85) * (0.8 + 0.2 * (1 - clearing)) * (1.0 if slope < 2.2 else 0.9)
                         if slope >= 2.2:
                             kind = "pine"
                         plant(kind, xx, yy, sz)
@@ -2004,9 +2282,9 @@ def build_scene():
             b.add(v, f, ROCK)
     b.build()
     # 上山小径与山顶亭（西山、南屏山）
-    for (pts, top) in ((([(-44.0, 14.0), (-50.0, 12.0), (-56.0, 15.0), (-61.0, 11.0), (-66.0, 13.0), (-71.0, 9.0)], True)),
+    for (pts, top) in ((([(-60.5, 5.5), (-63.5, 8.0), (-66.5, 6.5), (-69.0, 10.0), (-72.5, 8.5)], True)),
                        (([(-16.0, -62.0), (-20.0, -67.0), (-16.0, -72.0), (-10.0, -76.0), (-6.0, -80.0)], True)),
-                       (([(10.0, 60.0), (14.0, 66.0), (12.0, 72.0), (16.0, 75.0)], False))):
+                       (([(13.5, 65.0), (15.5, 68.5), (12.5, 72.0), (16.0, 75.0)], False))):
         b = B("HillPath")
         P, L = polyline(pts)
         s = 0.0
@@ -2057,6 +2335,10 @@ def build_scene():
         if k == 'land' and z < 2.5 and -14 < lake_depth(x, y) < -0.8 and random.random() < 0.7:
             plant("bush", x, y, random.uniform(0.9, 1.6))
     print(f"[wl] hill trees={cnt}, plants total={N_PLANTS}")
+    # 自检：禁区圆心落在水里的（岛上的不算）。应当只有集贤亭、码头、桥这些本来就在水上的东西
+    wet = [(round(kx, 1), round(ky, 1), round(lake_depth(kx, ky), 1)) for (kx, ky, kr) in KEEP
+           if kr >= 1.0 and lake_depth(kx, ky) > -0.3 and island_z(kx, ky) is None]
+    print(f"[wl] keep zones centred in water: {wet}")
 
 # ----------------------------------------------------------------------------- 相机 / 灯光 / 雾 / 背景
 def setup_camera_lights():
@@ -2204,6 +2486,30 @@ def volume_box(name, x0, y0, z0, x1, y1, z1, density, color, aniso, gradient=Non
             nt.links.new(dens, mul.inputs[0])
             nt.links.new(map_range(nt, nz.outputs["Fac"], 0.3, 1.5), mul.inputs[1])
             dens = mul.outputs[0]
+        # 雾只留在岛面上：按岛缘的超椭圆把密度收到 0。雾箱是长方体，岛是圆角的，
+        # 原来箱角伸出岛外，隔着山坳衬在背景上像一座灰白的“鬼楼”
+        ix0, iy0, ix1, iy1 = ISL
+        icx, icy, ihw, ihd = (ix0 + ix1) / 2, (iy0 + iy1) / 2, (ix1 - ix0) / 2, (iy1 - iy0) / 2
+        def _axis(sock, c, hw):
+            sub = nt.nodes.new("ShaderNodeMath"); sub.operation = 'SUBTRACT'
+            nt.links.new(sock, sub.inputs[0]); sub.inputs[1].default_value = c
+            ab = nt.nodes.new("ShaderNodeMath"); ab.operation = 'ABSOLUTE'
+            nt.links.new(sub.outputs[0], ab.inputs[0])
+            dv = nt.nodes.new("ShaderNodeMath"); dv.operation = 'DIVIDE'
+            nt.links.new(ab.outputs[0], dv.inputs[0]); dv.inputs[1].default_value = hw
+            pw = nt.nodes.new("ShaderNodeMath"); pw.operation = 'POWER'
+            nt.links.new(dv.outputs[0], pw.inputs[0]); pw.inputs[1].default_value = 2.0 / E_SUP
+            return pw.outputs[0]
+        add = nt.nodes.new("ShaderNodeMath"); add.operation = 'ADD'
+        nt.links.new(_axis(sep.outputs["X"], icx, ihw), add.inputs[0])
+        nt.links.new(_axis(sep.outputs["Y"], icy, ihd), add.inputs[1])
+        rho = nt.nodes.new("ShaderNodeMath"); rho.operation = 'POWER'
+        nt.links.new(add.outputs[0], rho.inputs[0]); rho.inputs[1].default_value = E_SUP / 2.0
+        edge = map_range(nt, rho.outputs[0], 1.0, 0.0, 0.90, 0.985)
+        edge.node.clamp = True
+        msk = nt.nodes.new("ShaderNodeMath"); msk.operation = 'MULTIPLY'
+        nt.links.new(dens, msk.inputs[0]); nt.links.new(edge, msk.inputs[1])
+        dens = msk.outputs[0]
         nt.links.new(dens, sc.inputs["Density"])
     else:
         sc.inputs["Density"].default_value = density
@@ -2223,7 +2529,7 @@ def setup_mist():
         return
     x0, y0, x1, y1 = ISL
     # 湖面薄雾：贴水低雾，随高度消散，带斑块（远景空气透视改在材质里按视距混色，见 add_fog）
-    volume_box("LakeMist", -70, -72, -0.6, 68, 66, 1.8, 0.028, (0.92, 0.94, 0.95), 0.55, gradient=(-0.6, 1.8), noise_scale=0.035)
+    volume_box("LakeMist", -74, -75, -0.6, 66, 70, 1.8, 0.028, (0.92, 0.94, 0.95), 0.55, gradient=(-0.6, 1.8), noise_scale=0.035)
     # 西岸山脚雾带（山色空蒙）、北岸远景雾带：更高、更稀、斑块更大
     if "--nonewmist" in argv:
         return

@@ -3,6 +3,10 @@ import { startDiorama } from './Viewer.js';
 const id = document.body.dataset.scene;
 const el = (s) => document.querySelector(s);
 let wantAuto = true;
+// 触屏设备：操作提示换成手势说法（手机上关了平移，见 Viewer.js 的 enablePan）；
+// 不支持网页全屏的（iPhone 的 Safari）把全屏按钮藏起来，免得点了没反应
+if (matchMedia('(pointer: coarse)').matches && el('#hint')) el('#hint').textContent = '单指旋转 · 双指缩放';
+if (!document.documentElement.requestFullscreen && el('#btn-full')) el('#btn-full').style.display = 'none';
 const ui = {
   setTitle: (t) => { el('#title').textContent = t; document.title = t + ' · 微缩沙盘'; },
   status: (t) => { el('#loader-status').textContent = t; },

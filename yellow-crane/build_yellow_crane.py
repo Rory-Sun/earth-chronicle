@@ -4158,7 +4158,11 @@ if WEB:
                  "colDeep": [0.150, 0.172, 0.104], "colNear": [0.180, 0.195, 0.112], "colShore": [0.27, 0.245, 0.145]},
         "hdri": "belfast_sunset_puresky_1k.hdr",
         # 网页版的窗玻璃压暗：玻璃本身是很浅的蓝灰，成图里靠反射天空显深，网页里贴在白墙上看不出窗格
-        "mat": {"Glass": {"metalness": 0.3, "roughness": 0.25, "envMapIntensity": 0.6, "tint": [0.3, 0.34, 0.4]}},
+        # 楼面也压暗：这几种面材底色都很浅（0.5–0.86），成图是夕照、明暗面分明，网页的光照下整栋楼冲成白色，
+        # 远看城区就是一片白方块。压到成图里受光面的灰米色；玻璃再压一档、少映一点天空，窗格才显得出来
+        "mat": {"Glass": {"metalness": 0.3, "roughness": 0.25, "envMapIntensity": 0.3, "tint": [0.135, 0.153, 0.18]},
+                "Facade": {"tint": [0.50, 0.50, 0.49]}, "Facade2": {"tint": [0.50, 0.49, 0.47]},
+                "Facade3": {"tint": [0.60, 0.60, 0.60]}, "Facade4": {"tint": [0.55, 0.55, 0.55]}},
         "plants": [q for q in PLANTS if q is not None], "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,

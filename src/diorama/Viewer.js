@@ -168,7 +168,8 @@ function weatherPatch(mat, kind, w) {
 let MAT_OVERRIDE = {};   // scene.json 的 mat 字段：逐场景覆盖贴图比例等
 async function applyMaterial(mesh) {
   const m = mesh.material; if (!m) return;
-  const spec = MATERIALS[m.name] ? Object.assign({}, MATERIALS[m.name], MAT_OVERRIDE[m.name]) : null;
+  // scene.json 的 mat 也可以给 MATERIALS 里没有的材质单独压色（黄鹤楼的浅色楼面在网页光照下会冲成白色）
+  const spec = (MATERIALS[m.name] || MAT_OVERRIDE[m.name]) ? Object.assign({}, MATERIALS[m.name], MAT_OVERRIDE[m.name]) : null;
   if (!spec) { m.roughness = Math.min(0.95, Math.max(0.35, m.roughness)); return; }
   const mat = new THREE.MeshStandardMaterial({ color: m.color.clone(), roughness: spec.roughness ?? m.roughness, metalness: spec.metalness ?? m.metalness });
   if (spec.tint) mat.color.multiply(new THREE.Color(...spec.tint));
@@ -337,14 +338,19 @@ export async function startDiorama(id, ui) {
   const cam = meta.camera;
   const target = toThree(new THREE.Vector3(...cam.target));
   const az = THREE.MathUtils.degToRad(cam.az), pitch = THREE.MathUtils.degToRad(cam.pitch);
-  const posB = new THREE.Vector3(cam.target[0] + Math.sin(az) * Math.cos(pitch) * cam.dist, cam.target[1] - Math.cos(az) * Math.cos(pitch) * cam.dist, cam.target[2] + Math.sin(pitch) * cam.dist);
+  // 竖屏窄于 0.6 时 fitFov 不再加大视角（否则透视变形太重），水平视野就缩小了：手机竖屏上沙盘左右被裁掉。
+  // 改成按同样的比例把相机拉远，最远距离也跟着放宽；转屏时在 resize 里换算回来
+  const narrowK = () => Math.max(1, 0.6 / (innerWidth / innerHeight));
+  let fitK = narrowK();
+  const dist0 = cam.dist * fitK;
+  const posB = new THREE.Vector3(cam.target[0] + Math.sin(az) * Math.cos(pitch) * dist0, cam.target[1] - Math.cos(az) * Math.cos(pitch) * dist0, cam.target[2] + Math.sin(pitch) * dist0);
   const hfov = 2 * Math.atan(18 / cam.lens);
   const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 4000);
   const fitFov = () => { camera.aspect = innerWidth / innerHeight; camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hfov / 2) / Math.max(camera.aspect, 0.6))); camera.updateProjectionMatrix(); };
   camera.position.copy(toThree(posB)); fitFov();
   const controls = new OrbitControls(camera, canvas);
   controls.target.copy(target); controls.enableDamping = true; controls.dampingFactor = 0.06;
-  controls.minDistance = cam.min_dist; controls.maxDistance = cam.max_dist;
+  controls.minDistance = cam.min_dist; controls.maxDistance = cam.max_dist * fitK;
   controls.minPolarAngle = THREE.MathUtils.degToRad(12); controls.maxPolarAngle = THREE.MathUtils.degToRad(82);
   controls.autoRotate = true; controls.autoRotateSpeed = 0.35; controls.enablePan = !isMobile;
   controls.update();
@@ -540,7 +546,14 @@ export async function startDiorama(id, ui) {
   };
   const onInteract = () => { controls.autoRotate = false; clearTimeout(autoTimer); autoTimer = setTimeout(() => { if (ui.autoRotateWanted()) controls.autoRotate = true; }, 6000); };
   canvas.addEventListener('pointerdown', onInteract); canvas.addEventListener('wheel', onInteract, { passive: true });
-  addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); fitFov(); composer.setSize(innerWidth, innerHeight); });
+  addEventListener('resize', () => {
+    renderer.setSize(innerWidth, innerHeight); fitFov(); composer.setSize(innerWidth, innerHeight);
+    const k = narrowK();
+    if (Math.abs(k - fitK) > 1e-3) {
+      camera.position.sub(controls.target).multiplyScalar(k / fitK).add(controls.target);
+      controls.maxDistance = cam.max_dist * k; fitK = k;
+    }
+  });
   renderer.setSize(innerWidth, innerHeight);
   renderer.setAnimationLoop(() => {
     const dt = clock.getDelta();

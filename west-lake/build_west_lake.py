@@ -319,7 +319,7 @@ _geo = nt.nodes.new("ShaderNodeNewGeometry")
 _nsep = nt.nodes.new("ShaderNodeSeparateXYZ")
 nt.links.new(_geo.outputs["Normal"], _nsep.inputs["Vector"])
 _slope = map_range(nt, _nsep.outputs["Z"], 1.0, 0.0, 0.22, 0.45)
-_rock_col = mul_color(nt, rgb(nt, (0.40, 0.40, 0.37)), map_range(nt, _mn.outputs["Fac"], 0.8, 1.15))
+_rock_col = mul_color(nt, rgb(nt, (0.25, 0.26, 0.22)), map_range(nt, _mn.outputs["Fac"], 0.8, 1.15))
 _mcol = mix_rgb(nt, _mount_col, _rock_col, _slope, 'MIX')
 _zf = map_range(nt, _sep.outputs["Z"], 0.0, 1.0, 0.9, 3.4)
 _fac = mix_rgb(nt, _grass_col, _mcol, _zf, 'MIX')
@@ -720,23 +720,24 @@ LC = (2.0, -4.0)   # 湖心（只用来定“朝湖心”的方向）
 # 湖岸控制点（逆时针，自东岸湖滨起）。岸线 = 过这些点的闭合样条 + 一层小尺度噪波；不再是“超椭圆 + 三面拉直”的圆角方形。
 # 凡是贴岸的东西（地形、驳岸、环湖路、垂柳、码头、水面的 shore 属性）都从这条线和它的距离场推出来。
 SHORE_CTRL = [
-    (55.5, -6.0), (55.6, 4.0), (54.8, 14.0), (52.8, 23.0), (49.6, 31.5), (45.6, 39.5), (41.6, 46.5), (38.0, 52.0),   # 湖滨：中段较直，向北斜收
+    (55.5, -6.0), (55.9, 4.0), (56.0, 13.0), (55.3, 21.0), (52.4, 28.5), (48.4, 35.0), (44.4, 41.5), (41.0, 47.5), (38.0, 52.0),   # 湖滨：一公园到六公园是直的，六公园拐角后斜向断桥
     (35.6, 55.6),                                                                                                    # 断桥（白堤东端）
     (32.5, 59.0), (27.0, 62.0), (18.0, 63.6), (8.0, 62.6), (-2.0, 60.4), (-12.0, 60.8), (-21.0, 59.4),               # 北里湖北岸（北山路）
     (-26.5, 57.6), (-29.9, 56.9), (-36.2, 55.9),                                                                     # 西泠桥北堍、苏堤北端
     (-42.0, 57.2), (-47.5, 55.6), (-52.0, 51.5), (-53.2, 45.0),                                                      # 岳湖
     (-51.6, 39.5), (-48.6, 33.0),                                                                                    # 曲院风荷岬
-    (-51.8, 28.6), (-58.0, 26.4), (-63.5, 22.6), (-65.2, 17.0), (-63.0, 11.0), (-58.5, 6.0), (-54.0, 1.0),           # 茅家埠（大湾，山脚入水）
+    (-51.8, 28.6), (-57.0, 26.6), (-61.3, 23.0), (-62.6, 17.0), (-60.8, 11.0), (-57.3, 6.0), (-54.0, 1.0),           # 茅家埠（大湾）。湾底不要再往西：切进西山山体会削出一面七十度的陡崖
     (-50.0, -5.5), (-48.0, -12.0), (-49.2, -18.5), (-53.0, -23.0),                                                   # 丁家山岬
     (-58.0, -26.0), (-62.5, -29.5), (-60.0, -34.0), (-55.0, -37.0),                                                  # 浴鹄湾（小湾）
     (-52.5, -43.0), (-49.0, -50.0), (-43.8, -56.0),                                                                  # 花港
     (-37.3, -60.6),                                                                                                  # 苏堤南端
     (-31.5, -63.4), (-25.0, -63.2),                                                                                  # 小南湖
-    (-18.0, -59.6), (-11.0, -58.6),                                                                                  # 南岸小岬
+    (-19.5, -59.8), (-16.0, -55.6), (-11.5, -54.4), (-7.5, -57.4),                                                   # 南岸的岬（伸进湖里六个单位，岬头一座亭）
     (-4.0, -61.4), (3.0, -63.6), (10.0, -63.2), (15.5, -60.6),                                                       # 净慈寺前的湾
     (20.0, -56.2), (25.5, -52.6), (31.0, -53.0), (35.0, -56.2),                                                      # 夕照山岬（雷峰塔）
     (36.9, -59.6), (38.2, -63.4), (39.3, -66.6), (41.6, -66.9), (42.7, -63.0), (43.5, -59.0),                        # 长桥下的小港汊
-    (43.9, -53.5), (45.3, -46.5), (48.4, -38.5), (51.8, -30.0), (54.3, -21.0), (55.3, -13.0)]                        # 柳浪闻莺：向南斜收
+    (43.9, -53.5), (44.4, -48.0), (45.2, -43.5), (46.2, -39.6),                                                      # 柳浪闻莺：略向湖里鼓出的岬
+    (49.5, -36.5), (53.0, -33.6), (55.6, -29.5), (56.6, -24.0), (56.2, -18.5), (55.0, -14.5), (54.5, -10.5)]         # 涌金门一带的浅湾
 
 def _shore_polygon(step=0.3):
     """闭合的向心 Catmull-Rom 样条 → 按弧长 0.3 重采样 → 沿法线加小起伏（湖滨是人工岸，压到三成）。返回逆时针点列。"""
@@ -849,7 +850,7 @@ def lake_depth(x, y):
 
 # 山体：(cx, cy, H, rx, ry)
 # 山体：(cx, cy, H, rx, ry, rot)，旋转椭圆叠成连绵山脊
-HILLS = [(-76, 6, 20, 18, 40, 0.15), (-70, -46, 15, 22, 15, 0.5), (-68, 50, 15, 20, 14, -0.4),
+HILLS = [(-79, 6, 19, 19, 40, 0.15), (-70, -46, 15, 22, 15, 0.5), (-68, 50, 15, 20, 14, -0.4),
          (-86, -68, 11, 20, 16, 0.0), (-84, 70, 12, 22, 15, 0.0), (-61, -17, 7.5, 11, 12.5, 0.3),
          (-65, 36, 6, 9, 7, 0.0), (-90, 28, 16, 14, 30, 0.0),
          (27.5, -61.5, 5.5, 9.5, 8.0, 0.0), (-8, -80, 13, 34, 12, 0.1), (-46, -74, 10, 22, 12, 0.3), (50, -78, 8, 18, 10, 0.0),
@@ -909,7 +910,7 @@ def ground(x, y):
     return terrain(x, y)[0]
 
 # ----------------------------------------------------------------------------- 岛屿地形 + 切面 + 湖水
-ISL = (-98.0, -86.0, 78.0, 84.0)
+ISL = (-98.0, -86.0, 86.0, 84.0)
 E_SUP = 0.6
 def isl_rho(x, y):
     x0, y0, x1, y1 = ISL
@@ -2121,6 +2122,7 @@ def build_scene():
     pavilion_jn(b, 47.0, -57.6, 1.2, 0.9, n=6)
     hall_jn(b, -24.5, -66.0, 3.0, 1.8, 0.9)                                  # 花港观鱼一带
     pavilion_jn(b, -46.5, -54.7, 1.2, 0.9, n=6)
+    pavilion_jn(b, -13.4, -57.6, 1.2, 0.9, n=6, double=True)                 # 南岸岬头的亭
     hall_jn(b, -50.8, -51.6, 2.8, 1.6, 0.9)
     b.build()
 
@@ -2159,7 +2161,7 @@ def build_scene():
     hall_jn(b, 61.0, 30.0, 3.2, 1.8, 1.0)
     hall_jn(b, 62.0, -14.0, 3.2, 1.8, 1.0)
     pavilion_jn(b, 56.5, 44.0, 1.1, 0.85, n=6)
-    P_e, L_e = polyline([(57.5, -52.0), (58.2, -30.0), (58.0, 0.0), (57.8, 25.0), (55.0, 45.0)])
+    P_e, L_e = polyline([(57.5, -52.0), (58.3, -32.0), (58.8, -24.0), (58.2, -12.0), (58.2, 14.0), (57.8, 25.0), (55.0, 45.0)])
     s = 0.0
     while s < L_e:
         x, y, dx, dy = P_e(s)
@@ -2167,9 +2169,10 @@ def build_scene():
         s += 1.5
     b.build()
     town(60.5, -62, 68.6, 62, bw=6.6, bd=9.0, street=2.0, density=0.95, flat_x=64.0)   # 湖滨老城（一列街区）
-    city(68.8, -36, 76.0, 36, floors=(5, 9), bw=5.0, bd=9.0, street=1.8, density=0.92)   # 其后的现代城区（岛缘内）
-    for i in range(160):
-        x, y = random.uniform(60, 76), random.uniform(-72, 72)
+    city(68.8, -52, 74.6, 52, floors=(5, 9), bw=5.0, bd=9.0, street=1.8, density=0.92)   # 其后的现代城区：前排矮
+    city(75.6, -38, 81.4, 38, floors=(7, 11), bw=5.0, bd=9.0, street=1.8, density=0.92)  # 后排高，天际线离湖越远越高
+    for i in range(230):
+        x, y = random.uniform(60, 84), random.uniform(-72, 72)
         if lake_depth(x, y) < -2 and ground(x, y) < 1.5 and not blocked(x, y):
             plant(random.choice(["tree", "tree", "willow", "ginkgo"]), x, y, random.uniform(1.3, 1.8))
 
@@ -2190,8 +2193,8 @@ def build_scene():
         wake(x, y, a, L, W, c)
 
     # ---- 游船群：湖滨码头、岳湖码头、花港码头；湖滨与苏堤附近散落的手划船
-    dock(55.6, 4.0, math.pi, 8)                 # 湖滨（向西伸入湖中）
-    dock(55.4, -22.0, math.pi, 6)
+    dock(55.9, 4.0, math.pi, 8)                 # 湖滨（向西伸入湖中）
+    dock(56.5, -22.0, math.pi, 6)
     dock(4.0, 61.9, -math.pi / 2, 6)            # 北里湖 / 北山路
     dock(-29.0, -63.6, math.pi / 2, 6)          # 花港观鱼（小南湖）
     for i in range(14):
@@ -2263,6 +2266,13 @@ def build_scene():
                             kind = "pine"
                         plant(kind, xx, yy, sz)
                         cnt += 1
+                        if slope > 1.0:
+                            extra = math.sqrt(1.0 + slope * slope) - 1.0        # 坡面面积比水平投影多出的倍数
+                            for _e in range(min(2, int(extra) + (1 if random.random() < extra - int(extra) else 0))):
+                                ex, ey = xx + random.uniform(-0.45, 0.45), yy + random.uniform(-0.45, 0.45)
+                                if not blocked(ex, ey) and ground(ex, ey) > 1.0:
+                                    plant("pine" if slope >= 1.6 or random.random() < 0.6 else "tree", ex, ey, random.uniform(0.9, 1.3))
+                                    cnt += 1
                     elif clearing > 0.55 and z > 3.0 and random.random() < 0.16:
                         ROCKS.append((xx, yy))
                     elif slope < 3.4 and random.random() < 0.45:      # 林窗：灌木丛为主，偶有小树
@@ -2347,7 +2357,7 @@ def setup_camera_lights():
     cam_data.sensor_width = 36
     cam = bpy.data.objects.new("Camera", cam_data)
     COL.objects.link(cam)
-    target = (-5.0, 2.0, -4.0)
+    target = (-2.0, 2.0, -4.0)
     az = math.radians(34)
     dist = 300.0
     pitch = math.radians(35)
@@ -2601,11 +2611,14 @@ if WEB:
         return tuple(lo[i] + (hi[i] - lo[i]) * f for i in range(3))
     de.export_scene(arg("--export-glb", os.path.join(HERE, "web")), {"Backdrop", "Haze", "LakeMist", "HillMist", "NorthMist", "Wake"}, _vcol, uv_scale=1.0, extra={
         "title": "杭州西湖", "unit_m": 25,
-        "camera": {"target": [-5, 2, -4], "az": 34, "dist": 300, "pitch": 35, "lens": 45, "min_dist": 80, "max_dist": 600},
+        "camera": {"target": [-2, 2, -4], "az": 34, "dist": 300, "pitch": 35, "lens": 45, "min_dist": 80, "max_dist": 600},
         "sun": {"euler_deg": [66, 0, 118], "color": [1.0, 0.86, 0.70], "strength": 4.6},
         "backdrop": [[0.84, 0.89, 0.89], [0.93, 0.95, 0.94]],
         "water": ["LakeWater"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.84, 0.92, 0.96],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
+        # 网页版的光照比成图亮：楼面不压色，向阳面是一片白（黄鹤楼的 Facade 同理）
+        "mat": {"TowerWarm": {"tint": [0.55, 0.55, 0.55]}, "TowerBeige": {"tint": [0.6, 0.6, 0.6]}, "Balcony": {"tint": [0.55, 0.55, 0.55]},
+                "TowerBrick": {"tint": [0.7, 0.7, 0.7]}, "TowerGrey": {"tint": [0.7, 0.7, 0.7]}, "TowerFrame": {"tint": [0.7, 0.7, 0.7]}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(160,62,28,0.66)", "ginkgo": "rgba(212,164,52,0.68)"}, "plant_billboard": True,

@@ -4162,7 +4162,8 @@ if WEB:
         # 远看城区就是一片白方块。压到成图里受光面的灰米色；玻璃再压一档、少映一点天空，窗格才显得出来
         "mat": {"Glass": {"metalness": 0.3, "roughness": 0.25, "envMapIntensity": 0.3, "tint": [0.135, 0.153, 0.18]},
                 "Facade": {"tint": [0.50, 0.50, 0.49]}, "Facade2": {"tint": [0.50, 0.49, 0.47]},
-                "Facade3": {"tint": [0.60, 0.60, 0.60]}, "Facade4": {"tint": [0.55, 0.55, 0.55]}},
+                "Facade3": {"tint": [0.60, 0.60, 0.60]}, "Facade4": {"tint": [0.55, 0.55, 0.55]},
+                "FenQiang": {"tint": [0.7, 0.7, 0.7]}, "Concrete": {"tint": [0.68, 0.68, 0.68]}, "StonePaving": {"tint": [0.756, 0.756, 0.72]}},
         "plants": [q for q in PLANTS if q is not None], "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(165,58,28,0.68)", "ginkgo": "rgba(216,164,50,0.70)"}, "plant_billboard": True,

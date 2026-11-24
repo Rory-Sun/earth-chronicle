@@ -340,13 +340,15 @@ export async function startDiorama(id, ui) {
   const az = THREE.MathUtils.degToRad(cam.az), pitch = THREE.MathUtils.degToRad(cam.pitch);
   // 竖屏窄于 0.6 时 fitFov 不再加大视角（否则透视变形太重），水平视野就缩小了：手机竖屏上沙盘左右被裁掉。
   // 改成按同样的比例把相机拉远，最远距离也跟着放宽；转屏时在 resize 里换算回来
-  const narrowK = () => Math.max(1, 0.6 / (innerWidth / innerHeight));
+  // 页面在零尺寸的窗口里加载（隐藏的标签页、display:none 的 iframe）时宽高比是 NaN 或 0：这时按 1 算，
+  // 否则相机位置变成 NaN，之后窗口恢复尺寸也回不来，画面一直是空的
+  const narrowK = () => { const a = innerWidth / innerHeight; return a > 0 && Number.isFinite(a) ? Math.min(3, Math.max(1, 0.6 / a)) : 1; };
   let fitK = narrowK();
   const dist0 = cam.dist * fitK;
   const posB = new THREE.Vector3(cam.target[0] + Math.sin(az) * Math.cos(pitch) * dist0, cam.target[1] - Math.cos(az) * Math.cos(pitch) * dist0, cam.target[2] + Math.sin(pitch) * dist0);
   const hfov = 2 * Math.atan(18 / cam.lens);
   const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 1, 4000);
-  const fitFov = () => { camera.aspect = innerWidth / innerHeight; camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hfov / 2) / Math.max(camera.aspect, 0.6))); camera.updateProjectionMatrix(); };
+  const fitFov = () => { const a = innerWidth / innerHeight; camera.aspect = a > 0 && Number.isFinite(a) ? a : 1; camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hfov / 2) / Math.max(camera.aspect, 0.6))); camera.updateProjectionMatrix(); };
   camera.position.copy(toThree(posB)); fitFov();
   const controls = new OrbitControls(camera, canvas);
   controls.target.copy(target); controls.enableDamping = true; controls.dampingFactor = 0.06;

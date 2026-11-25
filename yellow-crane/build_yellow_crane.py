@@ -1622,6 +1622,59 @@ _fn = noise(nt, 2.4, 5.0)
 _fa = _fm('MULTIPLY', _fm('MULTIPLY', _fade, _bell), map_range(nt, _fn.outputs["Fac"], 0.0, 1.0, 0.36, 0.66))
 nt.links.new(_fm('MULTIPLY', _fa, float(arg("--foam", 0.8))), nt.nodes["Principled BSDF"].inputs["Alpha"])
 
+RIDGE_GOLD = principled("RidgeGold", (0.33, 0.19, 0.045), rough=0.45, coat=0.3)     # 戗脊、檐口：比瓦面深一档的琉璃
+EAVE_UNDER = principled("EaveUnder", (0.34, 0.10, 0.07), rough=0.6)                # 檐底的椽望：朱红
+
+def curved_roof(b, cx, cy, z, ho, hi, rise, mat, curl=0.9, flare=0.5, sag=0.15, seg=12, rows=5, t=0.12, ridge_t=0.085, tip=0.55):
+    """方形的曲面屋顶（黄鹤楼的腰檐和攒尖顶）。檐口每边 seg 段：越靠近屋角，檐口抬得越高（起翘 curl）、
+    伸得越远（出翘 flare），按三次方收在角上，中段是平的；屋面自檐口到上沿分 rows 排，中间下凹（sag），是一张曲面。
+    四条戗脊跟着曲面走，脊头在屋角外再挑出一截。ho 檐口半宽，hi 上沿半宽，rise 檐口到上沿的高差。
+    原来的 skirt_roof / poly_roof 每边只有三个点，翘角是一条斜直线，屋面是平板。"""
+    n = 4 * seg
+    def side_pt(k, i, r):
+        sgn = -1.0 + 2.0 * i / seg
+        a = abs(sgn) ** 3
+        v = r / rows
+        ex, ey, ez = sgn * (ho + flare * a), -(ho + flare * a), z + curl * a
+        ix, iy, iz = sgn * hi, -hi, z + rise
+        x, y = ex + (ix - ex) * v, ey + (iy - ey) * v
+        zz = ez + (iz - ez) * v - sag * rise * math.sin(math.pi * v)
+        for _ in range(k):
+            x, y = -y, x
+        return (cx + x, cy + y, zz), sgn * (ho + flare * a) * (1 - v) + sgn * hi * v, 1.7 * (z + rise * v)
+    top, uvmap = [], {}
+    for r in range(rows + 1):
+        for k in range(4):
+            for i in range(seg):
+                p, u, vv = side_pt(k, i, r)
+                top.append(p)
+    def vid(r, j):
+        return r * n + (j % n)
+    faces, uvs = [], []
+    for r in range(rows):
+        for k in range(4):
+            for i in range(seg):
+                j = k * seg + i
+                faces.append((vid(r, j), vid(r, j + 1), vid(r + 1, j + 1), vid(r + 1, j)))
+                q = [side_pt(k, i, r), side_pt(k, i + 1, r), side_pt(k, i + 1, r + 1), side_pt(k, i, r + 1)]
+                uvs.append([(u, vv) for (_, u, vv) in q])
+    b.add(top, faces, mat, uvs=uvs)
+    nt_ = len(top)
+    bot = [(x, y, zz - t) for (x, y, zz) in top]
+    b.add(bot, [tuple(reversed(f)) for f in faces], EAVE_UNDER)                # 檐底
+    ring = [top[j] for j in range(n)] + [bot[j] for j in range(n)]
+    b.add(ring, [(j, n + j, n + (j + 1) % n, (j + 1) % n) for j in range(n)], RIDGE_GOLD)   # 檐口
+    for k in range(4):                                                         # 戗脊
+        j = k * seg
+        pts = [top[vid(r, j)] for r in range(rows + 1)]
+        for a_, b_ in zip(pts[:-1], pts[1:]):
+            rod(b, a_, b_, ridge_t, RIDGE_GOLD, lift=0.02)
+        c0, c1 = mathutils.Vector(pts[0]), mathutils.Vector(pts[1])
+        out = (c0 - c1); out.z = 0.0; out.normalize()
+        tip_p = c0 + out * tip + mathutils.Vector((0, 0, tip * 0.75))
+        rod(b, tuple(c0), tuple(tip_p), ridge_t * 0.75, RIDGE_GOLD, lift=0.02)  # 翘角尖
+        prism(b, tip_p.x, tip_p.y, tip_p.z - 0.02, ridge_t * 0.9, ridge_t * 2.4, FINIAL, n=6)
+
 def gable(b, cx, cy, z, w, d, h, ang, mat=GOLD, curl=0.3, t=0.12):
     """歇山式小顶（抱厦 / 翘角）：脊沿本地 x 轴，前坡朝本地 +y（外侧），绕 (cx, cy) 转 ang。"""
     c, s = math.cos(ang), math.sin(ang)
@@ -1640,6 +1693,7 @@ def crane_tower(b, cx, cy, z0, stories=5, w=13.0, story_h=1.9, roof=GOLD, platfo
     """黄鹤楼：层层平座朱栏、每面三翘角（主檐四角 + 中间抱厦两角）、顶层攒尖宝顶。"""
     keep(cx, cy, w + (7 if platform else 2))
     z = z0
+    rk = min(1.0, w / 13.0 + 0.2)                                             # 小楼的翘角、脊按比例收
     if platform:
         for (pw, ph) in ((w + 14, 1.0), (w + 9, 0.9), (w + 4.5, 0.8)):
             box(b, cx, cy, z - 0.4, pw, pw, ph + 0.4, GRANITE)
@@ -1647,6 +1701,7 @@ def crane_tower(b, cx, cy, z0, stories=5, w=13.0, story_h=1.9, roof=GOLD, platfo
                  z + ph, step=0.6, mat=WHITE_WALL, post=0.3)
             for sy in (-1, 1):
                 stairs(b, cx, cy + sy * (pw / 2), z, 3.2, ph, steps=4, dir=sy)
+            box(b, cx, cy, z + ph, pw - 1.1, pw - 1.1, 0.035, STONE)            # 台面铺石板（原来是一整块光面的花岗石）
             z += ph
     for i in range(stories):
         last = i == stories - 1
@@ -1666,7 +1721,8 @@ def crane_tower(b, cx, cy, z0, stories=5, w=13.0, story_h=1.9, roof=GOLD, platfo
         rz = zb + story_h
         sides = ((0, 1, 0.0), (0, -1, math.pi), (1, 0, -math.pi / 2), (-1, 0, math.pi / 2))
         if not last:
-            skirt_roof(b, cx, cy, rz, w + 3.0, w + 3.0, inset=2.0, rise=0.8, mat=roof, curl=0.5)
+            curved_roof(b, cx, cy, rz, (w + 3.0) / 2, (w + 3.0) / 2 - 2.0, 0.8, roof, curl=0.95 * rk, flare=0.55 * rk, sag=0.16,
+                        ridge_t=0.11 * rk, tip=0.55 * rk)
             for (dx, dy, ang) in sides:
                 gable(b, cx + dx * (w / 2 + 0.9), cy + dy * (w / 2 + 0.9), rz + 0.12, w * 0.42, 2.6, 0.85, ang, roof, curl=0.4)
             z = rz + 0.75
@@ -1674,7 +1730,8 @@ def crane_tower(b, cx, cy, z0, stories=5, w=13.0, story_h=1.9, roof=GOLD, platfo
         else:
             r = (w + 3.0) / 2 * math.sqrt(2)
             hh = w * 0.42 + 1.2
-            poly_roof(b, cx, cy, rz, r, hh, 4, roof, curl=0.6, finial=False, phase=math.pi / 4)
+            curved_roof(b, cx, cy, rz, (w + 3.0) / 2, 0.15, hh, roof, curl=1.05 * rk, flare=0.6 * rk, sag=0.2, rows=8,
+                        ridge_t=0.12 * rk, tip=0.6 * rk)
             for (dx, dy, ang) in sides:
                 gable(b, cx + dx * (w / 2 + 0.9), cy + dy * (w / 2 + 0.9), rz + 0.12, w * 0.4, 2.6, 0.85, ang, roof, curl=0.4)
             zt = rz + hh

@@ -2616,13 +2616,15 @@ if WEB:
         "backdrop": [[0.84, 0.89, 0.89], [0.93, 0.95, 0.94]],
         "water": ["LakeWater"], "bounds": list(ISL), "shadow_half": 110, "fog": [0.84, 0.92, 0.96],
         "hdri": "kloppenheim_06_puresky_1k.hdr",
+        # 网页版的灯光和薄雾（查看器默认值见 src/diorama/Viewer.js 的 LIGHT）：成图有晨雾，雾从相机默认距离的 0.75 倍起
+        "light": {"sun": 3.2, "hemi": 0.8, "env": 0.55, "exposure": 0.9, "fogNear": 0.75, "fogFar": 2.5},
         # 网页版的光照比成图亮：楼面不压色，向阳面是一片白（黄鹤楼的 Facade 同理）
         "mat": {"TowerWarm": {"tint": [0.55, 0.55, 0.55]}, "TowerBeige": {"tint": [0.6, 0.6, 0.6]}, "Balcony": {"tint": [0.55, 0.55, 0.55]},
                 "TowerBrick": {"tint": [0.7, 0.7, 0.7]}, "TowerGrey": {"tint": [0.7, 0.7, 0.7]}, "TowerFrame": {"tint": [0.7, 0.7, 0.7]}},
         "plants": PLANTS, "plant_kinds": {k: len(v) for k, v in LIB_TREES.items()},
         "plant_src": {"peach": "willow", "maple": "tree", "ginkgo": "tree"},
         "plant_tint": {"peach": "rgba(245,150,175,0.72)", "maple": "rgba(160,62,28,0.66)", "ginkgo": "rgba(212,164,52,0.68)"}, "plant_billboard": True,
-        "plant_light": {"sunGain": 0.66, "ambSky": [0.27, 0.31, 0.32], "ambGround": [0.11, 0.13, 0.1], "sat": 0.8, "ao": 0.45}})
+        "plant_light": {"sunGain": 0.66, "ambSky": [0.31, 0.36, 0.37], "ambGround": [0.127, 0.15, 0.115], "sat": 0.6, "ao": 0.45}})
     print(f"[wl] web export done in {time.time() - t0:.1f}s, plants={len(PLANTS)}")
 else:
     setup_mist()

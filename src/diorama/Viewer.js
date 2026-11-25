@@ -16,7 +16,13 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
-import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
+// 暗角：按到画面中心的距离把颜色乘暗。three 自带的 VignetteShader 是往 (1 - darkness) 的灰色上“混”，
+// darkness 0.42 时那是一个偏亮的中灰：四周的暗部被抬亮，相当于给画面边缘蒙了一层白雾，拉近看整幅都发灰
+const VignetteShader = {
+  uniforms: { tDiffuse: { value: null }, strength: { value: 0.18 } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+  fragmentShader: 'uniform sampler2D tDiffuse; uniform float strength; varying vec2 vUv; void main() { vec4 t = texture2D( tDiffuse, vUv ); vec2 c = vUv - 0.5; float r2 = dot( c, c ) * 2.0; gl_FragColor = vec4( t.rgb * ( 1.0 - strength * r2 * r2 ), t.a ); }',
+};
 
 const BASE = import.meta.env.BASE_URL;
 const TEX = BASE + 'dioramas/textures/';
@@ -59,7 +65,8 @@ const MATERIALS = {
   Grass: { set: 'Grass004', repeat: 0.8, tint: [0.95, 1.0, 0.72], roughness: 0.95, matte: true },
   Lawn: { set: 'Grass004', repeat: 0.9, tint: [0.95, 1.0, 0.72], roughness: 0.95, matte: true },
   Terrain: { set: 'Grass004', repeat: 0.8, tint: [1.0, 1.02, 0.78], roughness: 0.95, vertexColors: true, matte: true },
-  EarthCut: { set: 'Rock051', repeat: 0.14, tint: [1.5, 1.4, 1.2], roughness: 0.95, vertexColors: true },
+  // 切面双面渲染：故宫的切面环面朝向是反的，只画正面时外壁被剔除，看到的是对面内壁的背光面，整圈崖壁发黑
+  EarthCut: { set: 'Rock051', repeat: 0.14, tint: [1.5, 1.4, 1.2], roughness: 0.95, vertexColors: true, doubleSide: true },
   LakeBed: { tint: [1, 1, 1], roughness: 0.9, vertexColors: true },
   Leaf: { tint: [1, 1, 1], roughness: 0.9, vertexColors: true },
   Dirt: { set: 'Rock051', repeat: 0.5, tint: [1.2, 1.05, 0.85], roughness: 0.95 },
@@ -175,6 +182,7 @@ async function applyMaterial(mesh) {
   if (spec.tint) mat.color.multiply(new THREE.Color(...spec.tint));
   if (spec.vertexColors && mesh.geometry.attributes.color) mat.vertexColors = true;
   if (spec.envMapIntensity != null) mat.envMapIntensity = spec.envMapIntensity;
+  if (spec.doubleSide) mat.side = THREE.DoubleSide;
   if (spec.set) {
     const [col, nor, rgh] = await Promise.all([
       spec.normalOnly ? null : loadTexture(spec.set + '_Color', { gray: !!spec.gray }),
@@ -320,15 +328,22 @@ export async function startDiorama(id, ui) {
   const applyTier = () => { const q = TIERS[tier]; renderer.setPixelRatio(Math.min(devicePixelRatio, q.dpr)); renderer.shadowMap.type = q.soft ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap; };
   applyTier();
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.98;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.setClearColor(0xe8e2d2, 1);
 
   const meta = await (await fetch(BASE + `dioramas/${id}/scene.json`)).json();
   ui.setTitle(meta.title);
   MAT_OVERRIDE = meta.mat || {};
+  // 光照：太阳、天光（半球光）、环境贴图、曝光。scene.json 的 light 字段可以逐场景覆盖。
+  // 这组默认值是拿各沙盘默认视角的画面和成图比亮度分布（均值、标准差、五分位）调出来的。
+  // ground 是半球光从下往上的那一半：成图里沙盘悬在浅色背景上，朝下的面（切面、檐底）被背景照亮，不是深色的地面反光
+  // fogNear / fogFar 是雾的起止距离（相机默认距离的倍数）。默认 1.3 起：默认视角下沙盘上没有雾，只在拉远时淡出。
+  // 成图带薄雾的场景（西湖的晨雾、黄鹤楼的金色晨光）把起点提到 1 以内，沙盘远端罩上一成左右的雾色；拉近时雾跟着变薄
+  const LIGHT = Object.assign({ sun: 3.4, hemi: 0.7, env: 0.5, exposure: 1.05, ground: [0.80, 0.76, 0.66], fogNear: 1.3, fogFar: 3.2 }, meta.light);
+  renderer.toneMappingExposure = LIGHT.exposure;
   const scene = new THREE.Scene();
   const fogC = new THREE.Color(...(meta.fog || [0.9, 0.9, 0.9]));
-  scene.fog = new THREE.Fog(fogC, meta.camera.dist * 1.3, meta.camera.dist * 3.2);
+  scene.fog = new THREE.Fog(fogC, meta.camera.dist * LIGHT.fogNear, meta.camera.dist * LIGHT.fogFar);
   const bd = meta.backdrop || [[0.9, 0.9, 0.9], [0.95, 0.95, 0.95]];
   const cleanBg = gradientTexture(bd[1], bd[0]);
   scene.background = cleanBg;
@@ -359,7 +374,7 @@ export async function startDiorama(id, ui) {
 
   // 灯光：太阳（阴影）+ 环境 HDRI + 天光
   const sunDir = sunDirection(meta.sun.euler_deg);
-  const sun = new THREE.DirectionalLight(new THREE.Color(...meta.sun.color), 3.2);
+  const sun = new THREE.DirectionalLight(new THREE.Color(...meta.sun.color), LIGHT.sun);
   sun.position.copy(target).addScaledVector(sunDir, 500); sun.target.position.copy(target);
   sun.castShadow = true;
   const half = meta.shadow_half || 110;
@@ -368,7 +383,8 @@ export async function startDiorama(id, ui) {
   sun.shadow.mapSize.set(TIERS[tier].shadow, TIERS[tier].shadow);
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = meta.shadow_bias ?? 0.35; sun.shadow.radius = 2;
   scene.add(sun, sun.target);
-  scene.add(new THREE.HemisphereLight(0xbfd4ee, 0x6a7a55, 0.55));
+  const hemi = new THREE.HemisphereLight(0xbfd4ee, new THREE.Color(...LIGHT.ground), LIGHT.hemi);
+  scene.add(hemi);
   // 天空图、树木贴图与模型同时开始下载（国内访问 GitHub Pages 很慢，串行等待会把延迟叠加起来）
   let modelF = 0, plantF = meta.plants ? 0 : 1;
   const report = () => ui.progress(0.08 + 0.57 * modelF + 0.33 * plantF);
@@ -385,7 +401,7 @@ export async function startDiorama(id, ui) {
     const hdr = await hdrP;
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(hdr).texture;
-    scene.environmentIntensity = 0.45; pm.dispose();
+    scene.environmentIntensity = LIGHT.env; pm.dispose();
     skyTex = hdr;
   } catch (e) { console.warn('HDRI 加载失败', e); }
 
@@ -506,7 +522,7 @@ export async function startDiorama(id, ui) {
       composer.addPass(bokeh);
     }
     if (q.bloom) composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.14, 0.5, 0.92));
-    const vig = new ShaderPass(VignetteShader); vig.uniforms.offset.value = 0.98; vig.uniforms.darkness.value = 0.42;
+    const vig = new ShaderPass(VignetteShader);
     composer.addPass(vig);
     composer.addPass(new OutputPass());
     if (q.aa) { try { composer.addPass(new SMAAPass()); } catch (e) { try { composer.addPass(new SMAAPass(innerWidth, innerHeight)); } catch (e2) { /* 无 AA */ } } }
@@ -565,5 +581,5 @@ export async function startDiorama(id, ui) {
     if (bokeh) bokeh.uniforms.focus.value = camera.position.distanceTo(controls.target);
     composer.render(dt);
   });
-  return { scene, camera, controls, renderer, setAutoRotate: (v) => { controls.autoRotate = v; }, setTier, getTier: () => tier, setSky, setDof };
+  return { scene, camera, controls, renderer, sun, hemi, get composer() { return composer; }, setAutoRotate: (v) => { controls.autoRotate = v; }, setTier, getTier: () => tier, setSky, setDof };
 }

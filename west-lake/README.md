@@ -85,5 +85,9 @@ npm run blender:westlake:preview
 - 闪点大小按屏幕像素自适应；近岸半透明透出湖床，岸线有白沫；
 - 各画质档的倒影里都画树（倒影贴图分辨率随档位 1024 / 512 / 256）。
 
+网页版的灯光和晨雾在 `scene.json` 的 `light` 里（太阳 3.2、天光 0.8、环境 0.55、曝光 0.9，雾从相机默认距离的 0.75 倍起，
+远山比近岸淡，拉近时雾跟着变薄）；树的饱和度 `plant_light.sat` 是 0.6，贴近成图里偏橄榄的林色。
+这组数是拿默认视角的画面和成图比亮度分布调的：均值 0.407 对 0.395，标准差 0.172 对 0.155。
+
 可调参数都是材质 uniform（`skyGain`、`skyMax`、`reflRange`、`ripple`、`distortion`、`glitter`、`ambient`、`sunGain` 等），
 浏览器控制台里用 `__diorama.scene.children.find(o => o.isLakeSurface).material.uniforms` 实时试。
